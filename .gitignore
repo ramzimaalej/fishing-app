@@ -1,0 +1,40 @@
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+ios/
+android/
+*.orig.*
+
+# Secrets & Firebase config (provide your own; see *.example files)
+.env
+.env.local
+google-services.json
+GoogleService-Info.plist
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+
+# testing
+coverage/
+
+# IDE
+.idea/
+.vscode/
+
+# Tooling caches
+.a5c/
