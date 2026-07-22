@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
 import { IAP_PRODUCT_IDS } from '@/config/constants';
+import { trackPurchase } from '@/services/firebase/analytics';
 
 /**
  * Premium subscription store backed by react-native-iap.
@@ -12,7 +13,7 @@ import { IAP_PRODUCT_IDS } from '@/config/constants';
  * throws. Real receipt validation should happen server-side (see follow-ups).
  */
 
-const PREMIUM_KEY = 'fishon:premium';
+const PREMIUM_KEY = 'castmate:premium';
 const PRODUCT_IDS = Object.values(IAP_PRODUCT_IDS) as string[];
 
 /** Lazily require react-native-iap so a missing native module can't crash import. */
@@ -113,6 +114,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
           set({ isPremium: true, purchasing: false, error: null });
           await persistPremium(true);
           void syncPremiumToBackend(true);
+          trackPurchase(purchase?.productId ?? purchase?.sku ?? 'premium');
         } catch (e: any) {
           set({ purchasing: false, error: e?.message ?? 'Failed to finalize purchase' });
         }

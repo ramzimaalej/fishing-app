@@ -17,7 +17,7 @@ import type { BleDeviceInfo, SensorConnection } from './types';
 export class MockSensor implements SensorConnection {
   readonly info: BleDeviceInfo = {
     id: 'MO:CK:E8:5S:00:01',
-    name: 'FishOn Simulator (E8S)',
+    name: 'Castmate Simulator (E8S)',
     battery: 87,
   };
 

@@ -81,7 +81,7 @@ export const useAdsStore = create<AdsState>()(
       setNonPersonalized: (value) => set({ nonPersonalized: value }),
     }),
     {
-      name: 'fishon:ads',
+      name: 'castmate:ads',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (s) => ({
         installedAt: s.installedAt,

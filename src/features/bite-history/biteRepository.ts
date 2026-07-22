@@ -4,6 +4,14 @@ import { bitesCollection } from '@/services/firebase/firestore';
 import { uploadBiteImage } from '@/services/firebase/storage';
 import type { BiteEvent, BiteRecord, BiteSize, EnvironmentSnapshot } from '@/types';
 
+import { deleteLocalPhoto, persistLocalPhoto, resolveLocalPhoto } from './photoStorage';
+
+/** What a photo attach resolved to, so the UI can show it immediately. */
+export interface AttachResult {
+  localImage: string;
+  imageUrl: string | null;
+}
+
 /**
  * Persistence layer for detected bites. One Firestore subcollection per user:
  *   users/{uid}/bites/{biteId}
@@ -35,6 +43,7 @@ function toRecord(uid: string, id: string, data: DocData | undefined): BiteRecor
     peakMagnitude: num(d.peakMagnitude),
     confidence: num(d.confidence),
     imageUrl: typeof d.imageUrl === 'string' ? d.imageUrl : null,
+    localImage: typeof d.localImage === 'string' ? d.localImage : null,
     note: typeof d.note === 'string' ? d.note : null,
     conditions: (d.conditions as Partial<EnvironmentSnapshot> | undefined) ?? null,
   };
@@ -65,6 +74,7 @@ export const biteRepository = {
       // timing — never a real calendar time. Stamp real time at persistence.
       timestamp: Date.now(),
       imageUrl: null,
+      localImage: null,
       note: null,
       conditions: conditions ?? null,
     };
@@ -92,18 +102,56 @@ export const biteRepository = {
       );
   },
 
-  /** Upload a local image, attach its URL to the bite, and return the URL. */
-  async attachImage(uid: string, biteId: string, localUri: string): Promise<string> {
-    const url = await uploadBiteImage(uid, biteId, localUri);
-    await bitesCollection(uid).doc(biteId).update({ imageUrl: url });
-    return url;
+  /**
+   * Attach a catch photo. ALWAYS saves a persistent on-device copy (free tier);
+   * premium users additionally get a Firebase Storage backup that syncs across
+   * devices. The cloud step is best-effort — if Storage isn't enabled/reachable
+   * the local copy still succeeds, so the feature never hard-fails.
+   */
+  async attachImage(
+    uid: string,
+    biteId: string,
+    sourceUri: string,
+    opts: { premium: boolean },
+  ): Promise<AttachResult> {
+    const localImage = await persistLocalPhoto(biteId, sourceUri);
+    await bitesCollection(uid).doc(biteId).update({ localImage });
+
+    let imageUrl: string | null = null;
+    if (opts.premium) {
+      try {
+        imageUrl = await uploadBiteImage(uid, biteId, resolveLocalPhoto(localImage));
+        await bitesCollection(uid).doc(biteId).update({ imageUrl });
+      } catch {
+        // Storage not enabled/reachable — keep the local copy, no cloud backup.
+      }
+    }
+    return { localImage, imageUrl };
+  },
+
+  /**
+   * Best-effort: back up any on-device-only photos to the cloud for a premium
+   * user (e.g. right after they upgrade). Idempotent — records that already
+   * have an imageUrl are skipped.
+   */
+  async backfillCloudPhotos(uid: string, records: BiteRecord[]): Promise<void> {
+    const pending = records.filter((r) => r.localImage && !r.imageUrl);
+    for (const r of pending) {
+      try {
+        const url = await uploadBiteImage(uid, r.id, resolveLocalPhoto(r.localImage as string));
+        await bitesCollection(uid).doc(r.id).update({ imageUrl: url });
+      } catch {
+        // Storage unavailable or a single file missing — skip, try again later.
+      }
+    }
   },
 
   async updateNote(uid: string, biteId: string, note: string): Promise<void> {
     await bitesCollection(uid).doc(biteId).update({ note });
   },
 
-  async remove(uid: string, biteId: string): Promise<void> {
+  async remove(uid: string, biteId: string, localImage?: string | null): Promise<void> {
+    if (localImage) await deleteLocalPhoto(localImage);
     await bitesCollection(uid).doc(biteId).delete();
   },
 };

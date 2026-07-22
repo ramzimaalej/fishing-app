@@ -91,7 +91,7 @@ function Splash() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ fontSize: 48 }}>🎣</Text>
-      <Text style={{ ...typography.h2, color: colors.text, marginTop: 12 }}>FishOn</Text>
+      <Text style={{ ...typography.h2, color: colors.text, marginTop: 12 }}>Castmate</Text>
       <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />
     </View>
   );

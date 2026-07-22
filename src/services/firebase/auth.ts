@@ -6,13 +6,10 @@ import {
   onAuthStateChanged,
   signOut,
   GoogleAuthProvider,
-  AppleAuthProvider,
-  FacebookAuthProvider,
   signInWithCredential,
   type FirebaseAuthTypes,
 } from '@react-native-firebase/auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import * as AppleAuthentication from 'expo-apple-authentication';
 import Constants from 'expo-constants';
 
 import type { AppUser } from '@/types';
@@ -96,34 +93,6 @@ export async function signInWithGoogle(): Promise<AppUser> {
     (result as { data?: { idToken?: string } }).data?.idToken;
   if (!idToken) throw new Error('Google sign-in did not return an id token.');
   const credential = GoogleAuthProvider.credential(idToken);
-  const cred = await signInWithCredential(auth, credential);
-  const isPremium = await readPremium(cred.user.uid);
-  return mapFirebaseUser(cred.user, isPremium);
-}
-
-export async function signInWithApple(): Promise<AppUser> {
-  const appleCredential = await AppleAuthentication.signInAsync({
-    requestedScopes: [
-      AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-      AppleAuthentication.AppleAuthenticationScope.EMAIL,
-    ],
-  });
-  const { identityToken } = appleCredential;
-  if (!identityToken) throw new Error('Apple sign-in did not return an identity token.');
-  const credential = AppleAuthProvider.credential(identityToken);
-  const cred = await signInWithCredential(auth, credential);
-  const isPremium = await readPremium(cred.user.uid);
-  return mapFirebaseUser(cred.user, isPremium);
-}
-
-export async function signInWithFacebook(): Promise<AppUser> {
-  // Loaded lazily so a build without the FB SDK linked doesn't crash on import.
-  const { LoginManager, AccessToken } = require('react-native-fbsdk-next') as typeof import('react-native-fbsdk-next');
-  const result = await LoginManager.logInWithPermissions(['public_profile', 'email']);
-  if (result.isCancelled) throw new Error('Facebook sign-in was cancelled.');
-  const data = await AccessToken.getCurrentAccessToken();
-  if (!data?.accessToken) throw new Error('Facebook sign-in did not return an access token.');
-  const credential = FacebookAuthProvider.credential(data.accessToken);
   const cred = await signInWithCredential(auth, credential);
   const isPremium = await readPremium(cred.user.uid);
   return mapFirebaseUser(cred.user, isPremium);

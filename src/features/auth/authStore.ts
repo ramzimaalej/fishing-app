@@ -1,12 +1,11 @@
 import { create } from 'zustand';
 
 import type { AppUser } from '@/types';
+import { setAnalyticsUser, trackLogin, trackSignUp } from '@/services/firebase/analytics';
 import {
   reloadCurrentUser,
   sendVerificationEmail,
-  signInWithApple,
   signInWithEmail,
-  signInWithFacebook,
   signInWithGoogle,
   signOutUser,
   signUpWithEmail,
@@ -23,8 +22,6 @@ interface AuthState {
   signInEmail: (email: string, password: string) => Promise<void>;
   signUpEmail: (email: string, password: string) => Promise<void>;
   signInGoogle: () => Promise<void>;
-  signInApple: () => Promise<void>;
-  signInFacebook: () => Promise<void>;
   signOut: () => Promise<void>;
   sendVerification: () => Promise<void>;
   reload: () => Promise<void>;
@@ -48,6 +45,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     let settled = false;
     const unsubscribe = subscribeToAuth((user) => {
       set({ user, ...(settled ? {} : { initializing: false }) });
+      // Attribute analytics events to the current user (cleared on sign-out).
+      setAnalyticsUser(user?.uid ?? null);
       settled = true;
     });
     return unsubscribe;
@@ -58,6 +57,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const user = await signInWithEmail(email, password);
       set({ user });
+      trackLogin('email');
     } catch (err) {
       set({ error: messageOf(err) });
     } finally {
@@ -72,6 +72,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Require email confirmation before granting full access.
       await sendVerificationEmail();
       set({ user });
+      trackSignUp('email');
     } catch (err) {
       set({ error: messageOf(err) });
     } finally {
@@ -84,30 +85,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const user = await signInWithGoogle();
       set({ user });
-    } catch (err) {
-      set({ error: messageOf(err) });
-    } finally {
-      set({ busy: false });
-    }
-  },
-
-  signInApple: async () => {
-    set({ busy: true, error: null });
-    try {
-      const user = await signInWithApple();
-      set({ user });
-    } catch (err) {
-      set({ error: messageOf(err) });
-    } finally {
-      set({ busy: false });
-    }
-  },
-
-  signInFacebook: async () => {
-    set({ busy: true, error: null });
-    try {
-      const user = await signInWithFacebook();
-      set({ user });
+      trackLogin('google');
     } catch (err) {
       set({ error: messageOf(err) });
     } finally {

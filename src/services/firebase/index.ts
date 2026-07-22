@@ -23,8 +23,6 @@ export {
   sendVerificationEmail,
   reloadCurrentUser,
   signInWithGoogle,
-  signInWithApple,
-  signInWithFacebook,
   signOutUser,
   subscribeToAuth,
   mapFirebaseUser,
@@ -37,3 +35,14 @@ export {
   getFcmToken,
   onForegroundMessage,
 } from './messaging';
+
+export {
+  setAnalyticsUser,
+  setAnalyticsEnabled,
+  trackScreen,
+  trackLogin,
+  trackSignUp,
+  trackBite,
+  trackPurchase,
+  trackEvent,
+} from './analytics';

@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,10 +18,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AdBanner } from '@/features/ads';
 import { useAuth } from '@/features/auth/useAuth';
+import { useIsPremium } from '@/features/subscription/subscriptionStore';
 import { colors, radius, spacing, typography } from '@/theme';
 import type { BiteRecord } from '@/types';
 
 import { biteRepository } from './biteRepository';
+import { resolveLocalPhoto } from './photoStorage';
 import { useBiteHistory } from './useBiteHistory';
 
 function SizeBadge({ record }: { record: BiteRecord }) {
@@ -37,13 +39,18 @@ function SizeBadge({ record }: { record: BiteRecord }) {
 function BiteRow({
   record,
   uid,
+  premium,
   onEditNote,
 }: {
   record: BiteRecord;
   uid: string;
+  premium: boolean;
   onEditNote: (record: BiteRecord) => void;
 }) {
   const [busy, setBusy] = useState(false);
+
+  // Prefer the cloud copy (works across devices); fall back to the local file.
+  const photoUri = record.imageUrl ?? (record.localImage ? resolveLocalPhoto(record.localImage) : null);
 
   const addPhoto = useCallback(async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -59,18 +66,19 @@ function BiteRow({
 
     setBusy(true);
     try {
-      await biteRepository.attachImage(uid, record.id, result.assets[0].uri);
+      // Saved on-device for everyone; also backed up to the cloud for premium.
+      await biteRepository.attachImage(uid, record.id, result.assets[0].uri, { premium });
     } catch (e) {
-      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Could not attach photo.');
+      Alert.alert('Could not attach photo', e instanceof Error ? e.message : 'Please try again.');
     } finally {
       setBusy(false);
     }
-  }, [record.id, uid]);
+  }, [record.id, uid, premium]);
 
   return (
     <View style={styles.row}>
-      {record.imageUrl ? (
-        <Image source={{ uri: record.imageUrl }} style={styles.thumb} />
+      {photoUri ? (
+        <Image source={{ uri: photoUri }} style={styles.thumb} />
       ) : (
         <Pressable
           style={[styles.thumb, styles.thumbPlaceholder]}
@@ -102,10 +110,15 @@ function BiteRow({
           </Text>
         </Pressable>
 
-        {record.imageUrl && (
-          <Pressable onPress={addPhoto} disabled={busy}>
-            <Text style={styles.replacePhoto}>{busy ? 'Uploading…' : 'Replace photo'}</Text>
-          </Pressable>
+        {photoUri && (
+          <View style={styles.photoMetaRow}>
+            <Text style={styles.photoMeta}>
+              {record.imageUrl ? '☁️ Backed up' : '📱 On this device'}
+            </Text>
+            <Pressable onPress={addPhoto} disabled={busy}>
+              <Text style={styles.replacePhoto}>{busy ? 'Saving…' : 'Replace'}</Text>
+            </Pressable>
+          </View>
         )}
       </View>
     </View>
@@ -115,11 +128,27 @@ function BiteRow({
 export default function BiteHistoryScreen() {
   const { user } = useAuth();
   const uid = user?.uid ?? null;
+  const isPremium = useIsPremium();
   const { records, loading, error } = useBiteHistory(uid);
 
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState<BiteRecord | null>(null);
   const [draftNote, setDraftNote] = useState('');
+
+  // When a premium user has on-device-only photos (e.g. just upgraded), back
+  // them up to the cloud once per session. Idempotent + best-effort.
+  const triedBackfill = useRef(false);
+  useEffect(() => {
+    if (!isPremium || !uid) {
+      triedBackfill.current = false;
+      return;
+    }
+    if (triedBackfill.current) return;
+    const pending = records.some((r) => r.localImage && !r.imageUrl);
+    if (!pending) return;
+    triedBackfill.current = true;
+    void biteRepository.backfillCloudPhotos(uid, records);
+  }, [isPremium, uid, records]);
 
   const onRefresh = useCallback(async () => {
     if (!uid) return;
@@ -165,7 +194,9 @@ export default function BiteHistoryScreen() {
           data={records}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) =>
-            uid ? <BiteRow record={item} uid={uid} onEditNote={openNote} /> : null
+            uid ? (
+              <BiteRow record={item} uid={uid} premium={isPremium} onEditNote={openNote} />
+            ) : null
           }
           contentContainerStyle={records.length === 0 && styles.emptyContainer}
           refreshControl={
@@ -241,7 +272,14 @@ const styles = StyleSheet.create({
   metrics: { ...typography.body, color: colors.text },
   note: { ...typography.body, color: colors.text, fontStyle: 'italic' },
   notePlaceholder: { ...typography.body, color: colors.textMuted, fontStyle: 'italic' },
-  replacePhoto: { ...typography.caption, color: colors.primary, marginTop: spacing.xs },
+  photoMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.xs,
+  },
+  photoMeta: { ...typography.caption, color: colors.textMuted },
+  replacePhoto: { ...typography.caption, color: colors.primary },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,7 +1,7 @@
 /**
  * Pure ad-policy engine — ZERO imports, fully unit-testable.
  *
- * Monetization doctrine for FishOn (freemium):
+ * Monetization doctrine for Castmate (freemium):
  *  - The moment of fishing is sacred. No ad may ever interrupt an active
  *    session; full-screen ads are only considered at the natural break when
  *    the user ends a session themselves.

@@ -35,7 +35,10 @@ export interface BiteEvent {
  */
 export interface BiteRecord extends BiteEvent {
   userId: string;
+  /** Cloud (Firebase Storage) download URL — premium only. */
   imageUrl?: string | null;
+  /** Relative on-device path (free tier); resolved via photoStorage. */
+  localImage?: string | null;
   note?: string | null;
   /** Denormalised environmental snapshot at time of bite (optional). */
   conditions?: Partial<EnvironmentSnapshot> | null;

@@ -69,13 +69,13 @@ export default function PaywallScreen(): JSX.Element {
       </Pressable>
 
       <Text style={styles.emoji}>🎣</Text>
-      <Text style={styles.headline}>FishOn Premium</Text>
+      <Text style={styles.headline}>Castmate Premium</Text>
       <Text style={styles.subhead}>Fish smarter. No interruptions.</Text>
 
       {isPremium ? (
         <View style={styles.premiumBox}>
           <Text style={styles.premiumText}>You're Premium ✓</Text>
-          <Text style={styles.subhead}>Thanks for supporting FishOn.</Text>
+          <Text style={styles.subhead}>Thanks for supporting Castmate.</Text>
         </View>
       ) : (
         <>

@@ -46,7 +46,7 @@ export const useSettingsStore = create<SettingsState>()(
       reset: () => set({ settings: DEFAULT_SETTINGS }),
     }),
     {
-      name: 'fishon:settings',
+      name: 'castmate:settings',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({ settings: state.settings }),
       onRehydrateStorage: () => (state) => {

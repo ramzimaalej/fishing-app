@@ -24,8 +24,6 @@ export default function SignInScreen() {
   const error = useAuthStore((s) => s.error);
   const signInEmail = useAuthStore((s) => s.signInEmail);
   const signInGoogle = useAuthStore((s) => s.signInGoogle);
-  const signInApple = useAuthStore((s) => s.signInApple);
-  const signInFacebook = useAuthStore((s) => s.signInFacebook);
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !busy;
 
@@ -35,7 +33,7 @@ export default function SignInScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.inner}>
-        <Text style={styles.title}>FishOn</Text>
+        <Text style={styles.title}>Castmate</Text>
         <Text style={styles.subtitle}>Sign in to track your bites</Text>
 
         <TextInput
@@ -85,28 +83,6 @@ export default function SignInScreen() {
           <Text style={styles.socialBtnText}>Continue with Google</Text>
         </Pressable>
 
-        <Pressable
-          style={[styles.socialBtn, styles.facebookBtn]}
-          disabled={busy}
-          onPress={() => signInFacebook()}
-        >
-          <Text style={[styles.socialBtnText, styles.facebookBtnText]}>
-            Continue with Facebook
-          </Text>
-        </Pressable>
-
-        {Platform.OS === 'ios' && (
-          <Pressable
-            style={[styles.socialBtn, styles.appleBtn]}
-            disabled={busy}
-            onPress={() => signInApple()}
-          >
-            <Text style={[styles.socialBtnText, styles.appleBtnText]}>
-              Continue with Apple
-            </Text>
-          </Pressable>
-        )}
-
         <Pressable style={styles.linkRow} onPress={() => navigation.navigate('SignUp')}>
           <Text style={styles.linkText}>
             No account? <Text style={styles.linkStrong}>Create one</Text>
@@ -123,7 +99,7 @@ export default function SignInScreen() {
               useAuthStore.setState({
                 user: {
                   uid: 'dev-demo',
-                  email: 'demo@fishon.dev',
+                  email: 'demo@castmate.dev',
                   displayName: 'Demo Angler',
                   emailVerified: true,
                   photoURL: null,
@@ -189,10 +165,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   socialBtnText: { ...typography.body, color: colors.text, fontWeight: '600' },
-  appleBtn: { backgroundColor: colors.text, borderColor: colors.text },
-  appleBtnText: { color: '#000' },
-  facebookBtn: { backgroundColor: '#1877F2', borderColor: '#1877F2' },
-  facebookBtnText: { color: '#fff' },
   linkRow: { marginTop: spacing.md, alignItems: 'center' },
   linkText: { color: colors.textMuted },
   linkStrong: { color: colors.primary, fontWeight: '700' },

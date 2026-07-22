@@ -6,6 +6,7 @@ import { useSensorSamples } from '@/features/ble/useBle';
 import { biteRepository } from '@/features/bite-history/biteRepository';
 import { getCurrentConditions } from '@/features/environment/useEnvironment';
 import { notifyBite } from '@/features/notifications/feedback';
+import { trackBite } from '@/services/firebase/analytics';
 import { useSettings } from '@/features/settings/settingsStore';
 import { useAuthStore } from '@/features/auth/authStore';
 import type { AccelSample, BiteEvent, EnvironmentSnapshot } from '@/types';
@@ -100,6 +101,7 @@ export function useBiteDetection(
       buffer.pushBite(bite);
       setSessionCount((c) => c + 1);
       void notifyBite(bite, settingsRef.current);
+      trackBite(bite.size, bite.confidence);
 
       const currentUid = uidRef.current;
       if (currentUid) {

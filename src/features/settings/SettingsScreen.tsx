@@ -54,7 +54,7 @@ export default function SettingsScreen() {
     if (!granted) {
       Alert.alert(
         'Notifications disabled',
-        'Enable notifications for FishOn in your device Settings to receive bite alerts.',
+        'Enable notifications for Castmate in your device Settings to receive bite alerts.',
       );
     }
   };
@@ -175,7 +175,7 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <View style={styles.row}>
           <View style={styles.rowText}>
-            <Text style={styles.rowLabel}>{isPremium ? 'Premium active' : 'FishOn Premium'}</Text>
+            <Text style={styles.rowLabel}>{isPremium ? 'Premium active' : 'Castmate Premium'}</Text>
             <Text style={styles.rowHelp}>
               {isPremium
                 ? 'Ads removed and all features unlocked. Thank you!'

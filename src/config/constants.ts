@@ -20,8 +20,8 @@ export const NOTIFICATION_SOUNDS: readonly { key: string; label: string }[] = [
 
 /** Premium subscription product identifiers (App Store / Play Console). */
 export const IAP_PRODUCT_IDS = {
-  monthly: 'co.glow.fishon.premium.monthly',
-  yearly: 'co.glow.fishon.premium.yearly',
+  monthly: 'co.castmate.premium.monthly',
+  yearly: 'co.castmate.premium.yearly',
 } as const;
 
 /** Firestore collection names. */

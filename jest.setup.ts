@@ -14,6 +14,7 @@ jest.mock('react-native-ble-plx', () => ({
 }));
 
 jest.mock('@react-native-firebase/app', () => ({}), { virtual: true });
+jest.mock('@react-native-firebase/analytics', () => ({}), { virtual: true });
 jest.mock('@react-native-firebase/auth', () => ({}), { virtual: true });
 jest.mock('@react-native-firebase/firestore', () => ({}), { virtual: true });
 jest.mock('@react-native-firebase/storage', () => ({}), { virtual: true });

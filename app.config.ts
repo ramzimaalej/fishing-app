@@ -1,27 +1,5 @@
 import { ExpoConfig, ConfigContext } from 'expo/config';
 
-type PluginEntry = NonNullable<ExpoConfig['plugins']>[number];
-
-/**
- * The Facebook config plugin requires a real App ID at eval time, so it is
- * only added when FACEBOOK_APP_ID is set. Runtime Facebook login stays
- * available (the SDK is always a dependency); it simply needs this native
- * config before it will actually work on device.
- */
-const facebookPlugin: PluginEntry[] = process.env.FACEBOOK_APP_ID
-  ? [
-      [
-        'react-native-fbsdk-next',
-        {
-          appID: process.env.FACEBOOK_APP_ID,
-          clientToken: process.env.FACEBOOK_CLIENT_TOKEN ?? '',
-          displayName: 'FishOn',
-          scheme: `fb${process.env.FACEBOOK_APP_ID}`,
-        },
-      ],
-    ]
-  : [];
-
 /**
  * Dynamic Expo config.
  *
@@ -34,23 +12,23 @@ const facebookPlugin: PluginEntry[] = process.env.FACEBOOK_APP_ID
  */
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'FishOn',
-  slug: 'fishing-app',
+  name: 'Castmate',
+  slug: 'castmate',
   version: '0.1.0',
   orientation: 'portrait',
-  scheme: 'fishon',
+  scheme: 'castmate',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'co.glow.fishon',
+    bundleIdentifier: 'co.castmate',
     // GoogleService-Info.plist is generated from your Firebase project.
     googleServicesFile: process.env.GOOGLE_SERVICES_PLIST ?? './GoogleService-Info.plist',
     infoPlist: {
       NSBluetoothAlwaysUsageDescription:
-        'FishOn uses Bluetooth to connect to your bite sensor and read motion data in real time.',
+        'Castmate uses Bluetooth to connect to your bite sensor and read motion data in real time.',
       NSBluetoothPeripheralUsageDescription:
-        'FishOn uses Bluetooth to connect to your bite sensor.',
+        'Castmate uses Bluetooth to connect to your bite sensor.',
       NSLocationWhenInUseUsageDescription:
         'Location is used to fetch accurate local weather, tide and marine conditions.',
       NSCameraUsageDescription: 'Attach a photo of your catch to a detected bite.',
@@ -59,7 +37,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   android: {
-    package: 'co.glow.fishon',
+    package: 'co.castmate',
     googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? './google-services.json',
     permissions: [
       'BLUETOOTH_SCAN',
@@ -73,7 +51,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-dev-client',
     '@react-native-firebase/app',
     '@react-native-firebase/auth',
-    'expo-apple-authentication',
     [
       'expo-build-properties',
       {
@@ -87,7 +64,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         isBackgroundEnabled: true,
         modes: ['central'],
         bluetoothAlwaysPermission:
-          'FishOn uses Bluetooth to connect to your bite sensor.',
+          'Castmate uses Bluetooth to connect to your bite sensor.',
       },
     ],
     [
@@ -105,7 +82,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       { sounds: [] },
     ],
     '@react-native-google-signin/google-signin',
-    ...facebookPlugin,
     [
       'expo-location',
       {
@@ -116,7 +92,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   extra: {
     googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
-    facebookAppId: process.env.FACEBOOK_APP_ID ?? '',
     // Per-slot AdMob unit ids. Dev builds always use Google's test ids; in
     // production a missing value falls back to test ids (never crashes).
     admob: {

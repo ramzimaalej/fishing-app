@@ -1,4 +1,4 @@
-# 🎣 FishOn
+# 🎣 Castmate
 
 A React Native (Expo) app for fishing enthusiasts: real-time **fish-bite
 detection** from a Bluetooth accelerometer, live **environmental insights**
@@ -22,9 +22,9 @@ src/
 ├─ config/            constants + default settings
 ├─ types/             shared domain types (single source of truth)
 ├─ theme/             design tokens (dark theme)
-├─ services/firebase/ auth · firestore · storage · messaging (modular RNFirebase API)
+├─ services/firebase/ auth · firestore · storage · messaging · analytics (modular RNFirebase API)
 └─ features/
-   ├─ auth/           email + Google/Apple/Facebook, email-verification gate
+   ├─ auth/           email + Google sign-in, email-verification gate
    ├─ subscription/   react-native-iap store + paywall (premium removes ads)
    ├─ environment/    Open-Meteo provider, moon phase, fish-activity model, screen
    ├─ ble/            GATT protocol + codec, real client (auto-reconnect), mock, store
@@ -131,23 +131,48 @@ prompt; without consent, requests are non-personalized.
 
 ---
 
+## Analytics
+
+Firebase Analytics (`@react-native-firebase/analytics`) is wired through one
+guarded service (`services/firebase/analytics.ts`) — every call is
+fire-and-forget and can never crash the app. Instrumented events:
+
+- **`screen_view`** — automatic, via the navigation container in `App.tsx`.
+- **`login` / `sign_up`** — per method (email/google/apple/facebook), from `authStore`.
+- **`bite_detected`** — the signature engagement event (size + confidence), from the detection hook.
+- **`purchase`** — premium conversion, from `subscriptionStore`.
+- User id is attached on auth state change (cleared on sign-out).
+
+No manual iOS setup is needed — Analytics comes in via CocoaPods at
+`expo prebuild` (like the other Firebase modules). **IDFA:** the standard
+(AdId-capable) SDK is used, consistent with shipping AdMob. To collect **no
+IDFA** (e.g. if you drop ads), add the no-AdId Analytics pod by setting
+`$RNFirebaseAnalyticsWithoutAdIdSupport = true` in the Podfile via a prebuild
+config plugin.
+
+---
+
 ## Setup
 
 1. **Install**
    ```bash
    npm install
    ```
-2. **Firebase** — create a project, enable Email/Password + Google/Apple/Facebook
-   auth, Firestore, and Storage. Download and place at the repo root:
+2. **Firebase** — create a project, enable **Email/Password + Google** auth and
+   **Firestore**. (**Storage** is optional: catch photos are always saved
+   on-device for free; premium users additionally get a cloud backup, which
+   needs Storage on the paid Blaze plan.)
+   Download and place at the repo root:
    - `google-services.json` (Android)
    - `GoogleService-Info.plist` (iOS)
 
-   Both are git-ignored. Deploy the included rules:
+   Both are git-ignored. Deploy the Firestore rules (add `storage` only if you
+   enable Storage):
    ```bash
-   firebase deploy --only firestore:rules,storage
+   firebase deploy --only firestore:rules
    ```
-3. **Env** — `cp .env.example .env` and fill in Google/Facebook/AdMob IDs.
-   (AdMob falls back to Google's public **test** IDs so ads work immediately.)
+3. **Env** — `cp .env.example .env` and fill in the Google web client ID (+ AdMob
+   IDs if you have them; AdMob falls back to Google's public **test** IDs).
 4. **Prebuild & run** (requires Xcode / Android Studio):
    ```bash
    npm run prebuild
@@ -174,7 +199,7 @@ covered by deterministic unit tests (no device or network needed).
 | Requirement | Implementation |
 | --- | --- |
 | Email sign-up + confirmation gate | `features/auth`, `services/firebase/auth.ts`, `RootNavigator` gates on `emailVerified` |
-| Social login (Google / Apple / Facebook) | `services/firebase/auth.ts`, `SignInScreen` |
+| Google sign-in | `services/firebase/auth.ts`, `SignInScreen` |
 | Subscription removes ads / unlocks | `features/subscription/useEntitlements` — single gate read by every ad surface |
 | Environmental data through the day | `features/environment` (Open-Meteo, hourly forecast + best window) |
 | BLE + auto-reconnect | `features/ble` — Minew E8S broadcast scan (`E8sSensorClient`, `minew.ts`), staleness-resilient |
@@ -182,7 +207,7 @@ covered by deterministic unit tests (no device or network needed).
 | Live bait mode / sensitivity | `settingsStore` → `BiteDetector.setConfig` + device control write |
 | Feedback: vibration / sound / push | `features/notifications/feedback.ts` |
 | Graph + highlighted bites | `features/graph/AccelerationChart` |
-| Bite history + optional image | `features/bite-history` (Firestore + Storage) |
+| Bite history (+ catch photo) | `features/bite-history` (Firestore; photos on-device via `photoStorage`, cloud backup for premium via Storage) |
 | Settings persist across restarts | `settingsStore` (zustand `persist` + AsyncStorage) |
 | Ads for non-premium | `features/ads` (policy-gated; see “Monetization”) |
 
@@ -191,7 +216,8 @@ covered by deterministic unit tests (no device or network needed).
 - Real device geolocation (`expo-location`) to replace `DEFAULT_COORDS`.
 - Bundle notification sound assets (`assets/sounds/`) and register them.
 - Server-side IAP receipt validation before granting entitlements.
-- Facebook app configuration (App ID / client token) in `.env`.
+- Premium cloud photo backup needs Firebase Storage (Blaze). Free users' photos
+  stay on-device; premium uploads + a one-time backfill activate automatically.
 - Create real AdMob ad units (6 ids in `.env`) and configure the UMP consent
   form + ATT message in the AdMob console (dev builds use Google test ids).
 - Multi-tag picker: `E8sSensorClient` currently locks onto the first E8S seen
