@@ -1,19 +1,25 @@
 import type { AccelSample } from '@/types';
 import { SENSOR_SAMPLE_RATE_HZ } from '@/config/constants';
 
-import { encodeAccelPacket, parseAccelPacket } from './protocol';
+import { decodeMinewAccFrame, encodeMinewAccFrame } from './minew';
 import type { BleDeviceInfo, SensorConnection } from './types';
 
 /**
- * In-memory sensor that streams synthetic accelerometer data in real time so
- * the full detection/graph/feedback pipeline is exercisable with no hardware.
+ * In-memory stand-in for a Minew E8S tag, so the full detection/graph/feedback
+ * pipeline is exercisable with no hardware.
  *
- * It emits ~1 g gravity + noise, optional constant "bait" wiggle when fishing
- * mode is on, and injects random bites (small & big). Data is round-tripped
- * through the real base64 packet codec so the protocol path is exercised too.
+ * It mimics the E8S faithfully: it emits ONE advertisement at a time at the
+ * tag's (low) broadcast rate, encodes each reading through the real Minew Acc
+ * frame codec, and re-decodes it — so the exact wire format and the phone-side
+ * arrival timestamping are exercised. It generates ~1 g gravity + noise, an
+ * optional constant "bait" wiggle, and injects small/big bites.
  */
 export class MockSensor implements SensorConnection {
-  readonly info: BleDeviceInfo = { id: 'mock-sensor-001', name: 'FishOn Simulator' };
+  readonly info: BleDeviceInfo = {
+    id: 'MO:CK:E8:5S:00:01',
+    name: 'FishOn Simulator (E8S)',
+    battery: 87,
+  };
 
   private sampleListeners = new Set<(s: AccelSample) => void>();
   private disconnectListeners = new Set<() => void>();
@@ -21,9 +27,7 @@ export class MockSensor implements SensorConnection {
   private sampleRate = SENSOR_SAMPLE_RATE_HZ;
   private fishingMode = false;
 
-  private t = Date.now();
   private n = 0;
-  /** Remaining samples of an in-progress injected bite, and its shape. */
   private biteRemaining = 0;
   private biteDuration = 0;
   private bitePeak = 0;
@@ -35,19 +39,14 @@ export class MockSensor implements SensorConnection {
   private start(): void {
     if (this.timer) return;
     const intervalMs = 1000 / this.sampleRate;
-    // Emit in small batches to mimic BLE notification packets (~5 samples).
-    let batch: AccelSample[] = [];
     this.timer = setInterval(() => {
-      const s = this.nextSample();
-      batch.push(s);
-      if (batch.length >= 5) {
-        const packet = encodeAccelPacket(batch);
-        const decoded = parseAccelPacket(packet);
-        for (const d of decoded) {
-          this.sampleListeners.forEach((l) => l(d));
-        }
-        batch = [];
-      }
+      const reading = this.nextReading();
+      // Round-trip through the real E8S codec, exactly like the live client.
+      const frame = encodeMinewAccFrame({ ...reading, batteryPct: this.info.battery ?? 87, mac: this.info.id });
+      const decoded = decodeMinewAccFrame(frame);
+      if (!decoded) return;
+      const sample: AccelSample = { t: Date.now(), x: decoded.x, y: decoded.y, z: decoded.z };
+      this.sampleListeners.forEach((l) => l(sample));
     }, intervalMs);
   }
 
@@ -59,16 +58,17 @@ export class MockSensor implements SensorConnection {
 
   private maybeStartBite(): void {
     if (this.biteRemaining > 0) return;
-    // ~1.5% chance per sample → a bite every few seconds on average.
-    if (Math.random() < 0.015) {
+    // ~6% chance per advertisement → a bite every few seconds at the E8S rate.
+    if (Math.random() < 0.06) {
       const big = Math.random() < 0.5;
       this.bitePeak = big ? 0.9 + Math.random() * 0.8 : 0.2 + Math.random() * 0.15;
-      this.biteDuration = Math.round((0.18 + Math.random() * 0.12) * this.sampleRate);
+      // Sustained rod-tip motion (0.4–0.7 s) so it's resolvable at the low rate.
+      this.biteDuration = Math.max(2, Math.round((0.4 + Math.random() * 0.3) * this.sampleRate));
       this.biteRemaining = this.biteDuration;
     }
   }
 
-  private nextSample(): AccelSample {
+  private nextReading(): { x: number; y: number; z: number } {
     this.maybeStartBite();
 
     let bump = 0;
@@ -81,16 +81,13 @@ export class MockSensor implements SensorConnection {
     const bait = this.fishingMode
       ? 0.12 * Math.sin((2 * Math.PI * 1.4 * this.n) / this.sampleRate)
       : 0;
+    this.n += 1;
 
-    const sample: AccelSample = {
-      t: Math.round(this.t),
+    return {
       x: this.noiseSigma * this.gaussian(),
       y: this.noiseSigma * this.gaussian(),
       z: 1 + bait + bump + this.noiseSigma * this.gaussian(),
     };
-    this.t += 1000 / this.sampleRate;
-    this.n += 1;
-    return sample;
   }
 
   onSample(listener: (sample: AccelSample) => void): () => void {

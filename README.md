@@ -66,19 +66,40 @@ Validated behaviours (see tests): quiet → no bites; big strike → `big`; nibb
 `small`; constant bait motion → no false bites (both modes); lower sensitivity →
 higher threshold; strikes inside the refractory window collapse to one.
 
-### BLE GATT profile (custom)
+### Sensor: Minew E8S Asset Tag (BLE broadcast)
+
+The hardware is a **Minew E8S** (Nordic nRF52 + LIS3DH accelerometer, CR2032).
+It is a **broadcast beacon**, not a connectable peripheral — it advertises its
+accelerometer reading in the Minew *Acc Sensor* frame, and the app **scans** for
+it (`E8sSensorClient`), parsing one `AccelSample` per advertisement.
 
 ```
-Service  a5c10000-0000-1000-8000-00805f9b34fb   FishOn Sensor
-  Char   a5c10001-…   Accelerometer stream   NOTIFY
-  Char   a5c10002-…   Control                WRITE   (set sample-rate / fishing mode)
+Advertising service data — UUID 0xFFE1 (Minew), 15 bytes, big-endian:
+  byte 0     0xA1                 frame type (Acc Sensor)
+  byte 1     product model
+  byte 2     battery %
+  bytes 3-4  X   int16 signed 8.8 fixed-point  (/256 = g)
+  bytes 5-6  Y
+  bytes 7-8  Z
+  bytes 9-14 MAC address
 ```
 
-Accelerometer packets are little-endian: `uint8 count` then `count × (uint32 t,
-int16 x, int16 y, int16 z)` in **milli-g**. A firmware can target this 1:1; the
-in-app **`MockSensor`** implements it so the whole pipeline runs with no
-hardware (toggle *Use simulator* on the Fishing screen). Real connections
-auto-reconnect with exponential backoff (`BleSensorClient`).
+Decoding is verified against a real capture (`minew.ts`, `minew.test.ts`). The
+in-app **`MockSensor`** emits through the *same* codec so the whole pipeline
+runs with no hardware (toggle *Use simulator* on the Fishing screen). Because
+there is no connection, "auto-reconnect" means the scan is continuous and
+resilient to gaps: if the tag goes quiet the UI shows *reconnecting* and
+resumes seamlessly when advertisements return.
+
+**Configuration & fidelity.** Motion sensitivity and advertising interval are
+set on the tag itself via Minew's **BeaconSET+** app (not over BLE from this
+app), so `setFishingMode`/`setSampleRate` are no-ops for the E8S. For fishing,
+configure the tag to its **fastest advertising interval (~100 ms) with motion
+trigger** — but note a coin-cell beacon broadcasting at ~1–10 Hz yields
+**coarser** bite waveforms than a wired 50 Hz IMU. It reliably flags a strike's
+magnitude spike; it is not a high-rate waveform recorder. `SENSOR_SAMPLE_RATE_HZ`
+reflects this (~10 Hz); detection windows are in seconds, so they scale if you
+reconfigure the tag.
 
 ---
 
@@ -156,7 +177,7 @@ covered by deterministic unit tests (no device or network needed).
 | Social login (Google / Apple / Facebook) | `services/firebase/auth.ts`, `SignInScreen` |
 | Subscription removes ads / unlocks | `features/subscription/useEntitlements` — single gate read by every ad surface |
 | Environmental data through the day | `features/environment` (Open-Meteo, hourly forecast + best window) |
-| BLE + auto-reconnect | `features/ble` (`BleSensorClient`, backoff schedule) |
+| BLE + auto-reconnect | `features/ble` — Minew E8S broadcast scan (`E8sSensorClient`, `minew.ts`), staleness-resilient |
 | Bite detection (Kalman + MA), small/big | `features/bite-detection` |
 | Live bait mode / sensitivity | `settingsStore` → `BiteDetector.setConfig` + device control write |
 | Feedback: vibration / sound / push | `features/notifications/feedback.ts` |
@@ -173,3 +194,8 @@ covered by deterministic unit tests (no device or network needed).
 - Facebook app configuration (App ID / client token) in `.env`.
 - Create real AdMob ad units (6 ids in `.env`) and configure the UMP consent
   form + ATT message in the AdMob console (dev builds use Google test ids).
+- Multi-tag picker: `E8sSensorClient` currently locks onto the first E8S seen
+  (fine for one rod). It already collects `getDiscoveredTags()` (by RSSI) — wire
+  a selection UI + remembered MAC for anglers running multiple tags.
+- Configure each E8S in Minew **BeaconSET+**: fastest advertising interval +
+  motion trigger for best bite responsiveness.

@@ -33,5 +33,14 @@ export const COLLECTIONS = {
 /** How many acceleration samples the live graph keeps in its rolling window. */
 export const GRAPH_WINDOW_SIZE = 300;
 
-/** Expected sensor sample rate (Hz). Used by the mock and filter tuning. */
-export const SENSOR_SAMPLE_RATE_HZ = 50;
+/**
+ * Sensor sample rate (Hz) used for filter-window sizing and the mock's cadence.
+ *
+ * The Minew E8S is a broadcast beacon whose effective rate is its advertising
+ * interval (motion-triggered). ~10 Hz assumes the tag is configured to its
+ * fastest interval (~100 ms) in Minew BeaconSET+ — the recommended fishing
+ * setup. Detection windows are expressed in seconds, so they scale correctly if
+ * this changes; but note a coin-cell beacon cannot match a wired 50 Hz IMU, so
+ * bite waveforms are coarser than a dedicated sensor would provide.
+ */
+export const SENSOR_SAMPLE_RATE_HZ = 10;

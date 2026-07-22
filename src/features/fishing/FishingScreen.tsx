@@ -124,6 +124,7 @@ export default function FishingScreen() {
               <Text style={styles.statusText}>
                 {STATUS_LABEL[status] ?? status}
                 {device && isConnected ? ` · ${device.name}` : ''}
+                {device?.battery != null && isConnected ? ` · 🔋${device.battery}%` : ''}
               </Text>
             </View>
           </View>

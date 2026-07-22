@@ -1,9 +1,7 @@
 import { create } from 'zustand';
 
-import { SENSOR_SAMPLE_RATE_HZ } from '@/config/constants';
-
-import { BleSensorClient } from './BleSensorClient';
-import { ensureBlePermissions, scanForSensor, waitForPoweredOn } from './bleManager';
+import { ensureBlePermissions, waitForPoweredOn } from './bleManager';
+import { E8sSensorClient } from './E8sSensorClient';
 import { MockSensor } from './MockSensor';
 import type { BleDeviceInfo, ConnectionStatus, SensorConnection } from './types';
 
@@ -62,13 +60,19 @@ export const useBleStore = create<BleState>((set, get) => {
           return;
         }
         await waitForPoweredOn();
-        set({ status: 'scanning' });
-        const found = await scanForSensor();
-        set({ status: 'connecting', device: found });
-        const client = await BleSensorClient.connect(found.id);
-        await client.setSampleRate(SENSOR_SAMPLE_RATE_HZ);
+
+        // The E8S is a broadcast beacon: begin scanning and lock onto the first
+        // tag whose advertisement we parse. There is no "connect" step —
+        // status flips to connected on the first sample, and the device (MAC +
+        // battery) is populated from that advertisement.
+        const client = new E8sSensorClient();
         watchReconnect(client);
-        set({ connection: client, device: client.info, status: 'connected' });
+        set({ connection: client, status: 'scanning' });
+        const off = client.onSample(() => {
+          off();
+          if (get().connection === client) set({ device: client.info, status: 'connected' });
+        });
+        client.start();
       } catch (e) {
         set({
           status: 'error',
