@@ -55,7 +55,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-build-properties',
       {
         ios: { useFrameworks: 'static' },
-        android: { minSdkVersion: 24 },
+        // Kotlin 1.9.25 to match the Compose Compiler 1.5.15 pulled in by a
+        // native dependency (SDK 52's default 1.9.24 mismatches it).
+        android: { minSdkVersion: 24, kotlinVersion: '1.9.25' },
       },
     ],
     [
@@ -89,6 +91,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           'Location is used to fetch accurate local weather, tide and marine conditions.',
       },
     ],
+    // react-native-iap needs an Android store flavor selected (Play).
+    './plugins/withIapAndroidFlavor',
   ],
   extra: {
     googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
