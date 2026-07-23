@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 
 import { ensureBlePermissions, waitForPoweredOn } from './bleManager';
-import { E8sSensorClient } from './E8sSensorClient';
-import { MockSensor } from './MockSensor';
+import { getSensorDevice, type SensorKind } from './deviceRegistry';
 import type { BleDeviceInfo, ConnectionStatus, SensorConnection } from './types';
 
 interface BleState {
@@ -11,10 +10,10 @@ interface BleState {
   error: string | null;
   /** The active connection (mock or real). Not reactive on its own. */
   connection: SensorConnection | null;
-  /** When true, connect() spins up the in-app simulator instead of real BLE. */
-  useMock: boolean;
+  /** Which device implementation to use when connecting. */
+  deviceKind: SensorKind;
 
-  setUseMock: (value: boolean) => void;
+  setDeviceKind: (kind: SensorKind) => void;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
 }
@@ -37,42 +36,44 @@ export const useBleStore = create<BleState>((set, get) => {
     device: null,
     error: null,
     connection: null,
-    useMock: true, // default on until real hardware is available
+    deviceKind: 'mock', // default to the simulator until hardware is selected
 
-    setUseMock: (value) => set({ useMock: value }),
+    setDeviceKind: (kind) => set({ deviceKind: kind }),
 
     connect: async () => {
-      const { status, useMock } = get();
-      if (status === 'connecting' || status === 'connected') return;
+      const { status, deviceKind } = get();
+      if (status === 'connecting' || status === 'scanning' || status === 'connected') return;
       set({ error: null, status: 'connecting' });
 
+      const dev = getSensorDevice(deviceKind);
       try {
-        if (useMock) {
-          const mock = new MockSensor();
-          watchReconnect(mock);
-          set({ connection: mock, device: mock.info, status: 'connected' });
+        if (dev.requiresBle) {
+          const granted = await ensureBlePermissions();
+          if (!granted) {
+            set({ status: 'unauthorized', error: 'Bluetooth permission denied.' });
+            return;
+          }
+          await waitForPoweredOn();
+        }
+
+        const conn = dev.create();
+        watchReconnect(conn);
+
+        if (dev.initialStatus === 'connected') {
+          // Streams immediately (mock): mark connected right away.
+          set({ connection: conn, device: conn.info, status: 'connected' });
+          conn.start?.();
           return;
         }
 
-        const granted = await ensureBlePermissions();
-        if (!granted) {
-          set({ status: 'unauthorized', error: 'Bluetooth permission denied.' });
-          return;
-        }
-        await waitForPoweredOn();
-
-        // The E8S is a broadcast beacon: begin scanning and lock onto the first
-        // tag whose advertisement we parse. There is no "connect" step —
-        // status flips to connected on the first sample, and the device (MAC +
-        // battery) is populated from that advertisement.
-        const client = new E8sSensorClient();
-        watchReconnect(client);
-        set({ connection: client, status: 'scanning' });
-        const off = client.onSample(() => {
+        // Broadcast/GATT: show scanning/connecting; the device (MAC/battery) is
+        // populated and status flips to connected on the first parsed sample.
+        set({ connection: conn, status: dev.initialStatus });
+        const off = conn.onSample(() => {
           off();
-          if (get().connection === client) set({ device: client.info, status: 'connected' });
+          if (get().connection === conn) set({ device: conn.info, status: 'connected' });
         });
-        client.start();
+        conn.start?.();
       } catch (e) {
         set({
           status: 'error',

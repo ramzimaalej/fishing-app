@@ -9,6 +9,7 @@ import {
   useAdsStore,
 } from '@/features/ads';
 import { useBleStore } from '@/features/ble/bleStore';
+import { getSensorDevice, listSensorDevices, type SensorKind } from '@/features/ble/deviceRegistry';
 import { useBiteDetection } from '@/features/bite-detection/useBiteDetection';
 import AccelerationChart from '@/features/graph/AccelerationChart';
 import SensitivitySlider from '@/features/settings/components/SensitivitySlider';
@@ -59,8 +60,8 @@ export default function FishingScreen() {
   const bleError = useBleStore((s) => s.error);
   const connect = useBleStore((s) => s.connect);
   const disconnect = useBleStore((s) => s.disconnect);
-  const useMock = useBleStore((s) => s.useMock);
-  const setUseMock = useBleStore((s) => s.setUseMock);
+  const deviceKind = useBleStore((s) => s.deviceKind);
+  const setDeviceKind = useBleStore((s) => s.setDeviceKind);
 
   const settings = useSettings();
   const setLiveBaitMode = useSettingsStore((s) => s.setLiveBaitMode);
@@ -141,16 +142,8 @@ export default function FishingScreen() {
 
         {bleError && !isConnected && <Text style={styles.errorText}>{bleError}</Text>}
 
-        {!isConnected && (
-          <Pressable style={styles.mockRow} onPress={() => setUseMock(!useMock)}>
-            <Text style={styles.mockLabel}>Use simulator (no hardware)</Text>
-            <Switch
-              value={useMock}
-              onValueChange={setUseMock}
-              trackColor={{ true: colors.primaryDark, false: colors.surfaceAlt }}
-              thumbColor={useMock ? colors.primary : colors.textMuted}
-            />
-          </Pressable>
+        {!isConnected && !isBusy && (
+          <DeviceSelector selected={deviceKind} onSelect={setDeviceKind} />
         )}
 
         <AccelerationChart points={points} bites={bites} />
@@ -184,6 +177,36 @@ export default function FishingScreen() {
   );
 }
 
+function DeviceSelector({
+  selected,
+  onSelect,
+}: {
+  selected: SensorKind;
+  onSelect: (kind: SensorKind) => void;
+}) {
+  const devices = listSensorDevices();
+  return (
+    <View style={styles.selector}>
+      <Text style={styles.selectorLabel}>Sensor</Text>
+      <View style={styles.chipRow}>
+        {devices.map((d) => {
+          const active = d.kind === selected;
+          return (
+            <Pressable
+              key={d.kind}
+              onPress={() => onSelect(d.kind)}
+              style={[styles.chip, active && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>{d.short}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.selectorHint}>{getSensorDevice(selected).description}</Text>
+    </View>
+  );
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.stat}>
@@ -210,18 +233,29 @@ const styles = StyleSheet.create({
   connectBtnActive: { backgroundColor: colors.surfaceAlt },
   connectBtnText: { ...typography.h3, color: colors.text },
   errorText: { ...typography.caption, color: colors.danger },
-  mockRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  selector: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: spacing.xs,
   },
-  mockLabel: { ...typography.body, color: colors.text },
+  selectorLabel: { ...typography.caption, color: colors.textMuted, textTransform: 'uppercase' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  chip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+  },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { ...typography.caption, color: colors.textMuted },
+  chipTextActive: { color: colors.text },
+  selectorHint: { ...typography.caption, color: colors.textMuted },
   statsRow: { flexDirection: 'row', gap: spacing.sm },
   stat: {
     flex: 1,

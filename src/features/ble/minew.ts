@@ -1,5 +1,7 @@
 import type { AccelSample } from '@/types';
 
+import { base64ToBytes, bytesToBase64 } from './bytes';
+
 /**
  * Minew E8S "Asset Tag" BLE protocol.
  *
@@ -22,7 +24,7 @@ import type { AccelSample } from '@/types';
  *   battery 100%, X=+0.840 g, Y=+0.527 g, Z=-0.008 g → |a|≈0.99 g (at rest). ✓
  *
  * The frame carries no timestamp (the tag has no real clock), so the phone
- * stamps arrival time when it builds an AccelSample (see E8sSensorClient).
+ * stamps arrival time when it builds an AccelSample (see MinewSensorClient).
  */
 
 /** Minew service that carries the accelerometer frame (16-bit + full 128-bit). */
@@ -47,22 +49,6 @@ export interface MinewAccReading {
   batteryPct: number;
   /** Colon-separated uppercase MAC, e.g. "57:05:A0:3F:23:AC". */
   mac: string;
-}
-
-// --- base64 <-> bytes (Hermes & Node both expose atob/btoa) ---
-
-function base64ToBytes(b64: string): Uint8Array {
-  const bin =
-    typeof atob === 'function' ? atob(b64) : Buffer.from(b64, 'base64').toString('binary');
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
-  return typeof btoa === 'function' ? btoa(bin) : Buffer.from(bin, 'binary').toString('base64');
 }
 
 function macFromBytes(bytes: Uint8Array, offset: number): string {

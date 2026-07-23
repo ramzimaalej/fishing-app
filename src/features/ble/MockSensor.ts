@@ -33,10 +33,10 @@ export class MockSensor implements SensorConnection {
   private bitePeak = 0;
 
   constructor(private readonly noiseSigma = 0.02) {
-    this.start();
+    this.startLoop();
   }
 
-  private start(): void {
+  private startLoop(): void {
     if (this.timer) return;
     const intervalMs = 1000 / this.sampleRate;
     this.timer = setInterval(() => {
@@ -110,7 +110,7 @@ export class MockSensor implements SensorConnection {
       if (this.timer) {
         clearInterval(this.timer);
         this.timer = null;
-        this.start();
+        this.startLoop();
       }
     }
   }

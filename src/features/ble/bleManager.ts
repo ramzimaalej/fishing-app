@@ -50,5 +50,5 @@ export function waitForPoweredOn(timeoutMs = 8000): Promise<void> {
 }
 
 // NOTE: scanning for the E8S is a continuous, broadcast-based flow implemented
-// in E8sSensorClient (it keeps receiving advertisements), not a one-shot
+// in MinewSensorClient (it keeps receiving advertisements), not a one-shot
 // connect. This module only owns the shared manager, permissions, and power.

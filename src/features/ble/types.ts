@@ -18,17 +18,26 @@ export interface BleDeviceInfo {
 }
 
 /**
- * Transport-agnostic contract for a bite sensor source. The real Minew E8S
- * client (broadcast/scan-based) and the mock both implement it, so the rest of
- * the app never depends on react-native-ble-plx directly.
+ * Transport-agnostic contract for a bite sensor source. Every device kind
+ * implements it (see deviceRegistry) so the rest of the app never depends on
+ * react-native-ble-plx directly:
+ *   - MockSensor        — in-app simulator (no hardware)
+ *   - MinewSensorClient — Minew E8S beacon, broadcast/scan-based
+ *   - Cp27SensorClient  — DX-CP27MINI, GATT connect + notify
+ *   - GenericSensorClient — any BLE peripheral streaming accel on a notify char
  *
- * NOTE: the E8S is a broadcast beacon, not a connected peripheral — "samples"
- * are parsed from its advertisements. setFishingMode/setSampleRate are no-ops
- * for the E8S (it is configured on-device via Minew BeaconSET+); they remain in
- * the contract so a future connectable sensor can implement them.
+ * NOTE: broadcast beacons (E8S) are not connected peripherals — "samples" are
+ * parsed from advertisements. setFishingMode/setSampleRate are no-ops for
+ * devices configured on-device (E8S via BeaconSET+); they remain in the
+ * contract so connectable sensors can implement them.
  */
 export interface SensorConnection {
   readonly info: BleDeviceInfo;
+  /**
+   * Begin scanning / connecting. Implementations that stream immediately (the
+   * mock) don't need it, hence optional. The store calls it after permissions.
+   */
+  start?(): void;
   /** Subscribe to the accelerometer stream. Returns an unsubscribe fn. */
   onSample(listener: (sample: AccelSample) => void): () => void;
   /** Enable/disable fishing (live-bait) mode on the device (if supported). */
