@@ -16,7 +16,8 @@ photos, subscriptions, and ads for free users.
 index.ts → App.tsx → NavigationContainer → RootNavigator
                                               ├─ Auth stack   (SignIn / SignUp / VerifyEmail)
                                               └─ Main tabs     (Fishing / Conditions / History / Settings)
-                                                                 + Paywall (modal)
+                                                                 + Paywall · Session report (modals)
+                                                                 + Best times (pushed from Conditions)
 
 src/
 ├─ config/            constants + default settings
@@ -26,14 +27,17 @@ src/
 └─ features/
    ├─ auth/           email + Google sign-in, email-verification gate
    ├─ subscription/   react-native-iap store + paywall (premium removes ads)
-   ├─ environment/    Open-Meteo provider, moon phase, fish-activity model, screen
+   ├─ environment/    Open-Meteo provider (multi-day), moon phase, hourly
+   │                  fish-activity model, solunar month model, screens
    ├─ ble/            GATT protocol + codec, real client (auto-reconnect), mock, store
    ├─ bite-detection/ Kalman + moving-average filters, detector, live pipeline hook
    ├─ graph/          real-time SVG acceleration chart + rolling buffer
    ├─ bite-history/   Firestore repo, live list, image attach
    ├─ notifications/  haptics + sound + local push feedback
-   ├─ ads/            policy-governed AdMob: banners, session-end interstitial,
-   │                  rewarded Premium Preview (see “Monetization” below)
+   ├─ ads/            policy-governed AdMob: banners, in-feed native units,
+   │                  session-end interstitial, scoped rewarded unlocks
+   │                  (see “Monetization” below)
+   ├─ session-report/ post-session debrief (pure summary model + screen)
    ├─ settings/       persisted settings (AsyncStorage) + screen
    └─ fishing/        main live-detection screen (always ad-free)
 ```
@@ -112,22 +116,45 @@ never catching.** All rules live in one pure, unit-tested gate
 | Surface | Treatment |
 | --- | --- |
 | Fishing (live) | **No ads, ever** — the core surface stays clean; that cleanliness is the premium pitch |
-| Conditions / History | Anchored adaptive banner (passive planning/review contexts) |
+| Conditions / History / Session report / Best times / Settings | Anchored adaptive banner (passive planning & review contexts) |
+| Bite history feed | **Native advanced** unit every 8 rows — never first, never last (`features/ads/feed.ts`) |
 | Session end (user taps *Disconnect*) | ≤ 1 interstitial, policy-gated; dropped connections never trigger ads |
-| Conditions card + Paywall | **Rewarded ad → 24h “Premium Preview”** (ad-free + pro perks) |
+| Each gated feature, at its point of need | **Rewarded ad → one scoped unlock** (`features/ads/rewards.ts`) |
 | App open | Deliberately none — anglers open the app when a fish is on |
 
 Interstitial governance: none in the first 24 h after install, none before the
 3rd meaningful (≥ 2 min) session, 15-min cooldown, hard cap 4/day, never while
 a session is active, and only when an ad is already preloaded. Caps persist
-across restarts (`adsStore`, AsyncStorage).
+across restarts (`adsStore`, AsyncStorage). Note the daily cap is not the
+binding constraint in practice — session count is; the session report therefore
+opens *after* the one session-end ad rather than adding a second trigger.
 
-Revenue logic: rewarded video carries ~10–20× banner eCPM and is the only
-format users opt into; the 24 h preview it grants doubles as the upgrade
-funnel. Entitlements (`useEntitlements`) decouple *ad-free* from *pro* so ads,
-feature gates, and future tiers stay independent. UMP consent (GDPR + ATT) is
-gathered lazily on the first ad surface — premium users never see a consent
-prompt; without consent, requests are non-personalized.
+### Rewarded unlocks
+
+Rewarded video carries several times banner eCPM and is the only format users
+opt into, so it is offered wherever a real gate is within reach. Grants are
+**scoped and short** — one ad buys the feature asked for, never a day-pass on
+the whole product (which would cannibalise the subscription it exists to sell):
+
+| Unlock | Gate it opens | Lasts |
+| --- | --- | --- |
+| `extended-forecast` | Outlook beyond `FREE_FORECAST_DAYS` (3) | 24 h |
+| `session-report` | Timeline, strike breakdown, conditions card | 3 h |
+| `history-depth` | Bites older than `FREE_HISTORY_DAYS` (30) | 24 h |
+| `sound-pack` | Alert sounds beyond `FREE_SOUND_COUNT` (2) | 7 days |
+| `photo-backup` | Cloud backup of a catch photo | 1 h |
+
+Free-tier limits live in `config/constants.ts` and the unlocks in
+`features/ads/rewards.ts` — **the two tables move together.** A limit with no
+unlock path is just an annoyance; an unlock with no limit is a lie (and an App
+Store 3.1.2 problem, which is why every `BENEFITS` line on the paywall maps to
+an enforced gate).
+
+Entitlements (`useEntitlements`) decouple *ad-free* (subscription only) from
+*pro* and from per-feature `has(kind)`, so ads, gates, and future tiers stay
+independent. UMP consent (GDPR + ATT) is gathered lazily on the first ad
+surface — premium users never see a consent prompt; without consent, requests
+are non-personalized.
 
 ---
 

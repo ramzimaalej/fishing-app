@@ -1,8 +1,9 @@
 import { getEntitlementsSnapshot } from '@/features/subscription/useEntitlements';
 
-import { AD_POLICY, evaluateSessionEndInterstitial } from './adPolicy';
+import { evaluateSessionEndInterstitial } from './adPolicy';
 import { resolveAdUnitId, type FullScreenAdKind } from './adsConfig';
 import { useAdsStore } from './adsStore';
+import type { RewardKind } from './rewards';
 import { getAdsSdk, type AdsSdk } from './sdk';
 
 /**
@@ -92,6 +93,7 @@ class ManagedFullScreenAd {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<() => void>();
   private onEarned: (() => void) | null = null;
+  private onClosed: (() => void) | null = null;
 
   constructor(private readonly kind: FullScreenAdKind) {}
 
@@ -143,6 +145,11 @@ class ManagedFullScreenAd {
         this.ad.addAdEventListener(AdEventType?.CLOSED, () => {
           this.loaded = false;
           this.emit();
+          // Hand control back to the caller BEFORE reloading, so a follow-on
+          // navigation happens the instant the user dismisses the ad.
+          const closed = this.onClosed;
+          this.onClosed = null;
+          closed?.();
           this.scheduleReload(0); // immediately warm the next one
         });
         this.ad.addAdEventListener(AdEventType?.ERROR, () => {
@@ -175,13 +182,16 @@ class ManagedFullScreenAd {
   }
 
   /** Show if loaded. Returns whether the ad was actually presented. */
-  show(onEarned?: () => void): boolean {
+  show(handlers?: { onEarned?: () => void; onClosed?: () => void }): boolean {
     if (!this.loaded || !this.ad) return false;
-    this.onEarned = onEarned ?? null;
+    this.onEarned = handlers?.onEarned ?? null;
+    this.onClosed = handlers?.onClosed ?? null;
     try {
       this.ad.show();
       return true;
     } catch {
+      this.onEarned = null;
+      this.onClosed = null;
       return false;
     }
   }
@@ -189,8 +199,12 @@ class ManagedFullScreenAd {
 
 /** The one interstitial in the app: shown (at most) when a session ends. */
 export const sessionInterstitial = new ManagedFullScreenAd('interstitial');
-/** Rewarded ad backing the 24h Premium Preview. */
-export const previewRewarded = new ManagedFullScreenAd('rewarded');
+/**
+ * The single rewarded instance behind every unlock surface. All kinds share one
+ * ad unit and one preloaded ad — which kind gets granted is decided by the call
+ * site via `show(onEarned)`, not by holding four warm ads in memory.
+ */
+export const unlockRewarded = new ManagedFullScreenAd('rewarded');
 
 /**
  * Called when a fishing session STARTS: warms the interstitial so it is ready
@@ -205,8 +219,15 @@ export function prepareSessionAds(): void {
  * Called after the user deliberately ends a session. All policy rules are
  * enforced by the pure gate; on approval the impression is recorded so caps
  * and cooldowns stay accurate across restarts.
+ *
+ * `onDone` runs when the ad is dismissed, or immediately when no ad was shown —
+ * so a caller can chain the session report onto it without caring which
+ * happened. It is invoked exactly once either way.
  */
-export function maybeShowSessionEndInterstitial(sessionSeconds: number): boolean {
+export function maybeShowSessionEndInterstitial(
+  sessionSeconds: number,
+  onDone?: () => void,
+): boolean {
   const now = Date.now();
   const store = useAdsStore.getState();
   const verdict = evaluateSessionEndInterstitial({
@@ -222,16 +243,17 @@ export function maybeShowSessionEndInterstitial(sessionSeconds: number): boolean
   });
   if (!verdict.allowed) {
     if (__DEV__) console.log(`[ads] session-end interstitial denied: ${verdict.reason}`);
+    onDone?.();
     return false;
   }
-  const shown = sessionInterstitial.show();
+  const shown = sessionInterstitial.show({ onClosed: onDone });
   if (shown) store.recordInterstitialShown(now);
+  // A load that evaporated between the gate and show() must still continue.
+  else onDone?.();
   return shown;
 }
 
-/** Grant the rewarded Premium Preview (used by useRewardedPreview). */
-export function grantPreviewNow(): void {
-  useAdsStore
-    .getState()
-    .grantPreview(Date.now() + AD_POLICY.preview.durationHours * 3_600_000);
+/** Grant one rewarded unlock (used by useRewardedUnlock once EARNED fires). */
+export function grantRewardNow(kind: RewardKind): void {
+  useAdsStore.getState().grantReward(kind);
 }

@@ -1,3 +1,4 @@
+import { useNavigation } from '@react-navigation/native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,11 +12,17 @@ import {
 import { useBleStore } from '@/features/ble/bleStore';
 import { getSensorDevice, listSensorDevices, type SensorKind } from '@/features/ble/deviceRegistry';
 import { useBiteDetection } from '@/features/bite-detection/useBiteDetection';
+import { getCurrentConditions } from '@/features/environment/useEnvironment';
 import AccelerationChart from '@/features/graph/AccelerationChart';
+import { useSessionStore } from '@/features/session-report/sessionStore';
+import {
+  buildSessionSummary,
+  type SessionBite,
+} from '@/features/session-report/sessionSummary';
 import SensitivitySlider from '@/features/settings/components/SensitivitySlider';
 import { useSettings, useSettingsStore } from '@/features/settings/settingsStore';
 import { colors, radius, spacing, typography } from '@/theme';
-import type { BiteEvent } from '@/types';
+import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
 const STATUS_LABEL: Record<string, string> = {
   idle: 'Not connected',
@@ -67,11 +74,24 @@ export default function FishingScreen() {
   const setLiveBaitMode = useSettingsStore((s) => s.setLiveBaitMode);
   const setSensitivity = useSettingsStore((s) => s.setSensitivity);
 
+  const navigation = useNavigation<{ navigate: (route: string) => void }>();
+  const setLastSession = useSessionStore((s) => s.setLast);
+
   const [lastBite, setLastBite] = useState<BiteEvent | null>(null);
+
+  // Bites accumulated for this session's report. Stamped with WALL-CLOCK time
+  // here because BiteEvent.timestamp is a device-clock value that cannot be
+  // placed on a real timeline (see types/index.ts).
+  const sessionBitesRef = useRef<SessionBite[]>([]);
+  // Conditions captured once at session start, for the report's context card.
+  const sessionConditionsRef = useRef<Partial<EnvironmentSnapshot> | null>(null);
 
   // This screen is deliberately AD-FREE: nothing may interrupt or crowd the
   // live detection surface (see features/ads/adPolicy.ts for the doctrine).
-  const onBite = useCallback((bite: BiteEvent) => setLastBite(bite), []);
+  const onBite = useCallback((bite: BiteEvent) => {
+    sessionBitesRef.current.push({ event: bite, at: Date.now() });
+    setLastBite(bite);
+  }, []);
 
   const { points, bites, threshold, isWarmedUp, sessionCount, clear } = useBiteDetection({ onBite });
 
@@ -85,8 +105,14 @@ export default function FishingScreen() {
     const ads = useAdsStore.getState();
     if (isConnected && sessionStartRef.current === null) {
       sessionStartRef.current = Date.now();
+      sessionBitesRef.current = [];
+      sessionConditionsRef.current = null;
       ads.setFishingActive(true);
       prepareSessionAds();
+      // Best-effort context for the report; never blocks or fails the session.
+      void getCurrentConditions().then((c) => {
+        sessionConditionsRef.current = c;
+      });
     } else if (!isConnected && sessionStartRef.current !== null) {
       const seconds = (Date.now() - sessionStartRef.current) / 1000;
       sessionStartRef.current = null;
@@ -99,14 +125,43 @@ export default function FishingScreen() {
   const onConnectPress = () => {
     if (isConnected) {
       const startedAt = sessionStartRef.current;
+      const endedAt = Date.now();
+      const capturedBites = sessionBitesRef.current;
+      const capturedConditions = sessionConditionsRef.current;
+
       void disconnect();
       clear();
       setLastBite(null);
+
+      const seconds = startedAt !== null ? (endedAt - startedAt) / 1000 : 0;
+
+      // Debrief any session worth counting. Below that threshold it was a quick
+      // fiddle with the sensor, not a trip.
+      const reportable = startedAt !== null && seconds >= AD_POLICY.interstitial.minSessionSeconds;
+      if (reportable) {
+        setLastSession(
+          buildSessionSummary({
+            startedAt,
+            endedAt,
+            bites: capturedBites,
+            conditions: capturedConditions,
+          }),
+        );
+      }
+      sessionBitesRef.current = [];
+
       // The ONLY interstitial trigger in the app: the user chose to end the
       // session. Dropped connections never lead here. Delay lets the
       // disconnect UI settle; the policy gate applies caps/cooldowns/grace.
-      const seconds = startedAt !== null ? (Date.now() - startedAt) / 1000 : 0;
-      setTimeout(() => maybeShowSessionEndInterstitial(seconds), 900);
+      //
+      // The report is deliberately NOT a second full-screen trigger — it opens
+      // once the ad is dismissed (or immediately if none showed), so ending a
+      // session still costs the user at most one interstitial.
+      setTimeout(() => {
+        maybeShowSessionEndInterstitial(seconds, () => {
+          if (reportable) navigation.navigate('SessionReport');
+        });
+      }, 900);
     } else {
       void connect();
     }

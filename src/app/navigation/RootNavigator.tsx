@@ -9,8 +9,10 @@ import SignInScreen from '@/features/auth/screens/SignInScreen';
 import SignUpScreen from '@/features/auth/screens/SignUpScreen';
 import VerifyEmailScreen from '@/features/auth/screens/VerifyEmailScreen';
 import BiteHistoryScreen from '@/features/bite-history/BiteHistoryScreen';
+import BestTimesScreen from '@/features/environment/BestTimesScreen';
 import EnvironmentScreen from '@/features/environment/EnvironmentScreen';
 import FishingScreen from '@/features/fishing/FishingScreen';
+import SessionReportScreen from '@/features/session-report/SessionReportScreen';
 import SettingsScreen from '@/features/settings/SettingsScreen';
 import PaywallScreen from '@/features/subscription/PaywallScreen';
 import { useSubscriptionStore } from '@/features/subscription/subscriptionStore';
@@ -20,6 +22,8 @@ export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
   Paywall: undefined;
+  SessionReport: undefined;
+  BestTimes: undefined;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -123,6 +127,18 @@ export default function RootNavigator() {
             name="Paywall"
             component={PaywallScreen}
             options={{ presentation: 'modal' }}
+          />
+          {/* Post-session debrief, pushed once the session-end ad is dismissed. */}
+          <RootStack.Screen
+            name="SessionReport"
+            component={SessionReportScreen}
+            options={{ presentation: 'modal' }}
+          />
+          {/* Solunar planning calendar, pushed from Conditions. */}
+          <RootStack.Screen
+            name="BestTimes"
+            component={BestTimesScreen}
+            options={{ headerShown: true, title: 'Best times', headerTintColor: colors.text }}
           />
         </>
       ) : (

@@ -103,6 +103,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         ios: process.env.ADMOB_BANNER_ID_IOS ?? '',
         android: process.env.ADMOB_BANNER_ID_ANDROID ?? '',
       },
+      // In-feed native units (bite history). Create these as "Native advanced"
+      // ad units in AdMob — a banner id will not serve here.
+      native: {
+        ios: process.env.ADMOB_NATIVE_ID_IOS ?? '',
+        android: process.env.ADMOB_NATIVE_ID_ANDROID ?? '',
+      },
       interstitial: {
         ios: process.env.ADMOB_INTERSTITIAL_ID_IOS ?? '',
         android: process.env.ADMOB_INTERSTITIAL_ID_ANDROID ?? '',

@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,13 +16,22 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AdBanner } from '@/features/ads';
+import { FREE_HISTORY_DAYS } from '@/config/constants';
+import {
+  AdBanner,
+  interleaveNativeAds,
+  NATIVE_FEED_INTERVAL,
+  NativeAdCard,
+  RewardedUnlockCard,
+} from '@/features/ads';
 import { useAuth } from '@/features/auth/useAuth';
 import { useIsPremium } from '@/features/subscription/subscriptionStore';
+import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
 import type { BiteRecord } from '@/types';
 
 import { biteRepository } from './biteRepository';
+import { applyHistoryWindow } from './historyGate';
 import { resolveLocalPhoto } from './photoStorage';
 import { useBiteHistory } from './useBiteHistory';
 
@@ -39,12 +48,13 @@ function SizeBadge({ record }: { record: BiteRecord }) {
 function BiteRow({
   record,
   uid,
-  premium,
+  cloudBackup,
   onEditNote,
 }: {
   record: BiteRecord;
   uid: string;
-  premium: boolean;
+  /** True when this photo may be backed up to the cloud (premium or unlock). */
+  cloudBackup: boolean;
   onEditNote: (record: BiteRecord) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -66,14 +76,14 @@ function BiteRow({
 
     setBusy(true);
     try {
-      // Saved on-device for everyone; also backed up to the cloud for premium.
-      await biteRepository.attachImage(uid, record.id, result.assets[0].uri, { premium });
+      // Saved on-device for everyone; cloud backup depends on entitlement.
+      await biteRepository.attachImage(uid, record.id, result.assets[0].uri, { cloudBackup });
     } catch (e) {
       Alert.alert('Could not attach photo', e instanceof Error ? e.message : 'Please try again.');
     } finally {
       setBusy(false);
     }
-  }, [record.id, uid, premium]);
+  }, [record.id, uid, cloudBackup]);
 
   return (
     <View style={styles.row}>
@@ -129,11 +139,35 @@ export default function BiteHistoryScreen() {
   const { user } = useAuth();
   const uid = user?.uid ?? null;
   const isPremium = useIsPremium();
+  const { adFree, has } = useEntitlements();
   const { records, loading, error } = useBiteHistory(uid);
 
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState<BiteRecord | null>(null);
   const [draftNote, setDraftNote] = useState('');
+
+  const cloudBackup = has('photo-backup');
+  // Resolve to a boolean before memoising: `has` is a fresh closure each render,
+  // so depending on it directly would recompute the window every time.
+  const historyUnlocked = has('history-depth');
+
+  // Free tier reads the last FREE_HISTORY_DAYS; the rest sits behind the depth
+  // gate (premium or a rewarded unlock). Nothing is deleted either way.
+  const { visible, hiddenCount } = useMemo(
+    () => applyHistoryWindow(records, historyUnlocked),
+    [records, historyUnlocked],
+  );
+
+  // Interleave native units into the readable rows. Rebuilt only when the rows
+  // or the entitlement change, so scrolling never reshuffles ad positions.
+  const feed = useMemo(
+    () =>
+      interleaveNativeAds(visible, (r) => r.id, {
+        interval: NATIVE_FEED_INTERVAL,
+        enabled: !adFree,
+      }),
+    [visible, adFree],
+  );
 
   // When a premium user has on-device-only photos (e.g. just upgraded), back
   // them up to the cloud once per session. Idempotent + best-effort.
@@ -191,14 +225,20 @@ export default function BiteHistoryScreen() {
         </View>
       ) : (
         <FlatList
-          data={records}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) =>
-            uid ? (
-              <BiteRow record={item} uid={uid} premium={isPremium} onEditNote={openNote} />
-            ) : null
-          }
-          contentContainerStyle={records.length === 0 && styles.emptyContainer}
+          data={feed}
+          keyExtractor={(entry) => entry.key}
+          renderItem={({ item: entry }) => {
+            if (entry.type === 'ad') return <NativeAdCard placement="history-feed" />;
+            return uid ? (
+              <BiteRow
+                record={entry.item}
+                uid={uid}
+                cloudBackup={cloudBackup}
+                onEditNote={openNote}
+              />
+            ) : null;
+          }}
+          contentContainerStyle={feed.length === 0 && styles.emptyContainer}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
           }
@@ -210,7 +250,25 @@ export default function BiteHistoryScreen() {
               </Text>
             </View>
           }
+          ListFooterComponent={
+            hiddenCount > 0 ? (
+              <View style={styles.footer}>
+                <Text style={styles.footerText}>
+                  🔒 {hiddenCount} older {hiddenCount === 1 ? 'bite' : 'bites'} beyond the last{' '}
+                  {FREE_HISTORY_DAYS} days
+                </Text>
+                <RewardedUnlockCard kind="history-depth" hideWhenUnlocked />
+              </View>
+            ) : null
+          }
         />
+      )}
+
+      {/* Offered only when there is actually a photo to back up. */}
+      {!cloudBackup && visible.some((r) => r.localImage && !r.imageUrl) && (
+        <View style={styles.unlockSlot}>
+          <RewardedUnlockCard kind="photo-backup" hideWhenUnlocked />
+        </View>
       )}
 
       {/* Review surface — anchored banner below the list, above the tab bar. */}
@@ -249,6 +307,9 @@ const styles = StyleSheet.create({
   title: { ...typography.h1, color: colors.text, padding: spacing.md },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.sm },
   emptyContainer: { flexGrow: 1 },
+  footer: { padding: spacing.md, gap: spacing.sm },
+  footerText: { ...typography.caption, color: colors.textMuted, textAlign: 'center' },
+  unlockSlot: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   emptyTitle: { ...typography.h3, color: colors.text },
   emptySub: { ...typography.body, color: colors.textMuted, textAlign: 'center' },
   error: { color: colors.danger, ...typography.body },

@@ -14,10 +14,12 @@ import {
 
 import { useNavigation } from '@react-navigation/native';
 
-import { NOTIFICATION_SOUNDS } from '@/config/constants';
+import { FREE_SOUND_COUNT, NOTIFICATION_SOUNDS } from '@/config/constants';
+import { AdBanner, RewardedUnlockCard } from '@/features/ads';
 import { useAuthStore } from '@/features/auth/authStore';
 import { playSoundPreview, requestNotificationPermissions } from '@/features/notifications/feedback';
 import { useSubscriptionStore } from '@/features/subscription/subscriptionStore';
+import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
 
 import SensitivitySlider from './components/SensitivitySlider';
@@ -39,7 +41,9 @@ export default function SettingsScreen() {
   const purchasing = useSubscriptionStore((s) => s.purchasing);
   const user = useAuthStore((s) => s.user);
   const signOut = useAuthStore((s) => s.signOut);
+  const { has } = useEntitlements();
 
+  const allSounds = has('sound-pack');
   const [requesting, setRequesting] = useState(false);
 
   const onTogglePush = async (next: boolean) => {
@@ -68,7 +72,8 @@ export default function SettingsScreen() {
   const sensitivityPct = Math.round(settings.sensitivity * 100);
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <View style={styles.screen}>
+      <ScrollView contentContainerStyle={styles.content}>
       {/* Detection --------------------------------------------------------- */}
       <Text style={styles.sectionTitle}>Detection</Text>
       <View style={styles.card}>
@@ -128,18 +133,24 @@ export default function SettingsScreen() {
 
         {settings.soundEnabled && (
           <View style={styles.soundList}>
-            {NOTIFICATION_SOUNDS.map((sound) => {
+            {NOTIFICATION_SOUNDS.map((sound, i) => {
               const selected = sound.key === settings.soundKey;
+              // The first FREE_SOUND_COUNT sounds are always available; the rest
+              // need premium or the 'sound-pack' rewarded unlock. Preview stays
+              // open for every sound — hearing it is what sells the unlock.
+              const locked = !allSounds && i >= FREE_SOUND_COUNT;
               return (
                 <View key={sound.key} style={styles.soundRow}>
                   <TouchableOpacity
                     style={styles.soundSelect}
-                    onPress={() => setSoundKey(sound.key)}
+                    onPress={() => (locked ? navigation.navigate('Paywall') : setSoundKey(sound.key))}
                   >
                     <Text style={[styles.check, selected && styles.checkOn]}>
-                      {selected ? '●' : '○'}
+                      {locked ? '🔒' : selected ? '●' : '○'}
                     </Text>
-                    <Text style={styles.soundLabel}>{sound.label}</Text>
+                    <Text style={[styles.soundLabel, locked && styles.soundLabelLocked]}>
+                      {sound.label}
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.previewBtn}
@@ -150,6 +161,8 @@ export default function SettingsScreen() {
                 </View>
               );
             })}
+
+            {!allSounds && <RewardedUnlockCard kind="sound-pack" hideWhenUnlocked />}
           </View>
         )}
 
@@ -220,7 +233,11 @@ export default function SettingsScreen() {
       <TouchableOpacity style={styles.resetBtn} onPress={confirmReset}>
         <Text style={styles.resetText}>Reset to defaults</Text>
       </TouchableOpacity>
-    </ScrollView>
+      </ScrollView>
+
+      {/* Passive settings surface — safe for an anchored banner. */}
+      <AdBanner placement="settings" />
+    </View>
   );
 }
 
@@ -270,6 +287,7 @@ const styles = StyleSheet.create({
   check: { color: colors.textMuted, fontSize: 18, width: 26 },
   checkOn: { color: colors.primary },
   soundLabel: { ...typography.body, color: colors.text },
+  soundLabelLocked: { color: colors.textMuted },
   previewBtn: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
