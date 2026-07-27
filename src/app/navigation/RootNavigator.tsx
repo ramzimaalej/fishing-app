@@ -12,6 +12,10 @@ import BiteHistoryScreen from '@/features/bite-history/BiteHistoryScreen';
 import BestTimesScreen from '@/features/environment/BestTimesScreen';
 import EnvironmentScreen from '@/features/environment/EnvironmentScreen';
 import FishingScreen from '@/features/fishing/FishingScreen';
+import CatchInsightsScreen from '@/features/insights/CatchInsightsScreen';
+import PairSensorScreen from '@/features/rods/PairSensorScreen';
+import RodsScreen from '@/features/rods/RodsScreen';
+import { useRodRuntimeBridge } from '@/features/rods/useRodRuntime';
 import SessionReportScreen from '@/features/session-report/SessionReportScreen';
 import SettingsScreen from '@/features/settings/SettingsScreen';
 import PaywallScreen from '@/features/subscription/PaywallScreen';
@@ -24,6 +28,9 @@ export type RootStackParamList = {
   Paywall: undefined;
   SessionReport: undefined;
   BestTimes: undefined;
+  CatchInsights: undefined;
+  Rods: undefined;
+  PairSensor: { rodId: string };
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -35,6 +42,10 @@ function TabIcon({ icon, color }: { icon: string; color: string }) {
 }
 
 function MainTabs() {
+  // Mounted here, above the tabs, so the rod runtime outlives any single screen.
+  // Inside FishingScreen its teardown would disarm every rod on a tab switch.
+  useRodRuntimeBridge();
+
   return (
     <Tabs.Navigator
       screenOptions={{
@@ -139,6 +150,23 @@ export default function RootNavigator() {
             name="BestTimes"
             component={BestTimesScreen}
             options={{ headerShown: true, title: 'Best times', headerTintColor: colors.text }}
+          />
+          {/* ERA5 retrospective analysis, pushed from History. */}
+          <RootStack.Screen
+            name="CatchInsights"
+            component={CatchInsightsScreen}
+            options={{ headerShown: true, title: 'Catch insights', headerTintColor: colors.text }}
+          />
+          {/* Rod setup + per-rod sensor pairing, pushed from Fishing. */}
+          <RootStack.Screen
+            name="Rods"
+            component={RodsScreen}
+            options={{ headerShown: true, title: 'Rods', headerTintColor: colors.text }}
+          />
+          <RootStack.Screen
+            name="PairSensor"
+            component={PairSensorScreen}
+            options={{ headerShown: true, title: 'Pair sensor', headerTintColor: colors.text }}
           />
         </>
       ) : (

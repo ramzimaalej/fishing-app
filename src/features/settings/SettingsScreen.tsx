@@ -37,6 +37,7 @@ export default function SettingsScreen() {
 
   const navigation = useNavigation<{ navigate: (route: string) => void }>();
   const isPremium = useSubscriptionStore((s) => s.isPremium);
+  const premiumSource = useSubscriptionStore((s) => s.source);
   const restore = useSubscriptionStore((s) => s.restore);
   const purchasing = useSubscriptionStore((s) => s.purchasing);
   const user = useAuthStore((s) => s.user);
@@ -188,10 +189,18 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <View style={styles.row}>
           <View style={styles.rowText}>
-            <Text style={styles.rowLabel}>{isPremium ? 'Premium active' : 'Castmate Premium'}</Text>
+            <Text style={styles.rowLabel}>
+              {isPremium
+                ? premiumSource === 'lifetime'
+                  ? 'Premium — lifetime'
+                  : 'Premium active'
+                : 'Castmate Premium'}
+            </Text>
             <Text style={styles.rowHelp}>
               {isPremium
-                ? 'Ads removed and all features unlocked. Thank you!'
+                ? premiumSource === 'subscription'
+                  ? 'Renews yearly. Manage it in your store account settings.'
+                  : 'Ads removed and all features unlocked. Thank you!'
                 : 'Remove ads and unlock everything.'}
             </Text>
           </View>

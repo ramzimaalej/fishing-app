@@ -1,0 +1,232 @@
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
+import { getSensorDevice } from '@/features/ble/deviceRegistry';
+import { decodeMinewAccFrame } from '@/features/ble/minew';
+import { subscribeToScan } from '@/features/ble/scanBroker';
+import { colors, radius, spacing, typography } from '@/theme';
+
+import { useRodStore } from './rodStore';
+
+interface Candidate {
+  id: string;
+  label: string;
+  rssi: number;
+  battery?: number;
+  /** True when this device is already bound to a different rod. */
+  takenBy?: string;
+}
+
+/** Extract a Minew Acc reading from a scan result, if it carries one. */
+function minewReading(serviceData: Record<string, string> | null | undefined) {
+  if (!serviceData) return null;
+  for (const [uuid, value] of Object.entries(serviceData)) {
+    if (uuid.toLowerCase().includes('ffe1') && typeof value === 'string') {
+      const r = decodeMinewAccFrame(value);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+/**
+ * Bind one rod to one physical sensor.
+ *
+ * This screen exists because multi-rod makes binding mandatory: an unbound
+ * broadcast client locks onto the first tag it hears, so two unbound rods would
+ * both latch the same tag and report one sensor as two rods. Pairing is what
+ * makes "which rod went off" meaningful.
+ *
+ * Runs on the shared scan broker, so opening it never disturbs rods that are
+ * already armed and fishing.
+ */
+export default function PairSensorScreen() {
+  const navigation = useNavigation<{ goBack: () => void }>();
+  const route = useRoute<{ key: string; name: string; params?: { rodId?: string } }>();
+  const rodId = route.params?.rodId ?? null;
+
+  const rods = useRodStore((s) => s.rods);
+  const setDeviceId = useRodStore((s) => s.setDeviceId);
+  const rod = rods.find((r) => r.id === rodId) ?? null;
+
+  const [found, setFound] = useState<Record<string, Candidate>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+
+  // Which device ids other rods already own, so we can warn instead of letting
+  // two rods silently share one sensor.
+  const taken = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rods) {
+      if (r.deviceId && r.id !== rodId) map.set(r.deviceId, r.name);
+    }
+    return map;
+  }, [rods, rodId]);
+
+  const kind = rod?.sensorKind ?? 'minew';
+  const dev = getSensorDevice(kind);
+
+  useEffect(() => {
+    if (!rod || !dev.requiresBle) return;
+    let release: (() => void) | null = null;
+    let active = true;
+
+    void (async () => {
+      const granted = await ensureBlePermissions();
+      if (!granted) {
+        setError('Bluetooth permission denied.');
+        return;
+      }
+      try {
+        await waitForPoweredOn();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Bluetooth unavailable.');
+        return;
+      }
+      if (!active) return;
+      setScanning(true);
+
+      release = subscribeToScan((device) => {
+        const reading = minewReading(device.serviceData as Record<string, string> | null);
+
+        // Broadcast tags are identified by the MAC inside their frame; GATT
+        // peripherals by their platform id.
+        if (dev.discoverable) {
+          if (!reading) return;
+          setFound((prev) => ({
+            ...prev,
+            [reading.mac]: {
+              id: reading.mac,
+              label: `E8S ${reading.mac.replace(/:/g, '').slice(-4).toUpperCase()}`,
+              rssi: device.rssi ?? -127,
+              battery: reading.batteryPct,
+            },
+          }));
+          return;
+        }
+
+        const name = device.name ?? device.localName;
+        if (!name) return;
+        setFound((prev) => ({
+          ...prev,
+          [device.id]: { id: device.id, label: name, rssi: device.rssi ?? -127 },
+        }));
+      });
+    })();
+
+    return () => {
+      active = false;
+      setScanning(false);
+      release?.();
+    };
+  }, [rod, dev.requiresBle, dev.discoverable]);
+
+  const candidates = useMemo(
+    () =>
+      Object.values(found)
+        .map((c) => ({ ...c, takenBy: taken.get(c.id) }))
+        .sort((a, b) => b.rssi - a.rssi),
+    [found, taken],
+  );
+
+  if (!rod) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.muted}>Rod not found.</Text>
+      </View>
+    );
+  }
+
+  const choose = (id: string) => {
+    setDeviceId(rod.id, id);
+    navigation.goBack();
+  };
+
+  return (
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      <Text style={styles.title}>Pair {rod.name}</Text>
+      <Text style={styles.subtitle}>
+        {dev.discoverable
+          ? 'Move the tag you want for this rod — the one with the strongest signal is usually nearest.'
+          : `Looking for ${dev.label} devices.`}
+      </Text>
+
+      {error && <Text style={styles.error}>{error}</Text>}
+
+      {rod.deviceId && (
+        <View style={styles.currentCard}>
+          <Text style={styles.currentLabel}>Currently paired</Text>
+          <Text style={styles.currentValue}>{rod.deviceId}</Text>
+          <Pressable onPress={() => setDeviceId(rod.id, null)}>
+            <Text style={styles.unpair}>Unpair</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {scanning && candidates.length === 0 && !error && (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} />
+          <Text style={styles.muted}>Scanning…</Text>
+        </View>
+      )}
+
+      {candidates.map((c) => (
+        <Pressable
+          key={c.id}
+          style={[styles.row, c.takenBy && styles.rowTaken]}
+          onPress={() => choose(c.id)}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowLabel}>{c.label}</Text>
+            <Text style={styles.rowMeta}>
+              {c.id}
+              {c.battery != null ? ` · 🔋${c.battery}%` : ''} · {c.rssi} dBm
+            </Text>
+            {c.takenBy && (
+              <Text style={styles.rowWarn}>Already paired to {c.takenBy} — tap to move it here</Text>
+            )}
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
+  title: { ...typography.h1, color: colors.text },
+  subtitle: { ...typography.caption, color: colors.textMuted },
+  error: { ...typography.body, color: colors.danger },
+  center: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
+  muted: { ...typography.body, color: colors.textMuted },
+  currentCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    padding: spacing.md,
+    gap: 2,
+  },
+  currentLabel: { ...typography.caption, color: colors.textMuted, textTransform: 'uppercase' },
+  currentValue: { ...typography.body, color: colors.text },
+  unpair: { ...typography.caption, color: colors.danger, marginTop: spacing.xs, fontWeight: '700' },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  rowTaken: { borderColor: colors.accent },
+  rowLabel: { ...typography.h3, color: colors.text },
+  rowMeta: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+  rowWarn: { ...typography.caption, color: colors.accent, marginTop: 2 },
+  chevron: { ...typography.h2, color: colors.textMuted },
+});

@@ -129,7 +129,16 @@ export async function playSoundPreview(soundKey: string): Promise<void> {
  * Fire all enabled feedback channels for a detected bite. Each channel is
  * isolated so one failure never blocks the others.
  */
-export async function notifyBite(event: BiteEvent, settings: AppSettings): Promise<void> {
+/**
+ * @param rodName names the rod in the alert. With several rods armed, "a bite
+ *   happened" is not actionable — the user needs to know which rod to pick up.
+ *   Omitted for single-rod setups, where naming it just adds noise.
+ */
+export async function notifyBite(
+  event: BiteEvent,
+  settings: AppSettings,
+  rodName?: string,
+): Promise<void> {
   const isBig = event.size === 'big';
 
   const tasks: Promise<unknown>[] = [];
@@ -160,9 +169,10 @@ export async function notifyBite(event: BiteEvent, settings: AppSettings): Promi
         try {
           await ensureNotificationSetup();
           const pct = Math.round(event.confidence * 100);
+          const where = rodName ? ` — ${rodName}` : '';
           await Notifications.scheduleNotificationAsync({
             content: {
-              title: isBig ? '🎣 Big fish bite!' : '🐟 Nibble detected',
+              title: (isBig ? '🎣 Big fish bite!' : '🐟 Nibble detected') + where,
               body: `Peak ${event.peakMagnitude.toFixed(2)} g · ${pct}% confidence`,
               ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
             },

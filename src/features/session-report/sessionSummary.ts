@@ -14,6 +14,19 @@ export interface SessionBite {
   event: BiteEvent;
   /** Wall-clock epoch ms when the detector emitted this bite. */
   at: number;
+  /** Which rod produced it. Absent for single-rod sessions. */
+  rodId?: string;
+  /** Rod name at capture time, so a later rename can't rewrite the report. */
+  rodName?: string;
+}
+
+/** Per-rod tally for the report, so a multi-rod session is legible. */
+export interface RodTally {
+  rodId: string;
+  rodName: string;
+  bites: number;
+  /** Hardest strike on this rod. */
+  peakMagnitude: number;
 }
 
 export interface HotWindow {
@@ -40,6 +53,11 @@ export interface SessionSummary {
   hottestWindow: HotWindow | null;
   /** Conditions captured when the session started, if the fetch succeeded. */
   conditions: Partial<EnvironmentSnapshot> | null;
+  /**
+   * Bites per rod, busiest first. Empty for a session whose bites carry no rod
+   * attribution (single-rod, or records from before multi-rod).
+   */
+  perRod: RodTally[];
 }
 
 /** Width of the "hottest window" search. 30 min is a meaningful feeding burst. */
@@ -80,6 +98,31 @@ export function hottestWindow(
   return best && best.count >= 2 ? best : null;
 }
 
+/**
+ * Group bites by rod, busiest first. Bites with no rodId are skipped rather
+ * than lumped into an "unknown" bucket — a phantom rod in the report would be
+ * more confusing than an absent breakdown.
+ */
+export function tallyByRod(bites: readonly SessionBite[]): RodTally[] {
+  const byRod = new Map<string, RodTally>();
+  for (const b of bites) {
+    if (!b.rodId) continue;
+    const existing = byRod.get(b.rodId);
+    if (existing) {
+      existing.bites += 1;
+      existing.peakMagnitude = Math.max(existing.peakMagnitude, b.event.peakMagnitude);
+    } else {
+      byRod.set(b.rodId, {
+        rodId: b.rodId,
+        rodName: b.rodName ?? b.rodId,
+        bites: 1,
+        peakMagnitude: b.event.peakMagnitude,
+      });
+    }
+  }
+  return [...byRod.values()].sort((a, b) => b.bites - a.bites);
+}
+
 export function buildSessionSummary(input: BuildSessionInput): SessionSummary {
   const { startedAt, endedAt, conditions = null } = input;
   // Never trust arrival order: sort defensively so the window scan holds.
@@ -108,6 +151,7 @@ export function buildSessionSummary(input: BuildSessionInput): SessionSummary {
     avgConfidence: bites.length > 0 ? confidenceTotal / bites.length : 0,
     hottestWindow: hottestWindow(bites),
     conditions,
+    perRod: tallyByRod(bites),
   };
 }
 

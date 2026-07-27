@@ -14,12 +14,14 @@ import type { BleDeviceInfo, SensorConnection } from './types';
  * arrival timestamping are exercised. It generates ~1 g gravity + noise, an
  * optional constant "bait" wiggle, and injects small/big bites.
  */
+/**
+ * Distinct per instance, so several simulator rods don't collide on one id —
+ * rod status, bite attribution and the device list all key off info.id.
+ */
+let mockInstances = 0;
+
 export class MockSensor implements SensorConnection {
-  readonly info: BleDeviceInfo = {
-    id: 'MO:CK:E8:5S:00:01',
-    name: 'Castmate Simulator (E8S)',
-    battery: 87,
-  };
+  readonly info: BleDeviceInfo;
 
   private sampleListeners = new Set<(s: AccelSample) => void>();
   private disconnectListeners = new Set<() => void>();
@@ -32,7 +34,18 @@ export class MockSensor implements SensorConnection {
   private biteDuration = 0;
   private bitePeak = 0;
 
-  constructor(private readonly noiseSigma = 0.02) {
+  constructor(
+    private readonly noiseSigma = 0.02,
+    instanceLabel?: string,
+  ) {
+    mockInstances += 1;
+    const n = mockInstances;
+    const suffix = String(n).padStart(2, '0');
+    this.info = {
+      id: `MO:CK:E8:5S:00:${suffix}`,
+      name: instanceLabel ? `Simulator (${instanceLabel})` : 'Castmate Simulator (E8S)',
+      battery: 87,
+    };
     this.startLoop();
   }
 

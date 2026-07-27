@@ -46,6 +46,8 @@ function toRecord(uid: string, id: string, data: DocData | undefined): BiteRecor
     localImage: typeof d.localImage === 'string' ? d.localImage : null,
     note: typeof d.note === 'string' ? d.note : null,
     conditions: (d.conditions as Partial<EnvironmentSnapshot> | undefined) ?? null,
+    rodId: typeof d.rodId === 'string' ? d.rodId : null,
+    rodName: typeof d.rodName === 'string' ? d.rodName : null,
   };
 }
 
@@ -54,11 +56,17 @@ function mapSnapshot(uid: string, snapshot: FirebaseFirestoreTypes.QuerySnapshot
 }
 
 export const biteRepository = {
-  /** Persist a newly detected bite. Returns the stored document id. */
+  /**
+   * Persist a newly detected bite. Returns the stored document id.
+   *
+   * `rod` is denormalised into the record rather than referenced: a bite is a
+   * historical fact, so renaming or deleting the rod later must not alter it.
+   */
   async add(
     uid: string,
     event: BiteEvent,
     conditions?: Partial<EnvironmentSnapshot> | null,
+    rod?: { rodId: string; rodName: string } | null,
   ): Promise<string> {
     // Use a Firestore-generated id, not event.id. event.id derives from the
     // device-clock sample time + a per-session counter, both of which reset /
@@ -77,6 +85,8 @@ export const biteRepository = {
       localImage: null,
       note: null,
       conditions: conditions ?? null,
+      rodId: rod?.rodId ?? null,
+      rodName: rod?.rodName ?? null,
     };
     await ref.set(record);
     return ref.id;

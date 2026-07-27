@@ -128,6 +128,23 @@ export default function SessionReportScreen() {
               )}
             </View>
 
+            {/* Per-rod split stays FREE: with several rods armed, "which rod"
+                is the primary fact of the session, not a premium detail. */}
+            {summary.perRod.length > 1 && (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>By rod</Text>
+                {summary.perRod.map((r) => (
+                  <View key={r.rodId} style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>{r.rodName}</Text>
+                    <Text style={styles.detailValue}>
+                      {r.bites} {r.bites === 1 ? 'bite' : 'bites'} · peak{' '}
+                      {r.peakMagnitude.toFixed(2)} g
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Strike breakdown</Text>
               {detailed ? (

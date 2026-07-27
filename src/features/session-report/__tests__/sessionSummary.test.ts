@@ -6,6 +6,7 @@ import {
   HOT_WINDOW_MS,
   hottestWindow,
   type SessionBite,
+  tallyByRod,
   timelineBuckets,
 } from '../sessionSummary';
 
@@ -167,5 +168,81 @@ describe('formatDuration', () => {
 
   it('never renders a negative duration', () => {
     expect(formatDuration(-10)).toBe('0s');
+  });
+});
+
+describe('tallyByRod', () => {
+  const withRod = (offset: number, rodId: string, rodName: string, peak = 1): SessionBite => ({
+    ...bite(offset, { peakMagnitude: peak }),
+    rodId,
+    rodName,
+  });
+
+  it('groups bites per rod, busiest first', () => {
+    const tallies = tallyByRod([
+      withRod(1, 'a', 'Left rod'),
+      withRod(2, 'b', 'Right rod'),
+      withRod(3, 'a', 'Left rod'),
+      withRod(4, 'a', 'Left rod'),
+    ]);
+    expect(tallies.map((t) => [t.rodId, t.bites])).toEqual([
+      ['a', 3],
+      ['b', 1],
+    ]);
+  });
+
+  it('keeps each rod’s hardest strike', () => {
+    const tallies = tallyByRod([
+      withRod(1, 'a', 'Left rod', 0.4),
+      withRod(2, 'a', 'Left rod', 2.7),
+      withRod(3, 'a', 'Left rod', 1.1),
+    ]);
+    expect(tallies[0]!.peakMagnitude).toBeCloseTo(2.7, 5);
+  });
+
+  it('skips bites with no rod attribution rather than inventing a rod', () => {
+    // Single-rod sessions and pre-multi-rod records carry no rodId; an
+    // "unknown rod" row in the report would be worse than no breakdown.
+    expect(tallyByRod([bite(1), bite(2)])).toEqual([]);
+  });
+
+  it('uses the name captured at bite time, not a current lookup', () => {
+    const tallies = tallyByRod([withRod(1, 'a', 'Old name')]);
+    expect(tallies[0]!.rodName).toBe('Old name');
+  });
+
+  it('falls back to the id when a name is missing', () => {
+    const b: SessionBite = { ...bite(1), rodId: 'a' };
+    expect(tallyByRod([b])[0]!.rodName).toBe('a');
+  });
+
+  it('is empty for no bites', () => {
+    expect(tallyByRod([])).toEqual([]);
+  });
+});
+
+describe('buildSessionSummary — rod breakdown', () => {
+  it('exposes perRod for a multi-rod session', () => {
+    const s = buildSessionSummary({
+      startedAt: T0,
+      endedAt: T0 + 60 * MIN,
+      bites: [
+        { ...bite(1), rodId: 'a', rodName: 'Left' },
+        { ...bite(2), rodId: 'b', rodName: 'Right' },
+        { ...bite(3), rodId: 'a', rodName: 'Left' },
+      ],
+    });
+    expect(s.perRod).toHaveLength(2);
+    expect(s.perRod[0]).toMatchObject({ rodId: 'a', bites: 2 });
+    expect(s.totalBites).toBe(3);
+  });
+
+  it('leaves perRod empty for an unattributed session', () => {
+    const s = buildSessionSummary({
+      startedAt: T0,
+      endedAt: T0 + 60 * MIN,
+      bites: [bite(1), bite(2)],
+    });
+    expect(s.perRod).toEqual([]);
   });
 });

@@ -16,8 +16,10 @@ photos, subscriptions, and ads for free users.
 index.ts → App.tsx → NavigationContainer → RootNavigator
                                               ├─ Auth stack   (SignIn / SignUp / VerifyEmail)
                                               └─ Main tabs     (Fishing / Conditions / History / Settings)
+                                                                 + Rods · Pair sensor (from Fishing)
                                                                  + Paywall · Session report (modals)
-                                                                 + Best times (pushed from Conditions)
+                                                                 + Best times (from Conditions)
+                                                                 + Catch insights (from History)
 
 src/
 ├─ config/            constants + default settings
@@ -29,15 +31,17 @@ src/
    ├─ subscription/   react-native-iap store + paywall (premium removes ads)
    ├─ environment/    Open-Meteo provider (multi-day), moon phase, hourly
    │                  fish-activity model, solunar month model, screens
-   ├─ ble/            GATT protocol + codec, real client (auto-reconnect), mock, store
-   ├─ bite-detection/ Kalman + moving-average filters, detector, live pipeline hook
-   ├─ graph/          real-time SVG acceleration chart + rolling buffer
+   ├─ rods/           rod model + entitlement gate, per-rod runtime, screens
+   ├─ ble/            shared scan broker, GATT + broadcast clients, mock, registry
+   ├─ bite-detection/ Kalman + moving-average filters, detector (one per rod)
+   ├─ graph/          real-time SVG acceleration chart + per-rod ring buffer
    ├─ bite-history/   Firestore repo, live list, image attach
    ├─ notifications/  haptics + sound + local push feedback
    ├─ ads/            policy-governed AdMob: banners, in-feed native units,
    │                  session-end interstitial, scoped rewarded unlocks
    │                  (see “Monetization” below)
    ├─ session-report/ post-session debrief (pure summary model + screen)
+   ├─ insights/       ERA5 retrospective catch analysis (lift model + screen)
    ├─ settings/       persisted settings (AsyncStorage) + screen
    └─ fishing/        main live-detection screen (always ad-free)
 ```
@@ -90,7 +94,7 @@ Advertising service data — UUID 0xFFE1 (Minew), 15 bytes, big-endian:
 
 Decoding is verified against a real capture (`minew.ts`, `minew.test.ts`). The
 in-app **`MockSensor`** emits through the *same* codec so the whole pipeline
-runs with no hardware (toggle *Use simulator* on the Fishing screen). Because
+runs with no hardware (pick *Simulator* as a rod's sensor on the Rods screen). Because
 there is no connection, "auto-reconnect" means the scan is continuous and
 resilient to gaps: if the tag goes quiet the UI shows *reconnecting* and
 resumes seamlessly when advertisements return.
@@ -107,6 +111,190 @@ reconfigure the tag.
 
 ---
 
+## Multiple rods
+
+`features/rods` monitors several rods **simultaneously** — each with its own
+sensor, its own `BiteDetector`, and its own named alarm, so an alert says *which*
+rod to pick up. Every user gets up to `MAX_RODS` (4), free.
+
+### Why rod count is NOT a paid feature
+
+It was, briefly, and that was a mistake worth recording. An angler fishing three
+rods needs three *sensors*, and sensors are the high-margin product (~$8 landed,
+and packaging/shipping is shared across a multi-sensor order). Gating rod count
+therefore puts a paywall between the customer and hardware they have already
+bought from us — throttling the exact upsell it was supposed to monetise, and
+charging rent on a device they own.
+
+It also fails the test that decides everything else on the paywall: **Premium
+gates things with real marginal cost to us** (weather API calls, cloud storage)
+plus ad removal. Rod count costs us nothing per user. `MAX_RODS` is a practical
+ceiling — 3–4 rods is standard, often legal-limit, practice for static-line
+fishing, and concurrent BLE links are finite — never a commercial one.
+
+### Why the runtime isn't a hook
+
+Every armed rod must keep detecting whether or not its chart is on screen. A
+hook is per-component, which would tie a rod's pipeline to its visibility — and
+a bite alarm that silently watches only the selected rod is worse than none,
+because the user believes it is watching all of them. So `rodRuntime.ts` owns the
+pipelines outside React and publishes a coalesced snapshot (`FLUSH_MS`) that
+components subscribe to. `AccelRingBuffer` exists for the same reason: one
+buffer per rod, no hook.
+
+The cross-rod session bite log also lives in the runtime. The screen could not
+reconstruct it from the graph buffers — those are rolling windows, so any bite
+that scrolled out between polls would vanish from the report.
+
+### Two BLE constraints that shaped this
+
+1. **`react-native-ble-plx` has exactly one global scan.** Before multi-rod a
+   single client owned it outright. Concurrently, a second `startDeviceScan`
+   either errors or replaces the first client's callback, and the first client to
+   disarm would call `stopDeviceScan()` and deafen every rod still fishing. So
+   nobody touches the scan directly any more: `scanBroker.ts` refcounts one
+   shared scan and fans advertisements out to all subscribers, each filtering for
+   its own device. Both `MinewSensorClient` and `GattSensorClient` go through it.
+   (Consequence: `scanServiceUUIDs` is now applied client-side rather than as a
+   platform filter — same outcome, a few more advertisements inspected.)
+
+2. **Sensors must be bound per rod.** An unbound broadcast client locks onto the
+   first tag it hears, so two unbound rods would latch the *same* tag and report
+   one physical sensor as two rods. `Rod.deviceId` is therefore mandatory for
+   every real sensor (`requiresDeviceBinding`), `armRod()` refuses an unbound
+   rod rather than misleading the user, and `PairSensorScreen` exists to make
+   that binding — warning when a tag is already claimed by another rod.
+
+### History is immutable
+
+Rod names on bite records are denormalised (`BiteRecord.rodName`) so renaming or
+deleting a rod never rewrites history — a bite is a historical fact.
+
+---
+
+## Catch insights (ERA5 retrospective analysis)
+
+`features/insights` answers *which conditions actually produced your bites*, by
+matching bite history against **ERA5 reanalysis** from Open-Meteo's archive API.
+Reanalysis, not forecast: it has been corrected against observations after the
+fact, which is what makes it the right source for looking backwards.
+
+**Why raw bite counts are useless here.** "You caught 40% of your fish on a
+falling barometer" means nothing until you know how often the barometer was
+falling. So each bucket is scored by **lift**:
+
+```
+lift = (share of bites in bucket) / (share of background hours in bucket)
+```
+
+The background distribution comes from the *same* hourly series the bites are
+matched against, so both shares are measured over identical ground. `lift > 1`
+means over-represented among catches relative to how often the condition
+occurred; `1.0` is exactly chance.
+
+Guards against telling users comfortable nonsense:
+
+- `MIN_SAMPLE` (12) matched bites before anything is shown at all.
+- `MIN_BUCKET_BITES` (3) before a bucket may be named "best" — otherwise one
+  lucky cast in a rare condition reports enormous lift.
+- A bucket needs `lift > 1` to be recommended at all.
+- Dimensions with fewer than two occupied buckets are dropped (a one-bucket
+  scale conveys nothing), as are buckets that never occurred.
+- An unknown `pressureTrend` is **excluded**, never counted as "steady" —
+  `EnvironmentSnapshot.pressureTrend` is optional precisely so snapshots
+  persisted before the field existed don't skew the analysis.
+
+**Stated limitation** (in the UI, not just here): lift corrects for how common
+a condition was, but *not* for when the angler chose to fish. Someone who only
+fishes at dawn will see dawn lead regardless of the fish. Fixing that needs
+per-session effort logging (hours fished per bucket), which bite records don't
+carry yet.
+
+**Windowing** (`historyWindow.ts`): one contiguous archive request covering the
+narrower of "since your first bite" and `INSIGHTS_WINDOW_DAYS` (180), ending
+`ERA5_LAG_DAYS` (5) before today — reanalysis inside that tail is a mix of ERA5T
+and model estimates, so it is excluded rather than blended into the statistics.
+Bites too recent to analyse are surfaced as a count, not silently dropped.
+Verified: a 180-day request returns ~4,300 hours in ~173 KB, cached per
+(coords, window).
+
+> **Licensing:** Open-Meteo's free tier is **non-commercial only** — apps with
+> ads or subscriptions require a paid plan or self-hosting (it is AGPL open
+> source). This applies to the whole `environment` feature, not just the
+> archive. Resolve before shipping.
+
+---
+
+## Pricing
+
+**Two ways to buy the same entitlement:** a one-off **lifetime** unlock and a
+**yearly** subscription. No monthly plan — usage is strongly seasonal, so any
+short recurring plan churns hardest of all.
+
+Offering both is deliberate rather than indecisive. A one-off purchase matches
+the mental model of someone who just bought a bite alarm and removes the
+end-of-season churn cliff entirely; recurring revenue is worth several times more
+at valuation. Rather than guess the split, both are offered and real behaviour
+decides.
+
+They are different **store product types**, not just different prices — a
+Non-Consumable IAP / Play one-time product versus an Auto-Renewable
+Subscription. `PLAN_KIND` in `config/constants.ts` maps each plan to its type,
+which drives `getProducts` vs `getSubscriptions` and `requestPurchase` vs
+`requestSubscription`. Send the wrong one and the catalogue silently comes back
+empty.
+
+> **Prices are NOT in the codebase.** `IAP_PRODUCT_IDS` holds one product id; the
+> paywall displays only the `localizedPrice` the store returns. Hardcoding a
+> figure would desync from what the user is actually charged, and App Store
+> review rejects a displayed price that differs from the storefront's.
+
+Configure per storefront:
+
+| Storefront | Lifetime | Yearly |
+| --- | --- | --- |
+| Worldwide (base) | **$39.99** | **$19.99 / year** |
+| Tunisia | **39.99 TND** | **19.99 TND / year** |
+
+- **App Store Connect** — create the lifetime product as a **Non-Consumable**
+  and the yearly as an **Auto-Renewable Subscription**. Set each base price,
+  then override the Tunisia storefront manually (Apple otherwise derives it by
+  FX from the base).
+- **Play Console** — lifetime as a **one-time product**, yearly as a
+  **subscription**; set an explicit per-country price for Tunisia on both.
+
+The paired numbers are different amounts: 19.99 TND is roughly $6.40, so Tunisia
+is priced at about a third of the base. That is normal purchasing-power regional
+pricing — just be aware it is a discount, not a currency relabel.
+
+**Why $19.99 and not more.** The price reflects what Premium actually gates —
+features with genuine marginal cost (weather API calls, cloud storage) plus ad
+removal. It is deliberately not priced as though the app were the whole product:
+the sensor is the product, and the app is its companion. Rod count is free (see
+*Multiple rods*), so the paywall never stands between a customer and hardware
+they have bought.
+
+### Two details that matter
+
+**Restore is mandatory, not a courtesy.** For a non-consumable,
+`getAvailablePurchases()` is the only way a user on a new device recovers their
+entitlement, and Apple requires a working restore path that reviewers test.
+
+**Lifetime wins over subscription** (`premiumSource.ts`). If someone holds both —
+bought lifetime while a yearly plan was still running — the durable entitlement
+is the truth, and the paywall tells them to cancel the redundant subscription,
+since only the store can do that. Restore filters to active items, which on
+StoreKit 2 does exclude lapsed subscriptions, but that is still the *client*
+deciding it is entitled; only server-side receipt validation settles it. A
+lifetime id needs no such judgement, which is why the one-off purchase is
+strictly more reliable to restore.
+
+**Still open:** selling a sensor + Pro kit through your own web checkout. Physical
+goods sit outside App Store IAP rules, so a bundle keeps the full price on both
+halves and converts hardware buyers without an in-app funnel at all.
+
+---
+
 ## Monetization (freemium)
 
 **Doctrine: the moment of fishing is sacred — monetize planning and reviewing,
@@ -116,7 +304,7 @@ never catching.** All rules live in one pure, unit-tested gate
 | Surface | Treatment |
 | --- | --- |
 | Fishing (live) | **No ads, ever** — the core surface stays clean; that cleanliness is the premium pitch |
-| Conditions / History / Session report / Best times / Settings | Anchored adaptive banner (passive planning & review contexts) |
+| Conditions / History / Session report / Best times / Insights / Settings | Anchored adaptive banner (passive planning & review contexts) |
 | Bite history feed | **Native advanced** unit every 8 rows — never first, never last (`features/ads/feed.ts`) |
 | Session end (user taps *Disconnect*) | ≤ 1 interstitial, policy-gated; dropped connections never trigger ads |
 | Each gated feature, at its point of need | **Rewarded ad → one scoped unlock** (`features/ads/rewards.ts`) |
@@ -139,6 +327,7 @@ the whole product (which would cannibalise the subscription it exists to sell):
 | Unlock | Gate it opens | Lasts |
 | --- | --- | --- |
 | `extended-forecast` | Outlook beyond `FREE_FORECAST_DAYS` (3) | 24 h |
+| `catch-insights` | ERA5 retrospective analysis of your own catches | 24 h |
 | `session-report` | Timeline, strike breakdown, conditions card | 3 h |
 | `history-depth` | Bites older than `FREE_HISTORY_DAYS` (30) | 24 h |
 | `sound-pack` | Alert sounds beyond `FREE_SOUND_COUNT` (2) | 7 days |

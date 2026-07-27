@@ -35,6 +35,13 @@ export interface BiteEvent {
  */
 export interface BiteRecord extends BiteEvent {
   userId: string;
+  /** Rod this bite came from. Null for records logged before multi-rod. */
+  rodId?: string | null;
+  /**
+   * Rod name AS IT WAS when the bite was logged — denormalised on purpose.
+   * Renaming or deleting a rod must not rewrite history.
+   */
+  rodName?: string | null;
   /** Cloud (Firebase Storage) download URL — premium only. */
   imageUrl?: string | null;
   /** Relative on-device path (free tier); resolved via photoStorage. */
@@ -62,6 +69,12 @@ export interface EnvironmentSnapshot {
   time: string; // ISO-8601
   /** hPa */
   pressure: number;
+  /**
+   * Barometric change rate at this hour (hPa/hour); negative = falling.
+   * Optional because snapshots persisted before this field existed won't have
+   * it — treat `undefined` as "unknown", never as 0 (steady).
+   */
+  pressureTrend?: number;
   /** °C */
   temperature: number;
   /** m/s */

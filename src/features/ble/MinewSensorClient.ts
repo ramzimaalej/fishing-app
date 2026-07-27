@@ -2,9 +2,9 @@ import type { Device } from 'react-native-ble-plx';
 
 import type { AccelSample } from '@/types';
 
-import { getBleManager } from './bleManager';
 import { b64ToHex, BLE_DEBUG, bleLog } from './debug';
 import { decodeMinewAccFrame, type MinewAccReading, readingToSample } from './minew';
+import { subscribeToScan } from './scanBroker';
 import type { BleDeviceInfo, SensorConnection } from './types';
 
 /** If no advertisement from the locked tag arrives within this window, we
@@ -60,13 +60,16 @@ export class MinewSensorClient implements SensorConnection {
   private lastFrameAt = 0;
   private stale = false;
   private staleTimer: ReturnType<typeof setInterval> | null = null;
-  private scanning = false;
+  private unsubscribeScan: (() => void) | null = null;
   private clock: () => number;
   private sampleCount = 0;
   private readonly seenIds = new Set<string>();
 
   /**
-   * @param targetMac optional remembered tag to lock onto directly
+   * @param targetMac the tag this instance owns. REQUIRED when several clients
+   *   run at once (multi-rod): without it a client locks onto the first tag it
+   *   sees, so two unbound clients would both read the same tag and report it as
+   *   two rods. Null is only safe for a single-rod setup or tag discovery.
    * @param clock injectable time source (defaults to Date.now)
    */
   constructor(
@@ -76,20 +79,14 @@ export class MinewSensorClient implements SensorConnection {
     this.clock = clock;
   }
 
-  /** Begin scanning for E8S advertisements. */
+  /** Begin listening for E8S advertisements on the shared scan. */
   start(): void {
-    if (this.scanning) return;
-    this.scanning = true;
-    bleLog('Minew: scan start (all devices; matching 0xFFE1 Acc service data)');
-    // The E8S carries its Acc frame in service DATA, not the advertised service
-    // UUID list — so scan ALL devices and match on the service data itself. A
-    // UUID scan filter can silently miss service-data-only beacons.
-    getBleManager().startDeviceScan(null, { allowDuplicates: true }, (error, device) => {
-      if (error) {
-        bleLog('Minew: scan error:', error.message);
-        return;
-      }
-      if (!device) return;
+    if (this.unsubscribeScan) return;
+    bleLog(`Minew: listening (target ${this.targetMac ?? 'first tag seen'})`);
+    // Subscribes to the shared refcounted scan rather than owning one, so
+    // several rods can listen concurrently and one disarming never stops the
+    // others' scan. See scanBroker.ts.
+    this.unsubscribeScan = subscribeToScan((device) => {
       const reading = extractReading(device);
       if (BLE_DEBUG) this.logCandidate(device, reading);
       if (reading) this.onReading(reading, device.rssi ?? -127);
@@ -114,8 +111,9 @@ export class MinewSensorClient implements SensorConnection {
   private onReading(reading: MinewAccReading, rssi: number): void {
     this.discovered.set(reading.mac, { mac: reading.mac, rssi, batteryPct: reading.batteryPct });
 
-    // Lock policy: a specified target, else the first tag seen. (Strongest-RSSI
-    // selection across multiple tags is a future multi-tag-picker enhancement.)
+    // Lock policy: the bound target if there is one, else the first tag seen.
+    // With multi-rod every armed client is bound (rodConnections refuses to arm
+    // an unbound broadcast rod), so the fallback only applies to discovery.
     if (!this.lockedMac) {
       if (this.targetMac && reading.mac !== this.targetMac) return; // wait for ours
       this.lockedMac = reading.mac;
@@ -172,16 +170,14 @@ export class MinewSensorClient implements SensorConnection {
   }
 
   async disconnect(): Promise<void> {
-    this.scanning = false;
     if (this.staleTimer) {
       clearInterval(this.staleTimer);
       this.staleTimer = null;
     }
-    try {
-      getBleManager().stopDeviceScan();
-    } catch {
-      /* manager may already be torn down */
-    }
+    // Release our slot on the shared scan. The broker stops the underlying scan
+    // only when the LAST listener leaves, so other rods keep receiving.
+    this.unsubscribeScan?.();
+    this.unsubscribeScan = null;
     this.sampleListeners.clear();
     this.disconnectListeners.clear();
   }

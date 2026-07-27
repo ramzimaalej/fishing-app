@@ -20,6 +20,8 @@ export type BannerPlacement =
   | 'history'
   | 'session-report'
   | 'best-times'
+  | 'insights'
+  | 'rods'
   | 'settings';
 
 /** Where an in-feed native unit may appear. */
