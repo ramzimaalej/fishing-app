@@ -15,15 +15,20 @@ import { getAdsSdk } from './sdk';
  * anglers open this app at the moment of action, and gating launch behind an
  * ad risks a missed bite (and an uninstall).
  */
+/**
+ * Only surfaces with real dwell time carry a banner. Task screens (Rods,
+ * Settings) deliberately do NOT: users open them to change one thing and leave,
+ * so a banner earned almost nothing there while making setup feel cheap.
+ */
 export type BannerPlacement =
   | 'conditions'
   | 'history'
   | 'session-report'
   | 'best-times'
-  | 'settings';
+  | 'insights';
 
 /** Where an in-feed native unit may appear. */
-export type NativePlacement = 'history-feed';
+export type NativePlacement = 'history-feed' | 'conditions-outlook';
 
 export type FullScreenAdKind = 'interstitial' | 'rewarded';
 

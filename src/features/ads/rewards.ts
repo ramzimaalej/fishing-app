@@ -19,6 +19,7 @@
 /** A premium capability that a rewarded ad can temporarily unlock. */
 export type RewardKind =
   | 'extended-forecast'
+  | 'catch-insights'
   | 'session-report'
   | 'history-depth'
   | 'sound-pack'
@@ -50,6 +51,14 @@ export const REWARDS: Record<RewardKind, RewardSpec> = {
     kind: 'extended-forecast',
     title: 'Unlock the full 7-day outlook',
     blurb: 'Plan the whole week — peak feeding window for every day.',
+    cta: 'Watch ad',
+    durationMs: DAY,
+    durationLabel: 'for 24 hours',
+  },
+  'catch-insights': {
+    kind: 'catch-insights',
+    title: 'Unlock your catch insights',
+    blurb: 'The barometer, temperature and tide that actually produced your bites.',
     cta: 'Watch ad',
     durationMs: DAY,
     durationLabel: 'for 24 hours',

@@ -17,6 +17,16 @@ export interface EnvironmentProvider {
    * `timezone=auto`, so `time.slice(0, 10)` is a safe local day key).
    */
   fetchRange(coords: GeoCoords, startDate: Date, days: number): Promise<EnvironmentSnapshot[]>;
+  /**
+   * Hourly ERA5 reanalysis for an inclusive past date window. Reanalysis is the
+   * best available *retrospective* record — unlike a forecast it has been
+   * corrected against observations — which is what makes it the right source
+   * for "what conditions did I actually catch in".
+   *
+   * The window must end at least ERA5_LAG_DAYS ago; callers are responsible for
+   * clamping (see historyWindow).
+   */
+  fetchHistory(coords: GeoCoords, from: Date, to: Date): Promise<EnvironmentSnapshot[]>;
 }
 
 /**
@@ -33,6 +43,17 @@ export const DEFAULT_COORDS: GeoCoords = { latitude: 37.81, longitude: -122.36 }
 
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const MARINE_URL = 'https://marine-api.open-meteo.com/v1/marine';
+/** ERA5 reanalysis archive — same hourly variable names as the forecast API. */
+const ARCHIVE_URL = 'https://archive-api.open-meteo.com/v1/archive';
+
+/**
+ * How far behind "now" the ERA5 archive is considered reliable.
+ *
+ * ERA5 proper runs ~5 days behind; Open-Meteo backfills the gap with ERA5T and
+ * model data of varying quality. We simply don't analyse the tail rather than
+ * mix reanalysis with near-real-time estimates in the same statistics.
+ */
+export const ERA5_LAG_DAYS = 5;
 
 interface HourlyWeather {
   time: string[];
@@ -86,24 +107,33 @@ function deriveTides(times: string[], levels: (number | null)[] | undefined): (T
   });
 }
 
-/** Pressure change rate (hPa/hour) at index i from neighbouring samples. */
-function pressureTrend(pressures: (number | null)[], i: number): number {
+/**
+ * Pressure change rate (hPa/hour) at index i from neighbouring samples, or
+ * undefined at the series start / across a data gap. Undefined means "unknown"
+ * and must not be conflated with 0, which means "steady".
+ */
+function pressureTrend(pressures: (number | null)[], i: number): number | undefined {
   const cur = pressures[i];
   const prev = i > 0 ? pressures[i - 1] : null;
-  if (cur == null || prev == null) return 0;
+  if (cur == null || prev == null) return undefined;
   return cur - prev; // samples are hourly → already hPa/hr
 }
 
-/** Shared fetch+map for an inclusive [startDay, endDay] window of local dates. */
+/**
+ * Shared fetch+map for an inclusive [startDay, endDay] window of local dates.
+ * `baseUrl` selects the forecast API or the ERA5 archive — the hourly variable
+ * names and response shape are identical across both.
+ */
 async function fetchWindow(
   coords: GeoCoords,
   startDay: string,
   endDay: string,
+  baseUrl: string = FORECAST_URL,
 ): Promise<EnvironmentSnapshot[]> {
   const { latitude, longitude } = coords;
 
   const weatherUrl =
-    `${FORECAST_URL}?latitude=${latitude}&longitude=${longitude}` +
+    `${baseUrl}?latitude=${latitude}&longitude=${longitude}` +
     `&hourly=surface_pressure,temperature_2m,wind_speed_10m,wind_direction_10m` +
     `&wind_speed_unit=ms&start_date=${startDay}&end_date=${endDay}&timezone=auto`;
 
@@ -134,10 +164,13 @@ async function fetchWindow(
     const moon = getMoonPhase(when);
     const pressure = w.surface_pressure[i] ?? 1013;
     const windSpeed = w.wind_speed_10m[i] ?? 0;
+    const trend = pressureTrend(w.surface_pressure, i);
 
     const fishActivity = predictFishActivity({
       pressure,
-      pressureTrendHpaPerHr: pressureTrend(w.surface_pressure, i),
+      // The model treats a missing trend as steady; the snapshot keeps the
+      // distinction so retrospective analysis can exclude unknowns.
+      pressureTrendHpaPerHr: trend ?? 0,
       windSpeed,
       moon,
       hour: when.getHours(),
@@ -147,6 +180,7 @@ async function fetchWindow(
     return {
       time,
       pressure,
+      pressureTrend: trend,
       temperature: w.temperature_2m[i] ?? 0,
       windSpeed,
       windDirection: w.wind_direction_10m[i] ?? 0,
@@ -173,5 +207,9 @@ export const openMeteoProvider: EnvironmentProvider = {
   fetchRange(coords, startDate, days): Promise<EnvironmentSnapshot[]> {
     const span = Math.max(1, Math.min(Math.trunc(days), MAX_FORECAST_DAYS));
     return fetchWindow(coords, dayOffset(startDate, 0), dayOffset(startDate, span - 1));
+  },
+
+  fetchHistory(coords, from, to): Promise<EnvironmentSnapshot[]> {
+    return fetchWindow(coords, isoDate(from), isoDate(to), ARCHIVE_URL);
   },
 };

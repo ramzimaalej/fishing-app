@@ -15,7 +15,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 
 import { FREE_SOUND_COUNT, NOTIFICATION_SOUNDS } from '@/config/constants';
-import { AdBanner, RewardedUnlockCard } from '@/features/ads';
+import { RewardedUnlockCard, useOfferSlot } from '@/features/ads';
 import { useAuthStore } from '@/features/auth/authStore';
 import { playSoundPreview, requestNotificationPermissions } from '@/features/notifications/feedback';
 import { useSubscriptionStore } from '@/features/subscription/subscriptionStore';
@@ -24,6 +24,10 @@ import { colors, radius, spacing, typography } from '@/theme';
 
 import SensitivitySlider from './components/SensitivitySlider';
 import { useSettingsStore } from './settingsStore';
+
+/** Module-level constants so the arrays keep a stable identity. */
+const SOUND_OFFERS = ['sound-pack'] as const;
+const EMPTY_OFFERS = [] as const;
 
 export default function SettingsScreen() {
   const settings = useSettingsStore((s) => s.settings);
@@ -37,6 +41,7 @@ export default function SettingsScreen() {
 
   const navigation = useNavigation<{ navigate: (route: string) => void }>();
   const isPremium = useSubscriptionStore((s) => s.isPremium);
+  const premiumSource = useSubscriptionStore((s) => s.source);
   const restore = useSubscriptionStore((s) => s.restore);
   const purchasing = useSubscriptionStore((s) => s.purchasing);
   const user = useAuthStore((s) => s.user);
@@ -44,6 +49,8 @@ export default function SettingsScreen() {
   const { has } = useEntitlements();
 
   const allSounds = has('sound-pack');
+  // Single offer, and only while the sounds are actually locked.
+  const soundOffer = useOfferSlot(allSounds ? EMPTY_OFFERS : SOUND_OFFERS);
   const [requesting, setRequesting] = useState(false);
 
   const onTogglePush = async (next: boolean) => {
@@ -162,7 +169,7 @@ export default function SettingsScreen() {
               );
             })}
 
-            {!allSounds && <RewardedUnlockCard kind="sound-pack" hideWhenUnlocked />}
+            {soundOffer && <RewardedUnlockCard kind={soundOffer} hideWhenUnlocked />}
           </View>
         )}
 
@@ -188,10 +195,18 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <View style={styles.row}>
           <View style={styles.rowText}>
-            <Text style={styles.rowLabel}>{isPremium ? 'Premium active' : 'Castmate Premium'}</Text>
+            <Text style={styles.rowLabel}>
+              {isPremium
+                ? premiumSource === 'lifetime'
+                  ? 'Premium — lifetime'
+                  : 'Premium active'
+                : 'Castmate Premium'}
+            </Text>
             <Text style={styles.rowHelp}>
               {isPremium
-                ? 'Ads removed and all features unlocked. Thank you!'
+                ? premiumSource === 'subscription'
+                  ? 'Renews yearly. Manage it in your store account settings.'
+                  : 'Ads removed and all features unlocked. Thank you!'
                 : 'Remove ads and unlock everything.'}
             </Text>
           </View>
@@ -235,8 +250,9 @@ export default function SettingsScreen() {
       </TouchableOpacity>
       </ScrollView>
 
-      {/* Passive settings surface — safe for an anchored banner. */}
-      <AdBanner placement="settings" />
+      {/* Banner removed: Settings is a task screen — users come to change one
+          thing and leave, so dwell time is seconds and a banner earned close to
+          nothing while making the screen feel cheap. */}
     </View>
   );
 }

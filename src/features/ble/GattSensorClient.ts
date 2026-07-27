@@ -4,6 +4,7 @@ import type { AccelSample } from '@/types';
 
 import { getBleManager } from './bleManager';
 import { b64ToHex, BLE_DEBUG, bleLog } from './debug';
+import { subscribeToScan } from './scanBroker';
 import type { BleDeviceInfo, SensorConnection } from './types';
 
 /** One decoded accelerometer reading (grams). Battery optional. */
@@ -77,6 +78,7 @@ export class GattSensorClient implements SensorConnection {
   private stopped = false;
   private notifCount = 0;
   private readonly seenIds = new Set<string>();
+  private unsubscribeScan: (() => void) | null = null;
 
   /**
    * @param config      how to find, unlock and decode the device
@@ -98,33 +100,51 @@ export class GattSensorClient implements SensorConnection {
     this.beginScan();
   }
 
+  /**
+   * Listen on the shared scan until a matching peripheral shows up.
+   *
+   * Uses scanBroker rather than owning the scan: with several rods armed, a
+   * client that called stopDeviceScan() on match would cut off every other rod
+   * still searching. Two consequences of sharing:
+   *  - `config.scanServiceUUIDs` can no longer be pushed down as a platform
+   *    filter, so it is applied client-side below. Same outcome, slightly more
+   *    advertisements inspected.
+   *  - the shared scan reports duplicates; harmless here, since we release the
+   *    subscription as soon as we match.
+   */
   private beginScan(): void {
     if (this.stopped) return;
     this.scanning = true;
-    bleLog(`${this.config.label}: scan start (filter=${this.config.scanServiceUUIDs ?? 'all'})`);
-    getBleManager().startDeviceScan(
-      this.config.scanServiceUUIDs ?? null,
-      { allowDuplicates: false },
-      (error, device) => {
-        if (error) {
-          bleLog(`${this.config.label}: scan error:`, error.message);
-          return;
-        }
-        if (!device || this.connecting) return;
-        const matched = this.targetId ? device.id === this.targetId : this.config.match(device);
-        if (BLE_DEBUG) this.logCandidate(device, matched);
-        if (!matched) return;
-        bleLog(`${this.config.label}: MATCHED ${device.id} — connecting`);
-        this.connecting = true;
-        this.scanning = false;
-        try {
-          getBleManager().stopDeviceScan();
-        } catch {
-          /* manager may be gone */
-        }
-        void this.connect(device.id);
-      },
-    );
+    const filter = this.config.scanServiceUUIDs ?? null;
+    bleLog(`${this.config.label}: listening (filter=${filter ?? 'all'})`);
+
+    this.unsubscribeScan = subscribeToScan((device) => {
+      if (this.connecting || this.stopped) return;
+
+      if (filter && filter.length > 0) {
+        const advertised = device.serviceUUIDs ?? [];
+        const hit = filter.some((want) =>
+          advertised.some((have) => have.toLowerCase() === want.toLowerCase()),
+        );
+        if (!hit) return;
+      }
+
+      const matched = this.targetId ? device.id === this.targetId : this.config.match(device);
+      if (BLE_DEBUG) this.logCandidate(device, matched);
+      if (!matched) return;
+
+      bleLog(`${this.config.label}: MATCHED ${device.id} — connecting`);
+      this.connecting = true;
+      this.scanning = false;
+      this.releaseScan();
+      void this.connect(device.id);
+    });
+  }
+
+  /** Give up our slot on the shared scan without disturbing other listeners. */
+  private releaseScan(): void {
+    this.unsubscribeScan?.();
+    this.unsubscribeScan = null;
   }
 
   /** Log each distinct advertiser once, with the fields that drive matching. */
@@ -328,11 +348,7 @@ export class GattSensorClient implements SensorConnection {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    try {
-      getBleManager().stopDeviceScan();
-    } catch {
-      /* manager may be gone */
-    }
+    this.releaseScan();
     const device = this.device;
     this.teardownLink();
     if (device) {

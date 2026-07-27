@@ -1,38 +1,56 @@
 import { useNavigation } from '@react-navigation/native';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SESSION_EXTENSION_HOURS } from '@/config/constants';
 import {
   AD_POLICY,
   maybeShowSessionEndInterstitial,
   prepareSessionAds,
   useAdsStore,
+  useRewardedAction,
 } from '@/features/ads';
-import { useBleStore } from '@/features/ble/bleStore';
-import { getSensorDevice, listSensorDevices, type SensorKind } from '@/features/ble/deviceRegistry';
-import { useBiteDetection } from '@/features/bite-detection/useBiteDetection';
-import { getCurrentConditions } from '@/features/environment/useEnvironment';
-import AccelerationChart from '@/features/graph/AccelerationChart';
-import { useSessionStore } from '@/features/session-report/sessionStore';
 import {
-  buildSessionSummary,
-  type SessionBite,
-} from '@/features/session-report/sessionSummary';
+  cancelSessionNotifications,
+  scheduleSessionNotifications,
+} from '@/features/notifications/feedback';
+import { useFishingSessionStore } from '@/features/session/fishingSessionStore';
+import {
+  canStartFree,
+  formatRemaining,
+  isNearExpiry,
+  msRemaining,
+  type SessionWindow,
+  warningAt,
+} from '@/features/session/sessionLimit';
+import { useIsPremium } from '@/features/subscription/subscriptionStore';
+import AccelerationChart from '@/features/graph/AccelerationChart';
+import {
+  armRods,
+  disarmAll,
+  getSessionBites,
+  startSessionLog,
+  type RodRuntimeView,
+} from '@/features/rods/rodRuntime';
+import { useRodStore } from '@/features/rods/rodStore';
+import { useAnyArmed, useArmableRods, useRodView } from '@/features/rods/useRodRuntime';
+import { useSessionStore } from '@/features/session-report/sessionStore';
+import { buildSessionSummary } from '@/features/session-report/sessionSummary';
 import SensitivitySlider from '@/features/settings/components/SensitivitySlider';
 import { useSettings, useSettingsStore } from '@/features/settings/settingsStore';
 import { colors, radius, spacing, typography } from '@/theme';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
 const STATUS_LABEL: Record<string, string> = {
-  idle: 'Not connected',
+  idle: 'Not armed',
   poweredOff: 'Bluetooth off',
   unauthorized: 'Permission needed',
   scanning: 'Scanning…',
   connecting: 'Connecting…',
-  connected: 'Connected',
+  connected: 'Live',
   reconnecting: 'Reconnecting…',
-  error: 'Connection error',
+  error: 'Error',
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -46,13 +64,15 @@ const STATUS_COLOR: Record<string, string> = {
   idle: colors.textMuted,
 };
 
-function BiteBanner({ bite }: { bite: BiteEvent }) {
+function BiteBanner({ bite, rodName }: { bite: BiteEvent; rodName: string }) {
   const isBig = bite.size === 'big';
   return (
     <View style={[styles.banner, { borderColor: isBig ? colors.big : colors.small }]}>
       <Text style={styles.bannerEmoji}>{isBig ? '🎣' : '🐟'}</Text>
       <View style={{ flex: 1 }}>
-        <Text style={styles.bannerTitle}>{isBig ? 'Big fish!' : 'Nibble'}</Text>
+        <Text style={styles.bannerTitle}>
+          {isBig ? 'Big fish!' : 'Nibble'} — {rodName}
+        </Text>
         <Text style={styles.bannerMeta}>
           Peak {bite.peakMagnitude.toFixed(2)} g · {Math.round(bite.confidence * 100)}% confidence
         </Text>
@@ -61,161 +81,266 @@ function BiteBanner({ bite }: { bite: BiteEvent }) {
   );
 }
 
+/** Compact per-rod status card. Tapping it selects that rod's chart. */
+function RodCard({
+  name,
+  view,
+  selected,
+  onPress,
+}: {
+  name: string;
+  view: RodRuntimeView;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.rodCard, selected && styles.rodCardSelected]} onPress={onPress}>
+      <View style={styles.rodCardHeader}>
+        <View
+          style={[styles.dot, { backgroundColor: STATUS_COLOR[view.status] ?? colors.textMuted }]}
+        />
+        <Text style={styles.rodCardName} numberOfLines={1}>
+          {name}
+        </Text>
+      </View>
+      <Text style={styles.rodCardCount}>{view.biteCount}</Text>
+      <Text style={styles.rodCardLabel}>
+        {view.status === 'connected' && !view.isWarmedUp
+          ? 'Calibrating'
+          : (STATUS_LABEL[view.status] ?? view.status)}
+      </Text>
+      {view.device?.battery != null && (
+        <Text style={styles.rodCardBattery}>🔋{view.device.battery}%</Text>
+      )}
+    </Pressable>
+  );
+}
+
 export default function FishingScreen() {
-  const status = useBleStore((s) => s.status);
-  const device = useBleStore((s) => s.device);
-  const bleError = useBleStore((s) => s.error);
-  const connect = useBleStore((s) => s.connect);
-  const disconnect = useBleStore((s) => s.disconnect);
-  const deviceKind = useBleStore((s) => s.deviceKind);
-  const setDeviceKind = useBleStore((s) => s.setDeviceKind);
+  const navigation = useNavigation<{ navigate: (route: string) => void }>();
+
+  // NOTE: the rod-runtime bridge is mounted by MainTabs, not here. Tying it to
+  // this screen would disarm every rod the moment the user opened another tab.
+  const rods = useRodStore((s) => s.rods);
+  const selectedRodId = useRodStore((s) => s.selectedRodId);
+  const selectRod = useRodStore((s) => s.selectRod);
+  const armable = useArmableRods();
+  const anyArmed = useAnyArmed();
 
   const settings = useSettings();
   const setLiveBaitMode = useSettingsStore((s) => s.setLiveBaitMode);
   const setSensitivity = useSettingsStore((s) => s.setSensitivity);
-
-  const navigation = useNavigation<{ navigate: (route: string) => void }>();
   const setLastSession = useSessionStore((s) => s.setLast);
 
-  const [lastBite, setLastBite] = useState<BiteEvent | null>(null);
+  const selected = selectedRodId ?? rods[0]?.id ?? null;
+  const selectedView = useRodView(selected);
+  const selectedRod = rods.find((r) => r.id === selected) ?? null;
 
-  // Bites accumulated for this session's report. Stamped with WALL-CLOCK time
-  // here because BiteEvent.timestamp is a device-clock value that cannot be
-  // placed on a real timeline (see types/index.ts).
-  const sessionBitesRef = useRef<SessionBite[]>([]);
-  // Conditions captured once at session start, for the report's context card.
+  const [armError, setArmError] = useState<string | null>(null);
+
+  // Session window: persisted and entitlement-limited (see sessionLimit.ts).
+  const isPremium = useIsPremium();
+  const sessionWindow = useFishingSessionStore((s) => s.window);
+  const startSession = useFishingSessionStore((s) => s.start);
+  const endSession = useFishingSessionStore((s) => s.end);
+  const extendSession = useFishingSessionStore((s) => s.extend);
+  const usedToday = useFishingSessionStore((s) => s.usedToday);
+
+  // Session accounting for the report + ad governance. The bite log itself is
+  // owned by the runtime (that's where bites are born, across all rods).
+  const sessionStartRef = useRef<number | null>(null);
   const sessionConditionsRef = useRef<Partial<EnvironmentSnapshot> | null>(null);
 
-  // This screen is deliberately AD-FREE: nothing may interrupt or crowd the
-  // live detection surface (see features/ads/adPolicy.ts for the doctrine).
-  const onBite = useCallback((bite: BiteEvent) => {
-    sessionBitesRef.current.push({ event: bite, at: Date.now() });
-    setLastBite(bite);
-  }, []);
+  // Re-renders once a minute so the countdown ticks without a per-second timer.
+  const remainingMs = useSessionCountdown(sessionWindow);
 
-  const { points, bites, threshold, isWarmedUp, sessionCount, clear } = useBiteDetection({ onBite });
+  const beginSession = useCallback(async () => {
+    if (armable.length === 0) {
+      setArmError('Add a rod first.');
+      return;
+    }
+    const window = startSession(isPremium);
+    sessionStartRef.current = window.startedAt;
+    sessionConditionsRef.current = null;
+    startSessionLog();
+    useAdsStore.getState().setFishingActive(true);
+    prepareSessionAds();
 
-  const isConnected = status === 'connected' || status === 'reconnecting';
-  const isBusy = status === 'connecting' || status === 'scanning';
+    if (window.expiresAt !== null) {
+      void scheduleSessionNotifications(window.expiresAt, warningAt(window));
+    }
 
-  // Session lifecycle for ad governance: mark active (hard-blocks any ad),
-  // warm the session-end interstitial, and count meaningful sessions.
-  const sessionStartRef = useRef<number | null>(null);
-  useEffect(() => {
-    const ads = useAdsStore.getState();
-    if (isConnected && sessionStartRef.current === null) {
-      sessionStartRef.current = Date.now();
-      sessionBitesRef.current = [];
-      sessionConditionsRef.current = null;
-      ads.setFishingActive(true);
-      prepareSessionAds();
-      // Best-effort context for the report; never blocks or fails the session.
-      void getCurrentConditions().then((c) => {
-        sessionConditionsRef.current = c;
-      });
-    } else if (!isConnected && sessionStartRef.current !== null) {
-      const seconds = (Date.now() - sessionStartRef.current) / 1000;
+    const errors = await armRods(armable);
+    if (errors.length > 0) setArmError(errors.join('\n'));
+    // Every rod failed → there is no session at all.
+    if (errors.length === armable.length) {
       sessionStartRef.current = null;
-      ads.setFishingActive(false);
-      if (seconds >= AD_POLICY.interstitial.minSessionSeconds) ads.recordCompletedSession();
+      endSession();
+      void cancelSessionNotifications();
+      useAdsStore.getState().setFishingActive(false);
     }
-  }, [isConnected]);
-  useEffect(() => () => useAdsStore.getState().setFishingActive(false), []);
+  }, [armable, isPremium, startSession, endSession]);
 
-  const onConnectPress = () => {
-    if (isConnected) {
-      const startedAt = sessionStartRef.current;
-      const endedAt = Date.now();
-      const capturedBites = sessionBitesRef.current;
-      const capturedConditions = sessionConditionsRef.current;
-
-      void disconnect();
-      clear();
-      setLastBite(null);
-
-      const seconds = startedAt !== null ? (endedAt - startedAt) / 1000 : 0;
-
-      // Debrief any session worth counting. Below that threshold it was a quick
-      // fiddle with the sensor, not a trip.
-      const reportable = startedAt !== null && seconds >= AD_POLICY.interstitial.minSessionSeconds;
-      if (reportable) {
-        setLastSession(
-          buildSessionSummary({
-            startedAt,
-            endedAt,
-            bites: capturedBites,
-            conditions: capturedConditions,
-          }),
-        );
+  // Rewarded ad → one more block. Fails open: if no ad can be shown the time is
+  // granted anyway, because refusing to watch rods over an empty ad network is
+  // a worse outcome than a missed impression.
+  const extendGate = useRewardedAction(
+    useCallback(() => {
+      extendSession();
+      const next = useFishingSessionStore.getState().window;
+      if (next?.expiresAt != null) {
+        void scheduleSessionNotifications(next.expiresAt, warningAt(next));
       }
-      sessionBitesRef.current = [];
+      // Re-arm if expiry had already disarmed everything.
+      void armRods(armable).then((errors) => {
+        if (errors.length > 0) setArmError(errors.join('\n'));
+      });
+      useAdsStore.getState().setFishingActive(true);
+    }, [extendSession, armable]),
+  );
 
-      // The ONLY interstitial trigger in the app: the user chose to end the
-      // session. Dropped connections never lead here. Delay lets the
-      // disconnect UI settle; the policy gate applies caps/cooldowns/grace.
-      //
-      // The report is deliberately NOT a second full-screen trigger — it opens
-      // once the ad is dismissed (or immediately if none showed), so ending a
-      // session still costs the user at most one interstitial.
-      setTimeout(() => {
-        maybeShowSessionEndInterstitial(seconds, () => {
-          if (reportable) navigation.navigate('SessionReport');
-        });
-      }, 900);
-    } else {
-      void connect();
+  const finishSession = useCallback(async () => {
+    const startedAt = sessionStartRef.current ?? sessionWindow?.startedAt ?? null;
+    const endedAt = Date.now();
+    const capturedBites = getSessionBites();
+    const capturedConditions = sessionConditionsRef.current;
+
+    await disarmAll();
+    sessionStartRef.current = null;
+    endSession();
+    void cancelSessionNotifications();
+    useAdsStore.getState().setFishingActive(false);
+
+    const seconds = startedAt !== null ? (endedAt - startedAt) / 1000 : 0;
+    const reportable = startedAt !== null && seconds >= AD_POLICY.interstitial.minSessionSeconds;
+    if (reportable) {
+      useAdsStore.getState().recordCompletedSession();
+      setLastSession(
+        buildSessionSummary({
+          startedAt,
+          endedAt,
+          bites: capturedBites,
+          conditions: capturedConditions,
+        }),
+        seconds,
+      );
+      // Payoff first: the report opens immediately and the session-end
+      // interstitial fires when the user leaves it. Same one impression, but it
+      // no longer stands between hours of fishing and the debrief.
+      navigation.navigate('SessionReport');
+      return;
     }
-  };
+
+    // Too short to debrief — there is no payoff to protect, so the policy gate
+    // gets its usual shot here.
+    setTimeout(() => maybeShowSessionEndInterstitial(seconds), 900);
+  }, [sessionWindow, endSession, navigation, setLastSession]);
+
+  // Paying for a further block by ad, when the daily allowance is spent.
+  const startGate = useRewardedAction(
+    useCallback(() => {
+      void beginSession();
+    }, [beginSession]),
+  );
+
+  const onToggleAll = useCallback(async () => {
+    setArmError(null);
+    if (anyArmed || sessionWindow) {
+      await finishSession();
+      return;
+    }
+
+    // A free account gets FREE_SESSIONS_PER_DAY blocks for nothing; beyond that
+    // starting is the same trade as extending — one ad per block.
+    if (!canStartFree(usedToday(Date.now()), isPremium).allowed) {
+      startGate.run();
+      return;
+    }
+    await beginSession();
+  }, [anyArmed, sessionWindow, finishSession, usedToday, isPremium, beginSession, startGate]);
+
+  useEffect(() => () => useAdsStore.getState().setFishingActive(false), []);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.title}>Fishing</Text>
-            <View style={styles.statusRow}>
-              <View
-                style={[styles.dot, { backgroundColor: STATUS_COLOR[status] ?? colors.textMuted }]}
-              />
-              <Text style={styles.statusText}>
-                {STATUS_LABEL[status] ?? status}
-                {device && isConnected ? ` · ${device.name}` : ''}
-                {device?.battery != null && isConnected ? ` · 🔋${device.battery}%` : ''}
-              </Text>
-            </View>
+            <Text style={styles.subtitle}>
+              {armable.length} {armable.length === 1 ? 'rod' : 'rods'}
+              {anyArmed ? ' · monitoring' : ' · idle'}
+            </Text>
           </View>
           <Pressable
-            style={[styles.connectBtn, isConnected && styles.connectBtnActive]}
-            onPress={onConnectPress}
-            disabled={isBusy}
+            style={[styles.armBtn, anyArmed && styles.armBtnActive]}
+            onPress={() => void onToggleAll()}
           >
-            <Text style={styles.connectBtnText}>
-              {isConnected ? 'Disconnect' : isBusy ? '…' : 'Connect'}
-            </Text>
+            <Text style={styles.armBtnText}>{anyArmed ? 'Stop' : 'Start'}</Text>
           </Pressable>
         </View>
 
-        {bleError && !isConnected && <Text style={styles.errorText}>{bleError}</Text>}
+        {armError && <Text style={styles.errorText}>{armError}</Text>}
 
-        {!isConnected && !isBusy && (
-          <DeviceSelector selected={deviceKind} onSelect={setDeviceKind} />
+        <SessionBanner
+          window={sessionWindow}
+          remainingMs={remainingMs}
+          isPremium={isPremium}
+          extendReady={extendGate.ready || extendGate.exempt}
+          onExtend={() => extendGate.run()}
+          onGoPremium={() => navigation.navigate('Paywall')}
+        />
+
+        {/* Rod strip — every armed rod is visible at a glance, which is the
+            whole point of multi-rod: knowing WHICH rod went off. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.rodStrip}>
+          {rods.map((rod) => (
+            <RodCardBinding
+              key={rod.id}
+              rodId={rod.id}
+              name={rod.name}
+              selected={rod.id === selected}
+              onPress={() => selectRod(rod.id)}
+            />
+          ))}
+          <Pressable style={styles.addRodCard} onPress={() => navigation.navigate('Rods')}>
+            <Text style={styles.addRodPlus}>＋</Text>
+            <Text style={styles.rodCardLabel}>Manage</Text>
+          </Pressable>
+        </ScrollView>
+
+        {selectedRod && (
+          <>
+            <Text style={styles.chartTitle}>{selectedRod.name}</Text>
+            <AccelerationChart points={selectedView.points} bites={selectedView.bites} />
+            <View style={styles.statsRow}>
+              <Stat label="Bites" value={String(selectedView.biteCount)} />
+              <Stat label="Threshold" value={`${selectedView.threshold.toFixed(2)} g`} />
+              <Stat
+                label="Sensor"
+                value={
+                  selectedView.status === 'connected'
+                    ? selectedView.isWarmedUp
+                      ? 'Ready'
+                      : 'Calibrating'
+                    : (STATUS_LABEL[selectedView.status] ?? '—')
+                }
+              />
+            </View>
+          </>
         )}
 
-        <AccelerationChart points={points} bites={bites} />
-
-        <View style={styles.statsRow}>
-          <Stat label="Bites this session" value={String(sessionCount)} />
-          <Stat label="Threshold" value={`${threshold.toFixed(2)} g`} />
-          <Stat label="Sensor" value={isWarmedUp ? 'Ready' : isConnected ? 'Calibrating' : '—'} />
-        </View>
-
-        {lastBite && <BiteBanner bite={lastBite} />}
+        {selectedView.lastBite && selectedRod && (
+          <BiteBanner bite={selectedView.lastBite} rodName={selectedRod.name} />
+        )}
 
         <View style={styles.card}>
           <View style={styles.switchRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.switchTitle}>Live bait mode</Text>
-              <Text style={styles.switchSub}>Filters constant bait motion for cleaner detection</Text>
+              <Text style={styles.switchSub}>
+                Filters constant bait motion — applies to every rod
+              </Text>
             </View>
             <Switch
               value={settings.liveBaitMode}
@@ -227,39 +352,116 @@ export default function FishingScreen() {
           <View style={styles.divider} />
           <SensitivitySlider value={settings.sensitivity} onChange={setSensitivity} />
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-function DeviceSelector({
-  selected,
-  onSelect,
+/**
+ * Milliseconds left on the window, re-rendering once a minute.
+ *
+ * A per-second tick would repaint the whole screen 3,600 times an hour for a
+ * countdown displayed to the minute. Null means unlimited (premium).
+ */
+function useSessionCountdown(window: SessionWindow | null): number | null {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!window || window.expiresAt === null) return;
+    const timer = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, [window]);
+  return msRemaining(window, Date.now());
+}
+
+/**
+ * Session state, countdown and the extend offer.
+ *
+ * Free windows lapse, and a lapse means rods stop being watched — so this is
+ * shown prominently rather than tucked away, and the near-expiry state is
+ * visually distinct so a glance is enough.
+ */
+function SessionBanner({
+  window,
+  remainingMs,
+  isPremium,
+  extendReady,
+  onExtend,
+  onGoPremium,
 }: {
-  selected: SensorKind;
-  onSelect: (kind: SensorKind) => void;
+  window: SessionWindow | null;
+  remainingMs: number | null;
+  isPremium: boolean;
+  extendReady: boolean;
+  onExtend: () => void;
+  onGoPremium: () => void;
 }) {
-  const devices = listSensorDevices();
-  return (
-    <View style={styles.selector}>
-      <Text style={styles.selectorLabel}>Sensor</Text>
-      <View style={styles.chipRow}>
-        {devices.map((d) => {
-          const active = d.kind === selected;
-          return (
-            <Pressable
-              key={d.kind}
-              onPress={() => onSelect(d.kind)}
-              style={[styles.chip, active && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{d.short}</Text>
-            </Pressable>
-          );
-        })}
+  if (!window) return null;
+
+  // Premium: unlimited, so there is nothing to count down or upsell.
+  if (remainingMs === null) {
+    return (
+      <View style={styles.sessionCard}>
+        <Text style={styles.sessionLabel}>Session</Text>
+        <Text style={styles.sessionValue}>No time limit</Text>
       </View>
-      <Text style={styles.selectorHint}>{getSensorDevice(selected).description}</Text>
+    );
+  }
+
+  const expired = remainingMs <= 0;
+  const near = isNearExpiry(window, Date.now());
+
+  return (
+    <View
+      style={[
+        styles.sessionCard,
+        near && styles.sessionCardWarn,
+        expired && styles.sessionCardExpired,
+      ]}
+    >
+      <View style={styles.sessionRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sessionLabel}>
+            {expired ? 'Session ended' : near ? 'Ending soon' : 'Session'}
+          </Text>
+          <Text style={styles.sessionValue}>
+            {expired ? 'Rods are no longer monitored' : `${formatRemaining(remainingMs)} left`}
+          </Text>
+        </View>
+        {(expired || near) && (
+          <Pressable style={styles.extendBtn} onPress={onExtend}>
+            <Text style={styles.extendBtnText}>
+              {/* Honest label: only promise an ad when one can actually be shown. */}
+              {extendReady ? `🎬 +${SESSION_EXTENSION_HOURS}h` : `+${SESSION_EXTENSION_HOURS}h`}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+
+      {(expired || near) && !isPremium && (
+        <Pressable onPress={onGoPremium} hitSlop={8}>
+          <Text style={styles.sessionUpsell}>
+            Premium fishes without a time limit — no ads, no interruptions.
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
+}
+
+/** Subscribes one rod's view — a component per rod keeps the hook rule intact. */
+function RodCardBinding({
+  rodId,
+  name,
+  selected,
+  onPress,
+}: {
+  rodId: string;
+  name: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const view = useRodView(rodId);
+  return <RodCard name={name} view={view} selected={selected} onPress={onPress} />;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -273,44 +475,71 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  content: { flex: 1, padding: spacing.md, gap: spacing.md },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  content: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xl },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { ...typography.h1, color: colors.text },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 2 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  statusText: { ...typography.caption, color: colors.textMuted },
-  connectBtn: {
+  subtitle: { ...typography.caption, color: colors.textMuted },
+  armBtn: {
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     borderRadius: radius.pill,
   },
-  connectBtnActive: { backgroundColor: colors.surfaceAlt },
-  connectBtnText: { ...typography.h3, color: colors.text },
+  armBtnActive: { backgroundColor: colors.surfaceAlt },
+  armBtnText: { ...typography.h3, color: colors.text },
   errorText: { ...typography.caption, color: colors.danger },
-  selector: {
+  sessionCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    padding: spacing.md,
     gap: spacing.xs,
   },
-  selectorLabel: { ...typography.caption, color: colors.textMuted, textTransform: 'uppercase' },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+  sessionCardWarn: { borderColor: colors.accent },
+  sessionCardExpired: { borderColor: colors.danger },
+  sessionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  sessionLabel: { ...typography.caption, color: colors.textMuted, textTransform: 'uppercase' },
+  sessionValue: { ...typography.h3, color: colors.text, marginTop: 2 },
+  extendBtn: {
+    backgroundColor: colors.primary,
     borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  extendBtnText: { ...typography.body, color: colors.bg, fontWeight: '700' },
+  sessionUpsell: { ...typography.caption, color: colors.accent, marginTop: spacing.xs },
+  rodStrip: { marginHorizontal: -spacing.md, paddingHorizontal: spacing.md },
+  rodCard: {
+    width: 104,
+    marginRight: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surface,
+    gap: 2,
   },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { ...typography.caption, color: colors.textMuted },
-  chipTextActive: { color: colors.text },
-  selectorHint: { ...typography.caption, color: colors.textMuted },
+  rodCardSelected: { borderColor: colors.primary },
+  rodCardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  rodCardName: { ...typography.caption, color: colors.text, flex: 1, fontWeight: '600' },
+  rodCardCount: { ...typography.h2, color: colors.primary },
+  rodCardLabel: { ...typography.caption, color: colors.textMuted },
+  rodCardBattery: { ...typography.caption, color: colors.textMuted },
+  addRodCard: {
+    width: 104,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  addRodPlus: { fontSize: 24, color: colors.primary },
+  chartTitle: { ...typography.h3, color: colors.text },
   statsRow: { flexDirection: 'row', gap: spacing.sm },
   stat: {
     flex: 1,

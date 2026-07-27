@@ -9,60 +9,84 @@ import {
   View,
 } from 'react-native';
 
-import { IAP_PRODUCT_IDS } from '@/config/constants';
+import { PLAN_KIND, PLAN_ORDER, type PlanKey } from '@/config/constants';
 import { colors, radius, spacing, typography } from '@/theme';
 
+import { shouldPromptSubscriptionCancel } from './premiumSource';
 import { useSubscriptionStore } from './subscriptionStore';
 
 /**
  * Every line here maps to a gate that is actually enforced in code — see
  * config/constants.ts (free-tier limits) and features/ads/rewards.ts. Adding a
  * claim without its gate would be both a lie and an App Store 3.1.2 problem.
+ *
+ * Note what is NOT here: rod count. Every user monitors up to MAX_RODS rods for
+ * free, on purpose (features/rods/rod.ts). What Premium gates is the set of
+ * things that cost us something per user — weather API calls, cloud storage —
+ * plus ad removal.
  */
 const BENEFITS = [
   'Remove all ads',
   'Full 7-day bite outlook',
+  'Catch insights from your own history',
   'Complete session reports',
   'Unlimited bite history',
   'All alert sounds',
   'Cloud backup for catch photos',
 ];
 
-/** Fallback presentation when live product metadata hasn't loaded yet. */
-const FALLBACK_PLANS: { id: string; title: string; blurb: string }[] = [
-  { id: IAP_PRODUCT_IDS.yearly, title: 'Yearly', blurb: 'Best value' },
-  { id: IAP_PRODUCT_IDS.monthly, title: 'Monthly', blurb: 'Flexible' },
-];
+/** Copy per plan. Structure (id, product type) lives in config/constants.ts. */
+const PLAN_COPY: Record<PlanKey, { title: string; blurb: string; tag?: string }> = {
+  lifetime: {
+    title: 'Lifetime',
+    blurb: 'One payment, yours forever',
+    tag: 'Best value',
+  },
+  yearly: {
+    title: 'Yearly',
+    blurb: 'Renews each year until cancelled',
+  },
+};
 
-interface PlanView {
-  id: string;
-  title: string;
-  blurb: string;
-  price?: string;
+/**
+ * Price string the STORE quoted for a plan. Never a hardcoded figure: each
+ * storefront must show exactly what it will charge, and App Store review
+ * rejects a displayed price that differs from the storefront's.
+ *
+ * Subscriptions and one-off products expose it under different shapes, and Play
+ * nests it under offer/pricing phases — hence the chain.
+ */
+function priceOf(product: any): string | undefined {
+  return (
+    product?.localizedPrice ??
+    product?.oneTimePurchaseOfferDetails?.formattedPrice ??
+    product?.subscriptionOfferDetails?.[0]?.pricingPhases?.pricingPhaseList?.[0]?.formattedPrice
+  );
 }
 
 export default function PaywallScreen(): JSX.Element {
   const navigation = useNavigation<any>();
-  const { isPremium, products, purchasing, error, init, purchase, restore } =
-    useSubscriptionStore();
+  const {
+    isPremium,
+    source,
+    products,
+    ownedProductIds,
+    purchasing,
+    pendingPlan,
+    error,
+    init,
+    purchase,
+    restore,
+  } = useSubscriptionStore();
 
   useEffect(() => {
     void init();
   }, [init]);
 
-  const plans: PlanView[] = FALLBACK_PLANS.map((fallback) => {
-    const match = products.find(
-      (p: any) => p?.productId === fallback.id || p?.sku === fallback.id,
-    );
-    return {
-      ...fallback,
-      title: match?.title ?? fallback.title,
-      price:
-        match?.localizedPrice ??
-        match?.subscriptionOfferDetails?.[0]?.pricingPhases?.pricingPhaseList?.[0]
-          ?.formattedPrice,
-    };
-  });
+  // Owning lifetime while a yearly plan is still running means paying twice.
+  // Only the store can cancel it, so all we can do is say so — clearly.
+  const promptCancel = shouldPromptSubscriptionCancel(source, ownedProductIds);
+  const anySubscriptionOffered = PLAN_ORDER.some((p) => PLAN_KIND[p] === 'subscription');
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -76,8 +100,21 @@ export default function PaywallScreen(): JSX.Element {
 
       {isPremium ? (
         <View style={styles.premiumBox}>
-          <Text style={styles.premiumText}>You're Premium ✓</Text>
-          <Text style={styles.subhead}>Thanks for supporting Castmate.</Text>
+          <Text style={styles.premiumText}>
+            {source === 'lifetime' ? 'Premium — yours for life ✓' : "You're Premium ✓"}
+          </Text>
+          <Text style={styles.subhead}>
+            {source === 'subscription'
+              ? 'Renews yearly. Manage it in your store account settings.'
+              : 'Thanks for supporting Castmate.'}
+          </Text>
+
+          {promptCancel && (
+            <Text style={styles.cancelWarning}>
+              You also have an active yearly plan. Cancel it in your store account settings — your
+              lifetime unlock already covers everything.
+            </Text>
+          )}
         </View>
       ) : (
         <>
@@ -91,26 +128,56 @@ export default function PaywallScreen(): JSX.Element {
           </View>
 
           <View style={styles.plans}>
-            {plans.map((plan) => (
-              <Pressable
-                key={plan.id}
-                style={({ pressed }) => [styles.plan, pressed && styles.planPressed]}
-                disabled={purchasing}
-                onPress={() => void purchase(plan.id)}
-              >
-                <View>
-                  <Text style={styles.planTitle}>{plan.title}</Text>
-                  <Text style={styles.planBlurb}>{plan.blurb}</Text>
-                </View>
-                <Text style={styles.planPrice}>{plan.price ?? '—'}</Text>
-              </Pressable>
-            ))}
+            {PLAN_ORDER.map((plan) => {
+              const copy = PLAN_COPY[plan];
+              const price = priceOf(products[plan]);
+              const busy = purchasing && pendingPlan === plan;
+              // Nothing to buy until the store has quoted a real price — a card
+              // with no price must not be tappable.
+              const disabled = purchasing || !price;
+
+              return (
+                <Pressable
+                  key={plan}
+                  style={({ pressed }) => [
+                    styles.plan,
+                    copy.tag ? styles.planFeatured : null,
+                    pressed && !disabled ? styles.planPressed : null,
+                    disabled && styles.planDisabled,
+                  ]}
+                  disabled={disabled}
+                  onPress={() => void purchase(plan)}
+                >
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.planTitleRow}>
+                      <Text style={styles.planTitle}>{copy.title}</Text>
+                      {copy.tag && (
+                        <View style={styles.planTag}>
+                          <Text style={styles.planTagText}>{copy.tag}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.planBlurb}>{copy.blurb}</Text>
+                  </View>
+                  {busy ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : (
+                    <Text style={styles.planPrice}>{price ?? '…'}</Text>
+                  )}
+                </Pressable>
+              );
+            })}
           </View>
 
-          {purchasing && <ActivityIndicator color={colors.primary} style={styles.spinner} />}
+          <Text style={styles.planNote}>
+            Both unlock exactly the same features. Lifetime is a single payment — no renewal.
+          </Text>
+
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          <Pressable onPress={() => void restore()} hitSlop={8}>
+          {/* Required for the lifetime purchase: Apple mandates a restore path
+              for non-consumables, and reviewers test it. */}
+          <Pressable onPress={() => void restore()} hitSlop={8} disabled={purchasing}>
             <Text style={styles.restore}>Restore purchases</Text>
           </Pressable>
 
@@ -118,10 +185,13 @@ export default function PaywallScreen(): JSX.Element {
               feature's point of need, where the user already wants the thing —
               dangling one on the paywall only argues against buying. */}
 
-          <Text style={styles.legal}>
-            Subscriptions renew automatically until cancelled. Manage or cancel anytime in your
-            store account settings.
-          </Text>
+          {anySubscriptionOffered && (
+            <Text style={styles.legal}>
+              The yearly plan renews automatically until cancelled; manage or cancel it anytime in
+              your store account settings. The lifetime unlock is a one-time purchase and does not
+              renew.
+            </Text>
+          )}
         </>
       )}
     </ScrollView>
@@ -156,10 +226,32 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
   },
+  planFeatured: { borderColor: colors.primary },
   planPressed: { borderColor: colors.primary, opacity: 0.9 },
+  planDisabled: { opacity: 0.5 },
+  planTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   planTitle: { ...typography.h3, color: colors.text },
   planBlurb: { ...typography.caption, color: colors.primary, marginTop: 2 },
   planPrice: { ...typography.h3, color: colors.text },
+  planTag: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 1,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primary,
+  },
+  planTagText: { fontSize: 10, fontWeight: '800', color: colors.bg },
+  planNote: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  cancelWarning: {
+    ...typography.caption,
+    color: colors.accent,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
   spinner: { marginTop: spacing.md },
   error: { color: colors.danger, marginTop: spacing.md, textAlign: 'center' },
   restore: { color: colors.primary, marginTop: spacing.lg, ...typography.body },

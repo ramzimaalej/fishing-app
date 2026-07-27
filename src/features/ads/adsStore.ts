@@ -4,6 +4,13 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { dayKeyOf } from './adPolicy';
 import {
+  type OfferLedger,
+  pruneLedger,
+  recordShown,
+  recordTaken,
+  shouldOffer,
+} from './offerFatigue';
+import {
   pruneGrants,
   REWARD_KINDS,
   rewardExpiry,
@@ -30,6 +37,8 @@ interface AdsState {
   interstitialCountToday: number;
   /** Per-feature rewarded unlocks: kind → expiry epoch ms (see rewards.ts). */
   rewardGrants: RewardGrants;
+  /** How each rewarded offer is performing, for fatigue back-off. */
+  offerLedger: OfferLedger;
 
   // Volatile (not persisted).
   /** True while a fishing session is running — hard-blocks full-screen ads. */
@@ -45,6 +54,10 @@ interface AdsState {
   shownToday: (now: number) => number;
   /** Unlock one feature for its configured duration (rewarded ad earned). */
   grantReward: (kind: RewardKind) => void;
+  /** An offer was presented to the user (drives fatigue back-off). */
+  noteOfferShown: (kind: RewardKind) => void;
+  /** True when this offer isn't in its quiet period. */
+  mayOffer: (kind: RewardKind) => boolean;
   setNonPersonalized: (value: boolean) => void;
 }
 
@@ -62,6 +75,7 @@ export const useAdsStore = create<AdsState>()(
       interstitialDayKey: '',
       interstitialCountToday: 0,
       rewardGrants: {},
+      offerLedger: {},
 
       fishingActive: false,
       nonPersonalized: true,
@@ -94,8 +108,16 @@ export const useAdsStore = create<AdsState>()(
         set((s) => ({
           // Prune while we're here so lapsed keys don't accumulate forever.
           rewardGrants: { ...pruneGrants(s.rewardGrants, now), [kind]: rewardExpiry(kind, now) },
+          // Earning a reward means the offer worked: clear its ignored-run and
+          // any suppression, so someone who engages keeps being offered it.
+          offerLedger: recordTaken(s.offerLedger, kind),
         }));
       },
+
+      noteOfferShown: (kind) =>
+        set((s) => ({ offerLedger: recordShown(s.offerLedger, kind, Date.now()) })),
+
+      mayOffer: (kind) => shouldOffer(get().offerLedger, kind, Date.now()),
 
       setNonPersonalized: (value) => set({ nonPersonalized: value }),
     }),
@@ -110,6 +132,7 @@ export const useAdsStore = create<AdsState>()(
         interstitialDayKey: s.interstitialDayKey,
         interstitialCountToday: s.interstitialCountToday,
         rewardGrants: s.rewardGrants,
+        offerLedger: s.offerLedger,
       }),
       /**
        * v1 → v2: the single 24h "Premium Preview" became per-feature unlocks.
@@ -129,8 +152,11 @@ export const useAdsStore = create<AdsState>()(
       },
       // Stamp the install timestamp once, after hydration, so the 24h grace
       // window anchors to genuine first launch instead of every cold start.
+      // A new field needs no version bump — persist merges it over the default.
       onRehydrateStorage: () => () => {
-        useAdsStore.getState().stampInstall();
+        const store = useAdsStore.getState();
+        store.stampInstall();
+        useAdsStore.setState({ offerLedger: pruneLedger(store.offerLedger, Date.now()) });
       },
     },
   ),

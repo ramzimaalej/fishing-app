@@ -1,10 +1,14 @@
 import { useNavigation } from '@react-navigation/native';
 import { format } from 'date-fns';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AdBanner, RewardedUnlockCard } from '@/features/ads';
+import {
+  AdBanner,
+  maybeShowSessionEndInterstitial,
+  RewardedUnlockCard,
+} from '@/features/ads';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -67,8 +71,26 @@ function LockedBlock({ lines }: { lines: number }) {
 export default function SessionReportScreen() {
   const navigation = useNavigation<{ goBack: () => void; navigate: (r: string) => void }>();
   const summary = useSessionStore((s) => s.last);
+  const pendingSeconds = useSessionStore((s) => s.pendingInterstitialSeconds);
+  const clearPending = useSessionStore((s) => s.clearPendingInterstitial);
   const { has } = useEntitlements();
   const detailed = has('session-report');
+
+  /**
+   * Leaving the report is where the session-end interstitial fires — the report
+   * itself is the payoff for hours of fishing, so the ad goes after it rather
+   * than in front of it. Exactly one impression either way; the policy gate in
+   * adPolicy.ts still decides whether it shows at all.
+   */
+  const leave = useCallback(() => {
+    const seconds = pendingSeconds;
+    clearPending();
+    if (seconds === null) {
+      navigation.goBack();
+      return;
+    }
+    maybeShowSessionEndInterstitial(seconds, () => navigation.goBack());
+  }, [pendingSeconds, clearPending, navigation]);
 
   if (!summary) {
     return (
@@ -119,14 +141,31 @@ export default function SessionReportScreen() {
           </View>
         ) : (
           <>
+            {/* FREE. The timeline is the payoff for the session just fished,
+                and a report that looks locked stops getting opened — which
+                loses the banner impression AND the rewarded offer along with
+                it. The analytical breakdown below is what Premium gates. */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Bite timeline</Text>
-              {detailed ? (
-                <Timeline summary={summary} />
-              ) : (
-                <LockedBlock lines={3} />
-              )}
+              <Timeline summary={summary} />
             </View>
+
+            {/* Per-rod split stays FREE: with several rods armed, "which rod"
+                is the primary fact of the session, not a premium detail. */}
+            {summary.perRod.length > 1 && (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>By rod</Text>
+                {summary.perRod.map((r) => (
+                  <View key={r.rodId} style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>{r.rodName}</Text>
+                    <Text style={styles.detailValue}>
+                      {r.bites} {r.bites === 1 ? 'bite' : 'bites'} · peak{' '}
+                      {r.peakMagnitude.toFixed(2)} g
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
 
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Strike breakdown</Text>
@@ -192,7 +231,7 @@ export default function SessionReportScreen() {
           <RewardedUnlockCard kind="session-report" hideWhenUnlocked />
         )}
 
-        <Pressable style={styles.doneBtn} onPress={() => navigation.goBack()}>
+        <Pressable style={styles.doneBtn} onPress={leave}>
           <Text style={styles.doneText}>Done</Text>
         </Pressable>
       </ScrollView>

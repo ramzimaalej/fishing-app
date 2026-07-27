@@ -1,3 +1,4 @@
+import { useNavigation } from '@react-navigation/native';
 import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,6 +24,7 @@ import {
   NATIVE_FEED_INTERVAL,
   NativeAdCard,
   RewardedUnlockCard,
+  useOfferSlot,
 } from '@/features/ads';
 import { useAuth } from '@/features/auth/useAuth';
 import { useIsPremium } from '@/features/subscription/subscriptionStore';
@@ -109,6 +111,9 @@ function BiteRow({
           <Text style={styles.time}>{format(record.timestamp, 'MMM d, HH:mm:ss')}</Text>
         </View>
 
+        {/* Name as captured, so renaming or deleting a rod can't rewrite history. */}
+        {record.rodName ? <Text style={styles.rodTag}>🎣 {record.rodName}</Text> : null}
+
         <Text style={styles.metrics}>
           peak {record.peakMagnitude.toFixed(2)} g · {Math.round(record.confidence * 100)}%
           confidence
@@ -136,6 +141,7 @@ function BiteRow({
 }
 
 export default function BiteHistoryScreen() {
+  const navigation = useNavigation<{ navigate: (route: string) => void }>();
   const { user } = useAuth();
   const uid = user?.uid ?? null;
   const isPremium = useIsPremium();
@@ -156,6 +162,23 @@ export default function BiteHistoryScreen() {
   const { visible, hiddenCount } = useMemo(
     () => applyHistoryWindow(records, historyUnlocked),
     [records, historyUnlocked],
+  );
+
+  // ONE rewarded offer for this screen, not two. Depth first: a user looking at
+  // truncated history is reaching for exactly that, whereas photo backup is
+  // incidental to why they opened the list.
+  const hasUnbackedPhoto = useMemo(
+    () => records.some((r) => r.localImage && !r.imageUrl),
+    [records],
+  );
+  const offer = useOfferSlot(
+    useMemo(
+      () => [
+        ...(hiddenCount > 0 ? (['history-depth'] as const) : []),
+        ...(hasUnbackedPhoto ? (['photo-backup'] as const) : []),
+      ],
+      [hiddenCount, hasUnbackedPhoto],
+    ),
   );
 
   // Interleave native units into the readable rows. Rebuilt only when the rows
@@ -213,7 +236,17 @@ export default function BiteHistoryScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <Text style={styles.title}>Bite History</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>Bite History</Text>
+        {records.length > 0 && (
+          <Pressable
+            style={styles.insightsBtn}
+            onPress={() => navigation.navigate('CatchInsights')}
+          >
+            <Text style={styles.insightsText}>📊 Insights</Text>
+          </Pressable>
+        )}
+      </View>
 
       {loading && records.length === 0 ? (
         <View style={styles.center}>
@@ -257,17 +290,18 @@ export default function BiteHistoryScreen() {
                   🔒 {hiddenCount} older {hiddenCount === 1 ? 'bite' : 'bites'} beyond the last{' '}
                   {FREE_HISTORY_DAYS} days
                 </Text>
-                <RewardedUnlockCard kind="history-depth" hideWhenUnlocked />
               </View>
             ) : null
           }
         />
       )}
 
-      {/* Offered only when there is actually a photo to back up. */}
-      {!cloudBackup && visible.some((r) => r.localImage && !r.imageUrl) && (
+      {/* Exactly one rewarded offer per screen, chosen by relevance — see
+          useOfferSlot. Previously this screen carried two cards plus a banner
+          plus in-feed natives. */}
+      {offer && (
         <View style={styles.unlockSlot}>
-          <RewardedUnlockCard kind="photo-backup" hideWhenUnlocked />
+          <RewardedUnlockCard kind={offer} hideWhenUnlocked />
         </View>
       )}
 
@@ -304,7 +338,22 @@ export default function BiteHistoryScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: spacing.md,
+  },
   title: { ...typography.h1, color: colors.text, padding: spacing.md },
+  insightsBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  insightsText: { ...typography.caption, color: colors.primary, fontWeight: '700' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.sm },
   emptyContainer: { flexGrow: 1 },
   footer: { padding: spacing.md, gap: spacing.sm },
@@ -330,6 +379,7 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, gap: spacing.xs },
   rowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   time: { ...typography.caption, color: colors.textMuted },
+  rodTag: { ...typography.caption, color: colors.primary, fontWeight: '600' },
   metrics: { ...typography.body, color: colors.text },
   note: { ...typography.body, color: colors.text, fontStyle: 'italic' },
   notePlaceholder: { ...typography.body, color: colors.textMuted, fontStyle: 'italic' },

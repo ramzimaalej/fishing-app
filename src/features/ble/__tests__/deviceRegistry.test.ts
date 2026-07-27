@@ -41,4 +41,24 @@ describe('sensor device registry', () => {
     expect(sensor.info.name).toContain('Simulator');
     await sensor.disconnect(); // clears the mock's interval so no timer leaks
   });
+
+  it('requires a bound device for every real sensor, but not the simulator', () => {
+    // Multi-rod depends on this: an unbound broadcast client locks onto the
+    // first tag it hears, so two of them would read the same physical sensor.
+    expect(getSensorDevice('mock').requiresDeviceBinding).toBe(false);
+    for (const kind of SENSOR_KINDS.filter((k) => k !== 'mock')) {
+      expect(getSensorDevice(kind).requiresDeviceBinding).toBe(true);
+    }
+  });
+
+  it('gives concurrent simulator rods distinct identities', async () => {
+    const a = getSensorDevice('mock').create({ instanceLabel: 'Left rod' });
+    const b = getSensorDevice('mock').create({ instanceLabel: 'Right rod' });
+    // Rod status, bite attribution and the device list all key off info.id.
+    expect(a.info.id).not.toBe(b.info.id);
+    expect(a.info.name).toContain('Left rod');
+    expect(b.info.name).toContain('Right rod');
+    await a.disconnect();
+    await b.disconnect();
+  });
 });
