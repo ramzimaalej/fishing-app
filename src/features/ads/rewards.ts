@@ -18,7 +18,6 @@
 
 /** A premium capability that a rewarded ad can temporarily unlock. */
 export type RewardKind =
-  | 'rod-pairing'
   | 'extended-forecast'
   | 'catch-insights'
   | 'session-report'
@@ -48,23 +47,6 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 
 export const REWARDS: Record<RewardKind, RewardSpec> = {
-  /**
-   * Grants a WINDOW rather than a single pairing, on purpose: an angler setting
-   * up at the bank pairs three rods in one go, and charging an ad per rod would
-   * be indefensible. One ad covers the whole setup.
-   *
-   * This gate must also fail OPEN — see useRewardedGate. A user who cannot pair
-   * because AdMob had no inventory owns a bite alarm that does not work, which
-   * costs far more than the impression is worth.
-   */
-  'rod-pairing': {
-    kind: 'rod-pairing',
-    title: 'Pair your sensors',
-    blurb: 'Set up every rod you are fishing — one ad covers the lot.',
-    cta: 'Watch ad',
-    durationMs: 30 * 60_000,
-    durationLabel: 'for 30 minutes',
-  },
   'extended-forecast': {
     kind: 'extended-forecast',
     title: 'Unlock the full 7-day outlook',

@@ -7,9 +7,20 @@ export { default as NativeAdCard } from './NativeAdCard';
 export { default as RewardedUnlockCard } from './RewardedUnlockCard';
 export { useRewardedUnlock } from './useRewardedUnlock';
 export { useRewardedAction } from './useRewardedAction';
-export { useRewardedGate } from './useRewardedGate';
+export { useOfferSlot } from './useOfferSlot';
+export { pickOffer } from './offerArbiter';
+export {
+  MAX_UNTAKEN_OFFERS,
+  pruneLedger,
+  recordShown,
+  recordTaken,
+  shouldOffer,
+  statsFor,
+  SUPPRESSION_MS,
+} from './offerFatigue';
+export type { OfferLedger, OfferStats } from './offerFatigue';
+export type { OfferContext } from './offerArbiter';
 export type { RewardedAction } from './useRewardedAction';
-export type { RewardedGate } from './useRewardedGate';
 export {
   ensureAdsInitialized,
   maybeShowSessionEndInterstitial,

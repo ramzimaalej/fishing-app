@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FREE_FORECAST_DAYS } from '@/config/constants';
-import { AdBanner, RewardedUnlockCard } from '@/features/ads';
+import { AdBanner, NativeAdCard, RewardedUnlockCard, useOfferSlot } from '@/features/ads';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
 import type { EnvironmentSnapshot } from '@/types';
@@ -157,6 +157,10 @@ export default function EnvironmentScreen() {
   const visibleDays = fullOutlook ? daily : daily.slice(0, FREE_FORECAST_DAYS);
   const lockedDays = daily.length - visibleDays.length;
 
+  const offer = useOfferSlot(
+    useMemo(() => (lockedDays > 0 ? (['extended-forecast'] as const) : []), [lockedDays]),
+  );
+
   const best = useMemo(() => {
     let top: EnvironmentSnapshot | null = null;
     for (const h of hourly) if (!top || h.fishActivity > top.fishActivity) top = h;
@@ -231,8 +235,13 @@ export default function EnvironmentScreen() {
           </>
         )}
 
-        {/* Opt-in rewarded slot — only renders when an ad is actually loaded. */}
-        {lockedDays > 0 && <RewardedUnlockCard kind="extended-forecast" />}
+        {/* One offer, and only while there is genuinely something locked. */}
+        {offer && <RewardedUnlockCard kind={offer} />}
+
+        {/* Conditions has by far the most dwell time in the app — people browse
+            forecasts. A native unit here earns materially more than the anchored
+            banner does, and reads as content rather than chrome. */}
+        <NativeAdCard placement="conditions-outlook" />
 
         <Pressable style={styles.calendarLink} onPress={() => navigation.navigate('BestTimes')}>
           <Text style={styles.calendarLinkEmoji}>🌙</Text>

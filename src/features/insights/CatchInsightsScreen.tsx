@@ -1,7 +1,7 @@
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AdBanner, RewardedUnlockCard } from '@/features/ads';
+import { AdBanner, RewardedUnlockCard, useOfferSlot } from '@/features/ads';
 import { useAuth } from '@/features/auth/useAuth';
 import { useBiteHistory } from '@/features/bite-history/useBiteHistory';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
@@ -93,12 +93,17 @@ function NotEnoughYet({ insights }: { insights: CatchInsights }) {
   );
 }
 
+/** Module-level so the arrays keep a stable identity across renders. */
+const INSIGHT_OFFERS = ['catch-insights'] as const;
+const EMPTY_OFFERS = [] as const;
+
 export default function CatchInsightsScreen() {
   const { user } = useAuth();
   const { records, loading: historyLoading } = useBiteHistory(user?.uid ?? null);
   const { insights, pendingRecent, loading, error, refresh } = useCatchInsights(records);
   const { has } = useEntitlements();
   const unlocked = has('catch-insights');
+  const offer = useOfferSlot(unlocked ? EMPTY_OFFERS : INSIGHT_OFFERS);
 
   const busy = loading || historyLoading;
 
@@ -147,7 +152,7 @@ export default function CatchInsightsScreen() {
               <Locked />
             )}
 
-            <RewardedUnlockCard kind="catch-insights" hideWhenUnlocked />
+            {offer && <RewardedUnlockCard kind={offer} hideWhenUnlocked />}
 
             <View style={styles.card}>
               <Text style={styles.cardTitle}>How to read this</Text>

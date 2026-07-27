@@ -24,6 +24,7 @@ import {
   NATIVE_FEED_INTERVAL,
   NativeAdCard,
   RewardedUnlockCard,
+  useOfferSlot,
 } from '@/features/ads';
 import { useAuth } from '@/features/auth/useAuth';
 import { useIsPremium } from '@/features/subscription/subscriptionStore';
@@ -163,6 +164,23 @@ export default function BiteHistoryScreen() {
     [records, historyUnlocked],
   );
 
+  // ONE rewarded offer for this screen, not two. Depth first: a user looking at
+  // truncated history is reaching for exactly that, whereas photo backup is
+  // incidental to why they opened the list.
+  const hasUnbackedPhoto = useMemo(
+    () => records.some((r) => r.localImage && !r.imageUrl),
+    [records],
+  );
+  const offer = useOfferSlot(
+    useMemo(
+      () => [
+        ...(hiddenCount > 0 ? (['history-depth'] as const) : []),
+        ...(hasUnbackedPhoto ? (['photo-backup'] as const) : []),
+      ],
+      [hiddenCount, hasUnbackedPhoto],
+    ),
+  );
+
   // Interleave native units into the readable rows. Rebuilt only when the rows
   // or the entitlement change, so scrolling never reshuffles ad positions.
   const feed = useMemo(
@@ -272,17 +290,18 @@ export default function BiteHistoryScreen() {
                   🔒 {hiddenCount} older {hiddenCount === 1 ? 'bite' : 'bites'} beyond the last{' '}
                   {FREE_HISTORY_DAYS} days
                 </Text>
-                <RewardedUnlockCard kind="history-depth" hideWhenUnlocked />
               </View>
             ) : null
           }
         />
       )}
 
-      {/* Offered only when there is actually a photo to back up. */}
-      {!cloudBackup && visible.some((r) => r.localImage && !r.imageUrl) && (
+      {/* Exactly one rewarded offer per screen, chosen by relevance — see
+          useOfferSlot. Previously this screen carried two cards plus a banner
+          plus in-feed natives. */}
+      {offer && (
         <View style={styles.unlockSlot}>
-          <RewardedUnlockCard kind="photo-backup" hideWhenUnlocked />
+          <RewardedUnlockCard kind={offer} hideWhenUnlocked />
         </View>
       )}
 

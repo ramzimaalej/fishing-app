@@ -237,7 +237,7 @@ fish in `FREE_SESSION_HOURS` (6) blocks; premium has no limit at all
 | Session length | 6 h blocks | unlimited |
 | First block each local day | free | — |
 | Further blocks | 1 rewarded ad each | — |
-| Opening the pairing screen | 1 rewarded ad (30-min window) | no ad |
+| Pairing a sensor | free (see the surface audit) | free |
 
 ### Why the daily allowance exists
 
@@ -270,11 +270,6 @@ that nothing was being watched. Three consequences:
 can be shown — no fill, offline, SDK missing. Every gate here stands in front of
 something the user needs, and a bite alarm that will not pair because an ad
 network had no inventory is a broken product. One impression is not worth that.
-
-> **Known trade-off:** the pairing gate is the riskiest of the three, because it
-> lands during first-time setup — a new user's opening experience becomes "watch
-> an ad before you can use the thing you bought". If early churn shows up,
-> exempting the first rod's pairing is the obvious lever.
 
 ---
 
@@ -354,13 +349,49 @@ halves and converts hardware buyers without an in-app funnel at all.
 never catching.** All rules live in one pure, unit-tested gate
 (`features/ads/adPolicy.ts`); screens contain zero ad logic beyond placement.
 
+### Three rules from the surface audit
+
+The monetisation surface had grown to 18 touchpoints, several stacked on one
+screen. Three rules now bound it:
+
+1. **Banners only where there is dwell time.** Conditions, History, Session
+   report, Best times, Insights. *Not* Rods or Settings — task screens where
+   users change one thing and leave, so a banner earned close to nothing while
+   making setup feel cheap.
+2. **One rewarded offer per screen** (`useOfferSlot` / `offerArbiter`). History
+   used to carry two cards *plus* a banner *plus* in-feed natives. Two offers
+   side by side convert worse than the better one alone: the user's question
+   stops being "do I want this?" and becomes "am I being farmed?".
+3. **Offers that get ignored go quiet** (`offerFatigue`). After
+   `MAX_UNTAKEN_OFFERS` presentations with no take, an offer sleeps for three
+   days. This raises effective eCPM *and* reduces nagging — the two goals point
+   the same way. Taking an offer clears the counter, so an engaged user keeps
+   seeing it.
+
+### Payoff before ad
+
+Two orderings changed, at no cost in impressions:
+
+- **The session-end interstitial now fires when the user LEAVES the report**, not
+  before it opens. The report is the payoff for hours of fishing; a full-screen
+  ad in front of it taxed the one moment the app earns goodwill.
+- **The report's bite timeline is free.** It is the emotional payoff, and a
+  report that looks locked stops being opened — which loses the banner
+  impression *and* the rewarded offer with it. The analytical breakdown is what
+  Premium gates.
+- **Pairing is no longer ad-gated.** It was first-time setup, so the gate made a
+  new user's opening experience "watch an ad before you can use the thing you
+  just bought". The impression moved to *after* a successful pair, where
+  post-success offers convert better.
+
 | Surface | Treatment |
 | --- | --- |
 | Fishing (live) | **No ads, ever** — the core surface stays clean; that cleanliness is the premium pitch |
-| Conditions / History / Session report / Best times / Insights / Settings | Anchored adaptive banner (passive planning & review contexts) |
+| Conditions / History / Session report / Best times / Insights | Anchored adaptive banner — dwell-time surfaces only |
 | Bite history feed | **Native advanced** unit every 8 rows — never first, never last (`features/ads/feed.ts`) |
+| Conditions outlook | One **native** unit — highest-dwell screen, outearns a banner |
 | Session end (user taps *Disconnect*) | ≤ 1 interstitial, policy-gated; dropped connections never trigger ads |
-| Each gated feature, at its point of need | **Rewarded ad → one scoped unlock** (`features/ads/rewards.ts`) |
+| Each gated feature, at its point of need | **Rewarded ad → one scoped unlock**, one offer per screen (`rewards.ts`, `offerArbiter.ts`) |
 | App open | Deliberately none — anglers open the app when a fish is on |
 
 Interstitial governance: none in the first 24 h after install, none before the
@@ -379,7 +410,6 @@ the whole product (which would cannibalise the subscription it exists to sell):
 
 | Unlock | Gate it opens | Lasts |
 | --- | --- | --- |
-| `rod-pairing` | Opening the pairing screen (free tier) | 30 min |
 | `extended-forecast` | Outlook beyond `FREE_FORECAST_DAYS` (3) | 24 h |
 | `catch-insights` | ERA5 retrospective analysis of your own catches | 24 h |
 | `session-report` | Timeline, strike breakdown, conditions card | 3 h |

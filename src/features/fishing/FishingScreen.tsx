@@ -222,15 +222,18 @@ export default function FishingScreen() {
           bites: capturedBites,
           conditions: capturedConditions,
         }),
+        seconds,
       );
+      // Payoff first: the report opens immediately and the session-end
+      // interstitial fires when the user leaves it. Same one impression, but it
+      // no longer stands between hours of fishing and the debrief.
+      navigation.navigate('SessionReport');
+      return;
     }
 
-    // One interstitial at session end, then the report. See adPolicy.ts.
-    setTimeout(() => {
-      maybeShowSessionEndInterstitial(seconds, () => {
-        if (reportable) navigation.navigate('SessionReport');
-      });
-    }, 900);
+    // Too short to debrief — there is no payoff to protect, so the policy gate
+    // gets its usual shot here.
+    setTimeout(() => maybeShowSessionEndInterstitial(seconds), 900);
   }, [sessionWindow, endSession, navigation, setLastSession]);
 
   // Paying for a further block by ad, when the daily allowance is spent.
