@@ -104,21 +104,25 @@ export const biteRepository = {
 
   /**
    * Attach a catch photo. ALWAYS saves a persistent on-device copy (free tier);
-   * premium users additionally get a Firebase Storage backup that syncs across
+   * entitled users additionally get a Firebase Storage backup that syncs across
    * devices. The cloud step is best-effort — if Storage isn't enabled/reachable
    * the local copy still succeeds, so the feature never hard-fails.
+   *
+   * `cloudBackup` is an entitlement decision made by the caller — it is true for
+   * subscribers and for a live 'photo-backup' rewarded unlock alike, so this
+   * layer never needs to know which.
    */
   async attachImage(
     uid: string,
     biteId: string,
     sourceUri: string,
-    opts: { premium: boolean },
+    opts: { cloudBackup: boolean },
   ): Promise<AttachResult> {
     const localImage = await persistLocalPhoto(biteId, sourceUri);
     await bitesCollection(uid).doc(biteId).update({ localImage });
 
     let imageUrl: string | null = null;
-    if (opts.premium) {
+    if (opts.cloudBackup) {
       try {
         imageUrl = await uploadBiteImage(uid, biteId, resolveLocalPhoto(localImage));
         await bitesCollection(uid).doc(biteId).update({ imageUrl });

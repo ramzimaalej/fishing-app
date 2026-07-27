@@ -33,21 +33,13 @@ export interface InterstitialPolicy {
   maxPerDay: number;
 }
 
-export interface PreviewPolicy {
-  /** How long a rewarded-ad "Premium Preview" lasts. */
-  durationHours: number;
-}
-
-export const AD_POLICY: { interstitial: InterstitialPolicy; preview: PreviewPolicy } = {
+export const AD_POLICY: { interstitial: InterstitialPolicy } = {
   interstitial: {
     installGraceHours: 24,
     minCompletedSessions: 3,
     minSessionSeconds: 120,
     cooldownMinutes: 15,
     maxPerDay: 4,
-  },
-  preview: {
-    durationHours: 24,
   },
 };
 

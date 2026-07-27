@@ -3,8 +3,9 @@
  * store internals, and controller stay encapsulated.
  */
 export { default as AdBanner } from './AdBanner';
-export { default as PremiumPreviewCard } from './PremiumPreviewCard';
-export { useRewardedPreview } from './useRewardedPreview';
+export { default as NativeAdCard } from './NativeAdCard';
+export { default as RewardedUnlockCard } from './RewardedUnlockCard';
+export { useRewardedUnlock } from './useRewardedUnlock';
 export {
   ensureAdsInitialized,
   maybeShowSessionEndInterstitial,
@@ -12,5 +13,17 @@ export {
 } from './adsController';
 export { useAdsStore } from './adsStore';
 export { AD_POLICY, evaluateSessionEndInterstitial, dayKeyOf } from './adPolicy';
-export type { BannerPlacement } from './adsConfig';
+export {
+  activeRewards,
+  isRewardActive,
+  pruneGrants,
+  REWARD_KINDS,
+  REWARDS,
+  rewardExpiry,
+} from './rewards';
+export { NATIVE_FEED_INTERVAL } from './adsConfig';
+export { interleaveNativeAds } from './feed';
+export type { FeedEntry, InterleaveOptions } from './feed';
+export type { BannerPlacement, NativePlacement } from './adsConfig';
 export type { GateVerdict, InterstitialGateInput, InterstitialPolicy } from './adPolicy';
+export type { RewardGrants, RewardKind, RewardSpec } from './rewards';

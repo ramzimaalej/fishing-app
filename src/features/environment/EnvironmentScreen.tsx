@@ -1,6 +1,8 @@
-import { useMemo } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -9,20 +11,34 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AdBanner, PremiumPreviewCard } from '@/features/ads';
+import { FREE_FORECAST_DAYS } from '@/config/constants';
+import { AdBanner, RewardedUnlockCard } from '@/features/ads';
+import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
 import type { EnvironmentSnapshot } from '@/types';
 
-import { useEnvironment } from './useEnvironment';
+import { type DayForecast, useEnvironment } from './useEnvironment';
 
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const compass = (deg: number): string => COMPASS[Math.round(deg / 45) % 8]!;
 const hourLabel = (iso: string): string =>
   new Date(iso).toLocaleTimeString([], { hour: 'numeric' });
 
+const activityColor = (v: number): string =>
+  v >= 0.66 ? colors.success : v >= 0.4 ? colors.accent : colors.textMuted;
+
+/** "Today" / "Tomorrow" / "Wed 30" for a local yyyy-mm-dd key. */
+function dayLabel(date: string, index: number): string {
+  if (index === 0) return 'Today';
+  if (index === 1) return 'Tomorrow';
+  const [y, m, d] = date.split('-').map(Number);
+  const when = new Date(y!, m! - 1, d!);
+  return `${when.toLocaleDateString([], { weekday: 'short' })} ${when.getDate()}`;
+}
+
 function ActivityMeter({ value }: { value: number }) {
   const pct = Math.round(value * 100);
-  const barColor = value >= 0.66 ? colors.success : value >= 0.4 ? colors.accent : colors.textMuted;
+  const barColor = activityColor(value);
   return (
     <View style={styles.meterWrap}>
       <View style={styles.meterHeader}>
@@ -78,7 +94,7 @@ function CurrentConditions({ s }: { s: EnvironmentSnapshot }) {
 
 function HourColumn({ s }: { s: EnvironmentSnapshot }) {
   const pct = Math.round(s.fishActivity * 100);
-  const barColor = s.fishActivity >= 0.66 ? colors.success : s.fishActivity >= 0.4 ? colors.accent : colors.textMuted;
+  const barColor = activityColor(s.fishActivity);
   return (
     <View style={styles.hourCol}>
       <Text style={styles.hourTime}>{hourLabel(s.time)}</Text>
@@ -92,8 +108,54 @@ function HourColumn({ s }: { s: EnvironmentSnapshot }) {
   );
 }
 
+/** A day row in the multi-day outlook; tapping it reveals that day's hours. */
+function DayRow({
+  day,
+  index,
+  expanded,
+  onToggle,
+}: {
+  day: DayForecast;
+  index: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const pct = Math.round(day.peak.fishActivity * 100);
+  const barColor = activityColor(day.peak.fishActivity);
+  return (
+    <View style={styles.dayWrap}>
+      <Pressable style={styles.dayRow} onPress={onToggle}>
+        <Text style={styles.dayLabel}>{dayLabel(day.date, index)}</Text>
+        <View style={styles.dayBarTrack}>
+          <View
+            style={[styles.dayBarFill, { width: `${pct}%`, backgroundColor: barColor }]}
+          />
+        </View>
+        <Text style={[styles.dayPct, { color: barColor }]}>{pct}%</Text>
+        <Text style={styles.dayPeak}>{hourLabel(day.peak.time)}</Text>
+        <Text style={styles.dayChevron}>{expanded ? '▾' : '▸'}</Text>
+      </Pressable>
+
+      {expanded && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hourRow}>
+          {day.hours.map((h) => (
+            <HourColumn key={h.time} s={h} />
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
 export default function EnvironmentScreen() {
-  const { hourly, current, loading, error, refresh } = useEnvironment();
+  const navigation = useNavigation<{ navigate: (route: string) => void }>();
+  const { hourly, daily, current, loading, error, refresh } = useEnvironment();
+  const { has } = useEntitlements();
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const fullOutlook = has('extended-forecast');
+  const visibleDays = fullOutlook ? daily : daily.slice(0, FREE_FORECAST_DAYS);
+  const lockedDays = daily.length - visibleDays.length;
 
   const best = useMemo(() => {
     let top: EnvironmentSnapshot | null = null;
@@ -144,8 +206,44 @@ export default function EnvironmentScreen() {
           </>
         )}
 
-        {/* Opt-in rewarded slot: renders only when an ad is actually loaded. */}
-        <PremiumPreviewCard />
+        {daily.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Outlook</Text>
+            <View style={styles.card}>
+              {visibleDays.map((d, i) => (
+                <DayRow
+                  key={d.date}
+                  day={d}
+                  index={i}
+                  expanded={expanded === d.date}
+                  onToggle={() => setExpanded(expanded === d.date ? null : d.date)}
+                />
+              ))}
+
+              {lockedDays > 0 && (
+                <View style={styles.lockedRow}>
+                  <Text style={styles.lockedText}>
+                    🔒 {lockedDays} more {lockedDays === 1 ? 'day' : 'days'} in the full outlook
+                  </Text>
+                </View>
+              )}
+            </View>
+          </>
+        )}
+
+        {/* Opt-in rewarded slot — only renders when an ad is actually loaded. */}
+        {lockedDays > 0 && <RewardedUnlockCard kind="extended-forecast" />}
+
+        <Pressable style={styles.calendarLink} onPress={() => navigation.navigate('BestTimes')}>
+          <Text style={styles.calendarLinkEmoji}>🌙</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.calendarLinkTitle}>Best times calendar</Text>
+            <Text style={styles.calendarLinkSub}>
+              Solunar outlook for the month — plan your next trip
+            </Text>
+          </View>
+          <Text style={styles.calendarLinkChevron}>›</Text>
+        </Pressable>
       </ScrollView>
 
       {/* Planning surface — the anchored banner lives here, never on Fishing. */}
@@ -210,6 +308,41 @@ const styles = StyleSheet.create({
   hourBarFill: { width: '100%', borderRadius: radius.pill },
   hourPct: { ...typography.caption, color: colors.text },
   hourMeta: { ...typography.caption, color: colors.textMuted },
+  dayWrap: { gap: spacing.xs },
+  dayRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  dayLabel: { ...typography.body, color: colors.text, width: 76 },
+  dayBarTrack: {
+    flex: 1,
+    height: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceAlt,
+    overflow: 'hidden',
+  },
+  dayBarFill: { height: '100%', borderRadius: radius.pill },
+  dayPct: { ...typography.caption, width: 34, textAlign: 'right', fontWeight: '700' },
+  dayPeak: { ...typography.caption, color: colors.textMuted, width: 48, textAlign: 'right' },
+  dayChevron: { ...typography.caption, color: colors.textMuted, width: 12 },
+  lockedRow: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.md,
+    alignItems: 'center',
+  },
+  lockedText: { ...typography.caption, color: colors.textMuted },
+  calendarLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  calendarLinkEmoji: { fontSize: 24 },
+  calendarLinkTitle: { ...typography.h3, color: colors.text },
+  calendarLinkSub: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+  calendarLinkChevron: { ...typography.h2, color: colors.textMuted },
   centerBox: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
   muted: { ...typography.body, color: colors.textMuted },
   errorText: { ...typography.body, color: colors.danger, textAlign: 'center' },

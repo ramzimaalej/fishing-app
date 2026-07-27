@@ -4,28 +4,40 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, spacing, typography } from '@/theme';
 
-import { useRewardedPreview } from './useRewardedPreview';
+import type { RewardKind } from './rewards';
+import { useRewardedUnlock } from './useRewardedUnlock';
+
+interface Props {
+  kind: RewardKind;
+  /**
+   * Render nothing once the feature is unlocked. Use on surfaces where the
+   * unlocked state is already obvious from the content appearing.
+   */
+  hideWhenUnlocked?: boolean;
+}
 
 /**
- * Opt-in monetization card for planning surfaces (Conditions screen).
- *
- * Three states, never pushy:
- *  - preview running → shows the expiry + a soft "keep it" paywall link;
- *  - rewarded ad loaded → offers the 24h Premium Preview;
- *  - nothing loaded / user is ad-free → renders nothing (we never promise an
- *    ad we can't show).
+ * The one component that offers a rewarded unlock. Four states, never pushy:
+ *  - unlocked by an ad → shows the expiry + a soft "keep it" paywall link;
+ *  - unlocked by the subscription → nothing (they already paid);
+ *  - ad loaded → offers the trade, naming the feature rather than the ad;
+ *  - nothing loaded → nothing (we never promise an ad we can't show).
  */
-export default function PremiumPreviewCard(): JSX.Element | null {
-  const navigation = useNavigation<any>();
-  const { available, previewActive, previewUntil, watch } = useRewardedPreview();
+export default function RewardedUnlockCard({
+  kind,
+  hideWhenUnlocked,
+}: Props): JSX.Element | null {
+  const navigation = useNavigation<{ navigate: (route: string) => void }>();
+  const { spec, unlocked, fromReward, until, available, watch } = useRewardedUnlock(kind);
 
-  if (previewActive && previewUntil) {
+  if (fromReward && until !== null) {
+    if (hideWhenUnlocked) return null;
     return (
       <View style={[styles.card, styles.cardActive]}>
         <Text style={styles.emoji}>⭐</Text>
         <View style={styles.body}>
-          <Text style={styles.title}>Premium Preview active</Text>
-          <Text style={styles.sub}>Ad-free until {format(previewUntil, 'EEE HH:mm')}</Text>
+          <Text style={styles.title}>Unlocked</Text>
+          <Text style={styles.sub}>Until {format(until, 'EEE HH:mm')}</Text>
         </View>
         <Pressable onPress={() => navigation.navigate('Paywall')} hitSlop={8}>
           <Text style={styles.link}>Keep it</Text>
@@ -34,17 +46,19 @@ export default function PremiumPreviewCard(): JSX.Element | null {
     );
   }
 
-  if (!available) return null;
+  if (unlocked || !available) return null;
 
   return (
     <View style={styles.card}>
       <Text style={styles.emoji}>🎬</Text>
       <View style={styles.body}>
-        <Text style={styles.title}>Try Premium free for 24h</Text>
-        <Text style={styles.sub}>Watch one short ad — no ads + pro insights for a day.</Text>
+        <Text style={styles.title}>{spec.title}</Text>
+        <Text style={styles.sub}>
+          {spec.blurb} Watch one short ad to unlock {spec.durationLabel}.
+        </Text>
       </View>
       <Pressable style={styles.cta} onPress={() => watch()}>
-        <Text style={styles.ctaText}>Start</Text>
+        <Text style={styles.ctaText}>{spec.cta}</Text>
       </Pressable>
     </View>
   );

@@ -3,6 +3,13 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { dayKeyOf } from './adPolicy';
+import {
+  pruneGrants,
+  REWARD_KINDS,
+  rewardExpiry,
+  type RewardGrants,
+  type RewardKind,
+} from './rewards';
 
 /**
  * Durable ad-governance state. Frequency caps survive app restarts on purpose:
@@ -21,8 +28,8 @@ interface AdsState {
   /** Local day the daily counter belongs to (see dayKeyOf). */
   interstitialDayKey: string;
   interstitialCountToday: number;
-  /** Rewarded "Premium Preview" expiry (epoch ms) or null. */
-  previewUntil: number | null;
+  /** Per-feature rewarded unlocks: kind → expiry epoch ms (see rewards.ts). */
+  rewardGrants: RewardGrants;
 
   // Volatile (not persisted).
   /** True while a fishing session is running — hard-blocks full-screen ads. */
@@ -36,8 +43,14 @@ interface AdsState {
   recordInterstitialShown: (now: number) => void;
   /** Interstitials shown today, normalized across the local-midnight rollover. */
   shownToday: (now: number) => number;
-  grantPreview: (until: number) => void;
+  /** Unlock one feature for its configured duration (rewarded ad earned). */
+  grantReward: (kind: RewardKind) => void;
   setNonPersonalized: (value: boolean) => void;
+}
+
+/** v1 persisted a single 24h all-features `previewUntil`. */
+interface LegacyV1 {
+  previewUntil?: number | null;
 }
 
 export const useAdsStore = create<AdsState>()(
@@ -48,7 +61,7 @@ export const useAdsStore = create<AdsState>()(
       lastInterstitialAt: null,
       interstitialDayKey: '',
       interstitialCountToday: 0,
-      previewUntil: null,
+      rewardGrants: {},
 
       fishingActive: false,
       nonPersonalized: true,
@@ -76,21 +89,44 @@ export const useAdsStore = create<AdsState>()(
         return s.interstitialDayKey === dayKeyOf(now) ? s.interstitialCountToday : 0;
       },
 
-      grantPreview: (until) => set({ previewUntil: until }),
+      grantReward: (kind) => {
+        const now = Date.now();
+        set((s) => ({
+          // Prune while we're here so lapsed keys don't accumulate forever.
+          rewardGrants: { ...pruneGrants(s.rewardGrants, now), [kind]: rewardExpiry(kind, now) },
+        }));
+      },
 
       setNonPersonalized: (value) => set({ nonPersonalized: value }),
     }),
     {
       name: 'castmate:ads',
       storage: createJSONStorage(() => AsyncStorage),
+      version: 2,
       partialize: (s) => ({
         installedAt: s.installedAt,
         completedSessions: s.completedSessions,
         lastInterstitialAt: s.lastInterstitialAt,
         interstitialDayKey: s.interstitialDayKey,
         interstitialCountToday: s.interstitialCountToday,
-        previewUntil: s.previewUntil,
+        rewardGrants: s.rewardGrants,
       }),
+      /**
+       * v1 → v2: the single 24h "Premium Preview" became per-feature unlocks.
+       * Anyone mid-preview keeps it: we honour the remaining time across every
+       * kind rather than revoking something they already watched an ad for.
+       */
+      migrate: (persisted, version) => {
+        const state = (persisted ?? {}) as Partial<AdsState> & LegacyV1;
+        if (version >= 2) return state as AdsState;
+        const until = state.previewUntil;
+        const grants: RewardGrants = {};
+        if (typeof until === 'number' && until > Date.now()) {
+          for (const k of REWARD_KINDS) grants[k] = until;
+        }
+        delete state.previewUntil;
+        return { ...state, rewardGrants: grants } as AdsState;
+      },
       // Stamp the install timestamp once, after hydration, so the 24h grace
       // window anchors to genuine first launch instead of every cold start.
       onRehydrateStorage: () => () => {

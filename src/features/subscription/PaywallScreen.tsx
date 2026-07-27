@@ -9,19 +9,23 @@ import {
   View,
 } from 'react-native';
 
-import { format } from 'date-fns';
-
 import { IAP_PRODUCT_IDS } from '@/config/constants';
-import { useRewardedPreview } from '@/features/ads/useRewardedPreview';
 import { colors, radius, spacing, typography } from '@/theme';
 
 import { useSubscriptionStore } from './subscriptionStore';
 
+/**
+ * Every line here maps to a gate that is actually enforced in code — see
+ * config/constants.ts (free-tier limits) and features/ads/rewards.ts. Adding a
+ * claim without its gate would be both a lie and an App Store 3.1.2 problem.
+ */
 const BENEFITS = [
   'Remove all ads',
+  'Full 7-day bite outlook',
+  'Complete session reports',
   'Unlimited bite history',
-  'Advanced fish-activity insights',
-  'Custom alert sounds',
+  'All alert sounds',
+  'Cloud backup for catch photos',
 ];
 
 /** Fallback presentation when live product metadata hasn't loaded yet. */
@@ -41,8 +45,6 @@ export default function PaywallScreen(): JSX.Element {
   const navigation = useNavigation<any>();
   const { isPremium, products, purchasing, error, init, purchase, restore } =
     useSubscriptionStore();
-  // Soft-landing for non-buyers: a rewarded ad grants a 24h Premium Preview.
-  const preview = useRewardedPreview();
 
   useEffect(() => {
     void init();
@@ -112,17 +114,9 @@ export default function PaywallScreen(): JSX.Element {
             <Text style={styles.restore}>Restore purchases</Text>
           </Pressable>
 
-          {preview.previewActive && preview.previewUntil ? (
-            <Text style={styles.previewNote}>
-              ⭐ Premium Preview active until {format(preview.previewUntil, 'EEE HH:mm')}
-            </Text>
-          ) : preview.available ? (
-            <Pressable style={styles.previewBtn} onPress={() => preview.watch()}>
-              <Text style={styles.previewBtnText}>
-                Not ready? Watch a short ad — Premium free for 24h
-              </Text>
-            </Pressable>
-          ) : null}
+          {/* No rewarded offer here on purpose. Unlocks are offered at each
+              feature's point of need, where the user already wants the thing —
+              dangling one on the paywall only argues against buying. */}
 
           <Text style={styles.legal}>
             Subscriptions renew automatically until cancelled. Manage or cancel anytime in your

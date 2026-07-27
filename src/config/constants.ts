@@ -18,6 +18,18 @@ export const NOTIFICATION_SOUNDS: readonly { key: string; label: string }[] = [
   { key: 'sonar', label: 'Sonar Ping' },
 ];
 
+/**
+ * Free-tier limits. Each one is the gate behind a rewarded unlock in
+ * features/ads/rewards.ts — a limit with no unlock path is just an annoyance,
+ * and an unlock with no limit is a lie, so these two tables move together.
+ */
+/** Days of the multi-day outlook shown without premium or a rewarded unlock. */
+export const FREE_FORECAST_DAYS = 3;
+/** How far back bite history is readable on the free tier. */
+export const FREE_HISTORY_DAYS = 30;
+/** Alert sounds available free — the first N entries of NOTIFICATION_SOUNDS. */
+export const FREE_SOUND_COUNT = 2;
+
 /** Premium subscription product identifiers (App Store / Play Console). */
 export const IAP_PRODUCT_IDS = {
   monthly: 'co.castmate.premium.monthly',

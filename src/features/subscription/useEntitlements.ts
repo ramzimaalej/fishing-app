@@ -1,51 +1,60 @@
 import { useAdsStore } from '@/features/ads/adsStore';
+import { isRewardActive, type RewardGrants, type RewardKind } from '@/features/ads/rewards';
 
 import { useSubscriptionStore } from './subscriptionStore';
 
 /**
  * Single source of truth for "what is this user entitled to".
  *
- * Decouples *why* someone has a perk (paid subscription vs a rewarded-ad
- * 24h Premium Preview) from *what* the perk gates:
+ * Decouples *why* someone has a perk (paid subscription vs a rewarded unlock)
+ * from *what* the perk gates:
  *  - `adFree` — every ad surface checks this and nothing else.
- *  - `pro`    — premium feature gates (insights, sounds, …) check this.
+ *  - `pro`    — the paid tier; unconditional access to every gated feature.
+ *  - `has(k)` — this specific feature, whether via `pro` or a rewarded grant.
  *
- * Today both derive from the same sources; keeping them separate lets a future
- * tier (e.g. "supporter" = ad-free only) ship without touching ad code.
+ * Note that a rewarded unlock deliberately does NOT confer `adFree`. Watching
+ * one ad buys the feature you asked for, not a pass on the whole business
+ * model — see features/ads/rewards.ts for the reasoning.
  */
 export interface Entitlements {
   isPremium: boolean;
-  /** True while a rewarded Premium Preview is running (never for subscribers). */
-  previewActive: boolean;
-  previewUntil: number | null;
   adFree: boolean;
   pro: boolean;
+  /** Raw rewarded-grant expiries — safe to use as a hook dependency. */
+  grants: RewardGrants;
+  /** True when `kind` is available: paid tier OR an active rewarded unlock. */
+  has: (kind: RewardKind) => boolean;
+  /** Expiry of a rewarded unlock, for "unlocked until…" copy. Null if none. */
+  rewardUntil: (kind: RewardKind) => number | null;
 }
 
-function derive(isPremium: boolean, previewUntil: number | null): Entitlements {
+function derive(isPremium: boolean, grants: RewardGrants): Entitlements {
   // Expiry is evaluated lazily at read time; a stale minute at the boundary is
   // acceptable (next render/interaction re-derives it).
-  const previewActive = !isPremium && previewUntil !== null && previewUntil > Date.now();
   return {
     isPremium,
-    previewActive,
-    previewUntil,
-    adFree: isPremium || previewActive,
-    pro: isPremium || previewActive,
+    adFree: isPremium,
+    pro: isPremium,
+    grants,
+    has: (kind) => isPremium || isRewardActive(grants, kind, Date.now()),
+    rewardUntil: (kind) => {
+      const until = grants[kind];
+      return until !== undefined && until > Date.now() ? until : null;
+    },
   };
 }
 
 /** Reactive entitlements for components. */
 export function useEntitlements(): Entitlements {
   const isPremium = useSubscriptionStore((s) => s.isPremium);
-  const previewUntil = useAdsStore((s) => s.previewUntil);
-  return derive(isPremium, previewUntil);
+  const grants = useAdsStore((s) => s.rewardGrants);
+  return derive(isPremium, grants);
 }
 
 /** Non-hook snapshot for imperative code paths (controllers, callbacks). */
 export function getEntitlementsSnapshot(): Entitlements {
   return derive(
     useSubscriptionStore.getState().isPremium,
-    useAdsStore.getState().previewUntil,
+    useAdsStore.getState().rewardGrants,
   );
 }
