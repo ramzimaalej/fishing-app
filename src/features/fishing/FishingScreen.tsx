@@ -3,12 +3,28 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SESSION_EXTENSION_HOURS } from '@/config/constants';
 import {
   AD_POLICY,
   maybeShowSessionEndInterstitial,
   prepareSessionAds,
   useAdsStore,
+  useRewardedAction,
 } from '@/features/ads';
+import {
+  cancelSessionNotifications,
+  scheduleSessionNotifications,
+} from '@/features/notifications/feedback';
+import { useFishingSessionStore } from '@/features/session/fishingSessionStore';
+import {
+  canStartFree,
+  formatRemaining,
+  isNearExpiry,
+  msRemaining,
+  type SessionWindow,
+  warningAt,
+} from '@/features/session/sessionLimit';
+import { useIsPremium } from '@/features/subscription/subscriptionStore';
 import AccelerationChart from '@/features/graph/AccelerationChart';
 import {
   armRods,
@@ -122,66 +138,123 @@ export default function FishingScreen() {
 
   const [armError, setArmError] = useState<string | null>(null);
 
+  // Session window: persisted and entitlement-limited (see sessionLimit.ts).
+  const isPremium = useIsPremium();
+  const sessionWindow = useFishingSessionStore((s) => s.window);
+  const startSession = useFishingSessionStore((s) => s.start);
+  const endSession = useFishingSessionStore((s) => s.end);
+  const extendSession = useFishingSessionStore((s) => s.extend);
+  const usedToday = useFishingSessionStore((s) => s.usedToday);
+
   // Session accounting for the report + ad governance. The bite log itself is
   // owned by the runtime (that's where bites are born, across all rods).
   const sessionStartRef = useRef<number | null>(null);
   const sessionConditionsRef = useRef<Partial<EnvironmentSnapshot> | null>(null);
 
-  const onToggleAll = useCallback(async () => {
-    setArmError(null);
+  // Re-renders once a minute so the countdown ticks without a per-second timer.
+  const remainingMs = useSessionCountdown(sessionWindow);
 
-    if (anyArmed) {
-      const startedAt = sessionStartRef.current;
-      const endedAt = Date.now();
-      const capturedBites = getSessionBites();
-      const capturedConditions = sessionConditionsRef.current;
-
-      await disarmAll();
-      sessionStartRef.current = null;
-      useAdsStore.getState().setFishingActive(false);
-
-      const seconds = startedAt !== null ? (endedAt - startedAt) / 1000 : 0;
-      const reportable = startedAt !== null && seconds >= AD_POLICY.interstitial.minSessionSeconds;
-      if (reportable) {
-        useAdsStore.getState().recordCompletedSession();
-        setLastSession(
-          buildSessionSummary({
-            startedAt,
-            endedAt,
-            bites: capturedBites,
-            conditions: capturedConditions,
-          }),
-        );
-      }
-
-      // One interstitial at session end, then the report. See adPolicy.ts.
-      setTimeout(() => {
-        maybeShowSessionEndInterstitial(seconds, () => {
-          if (reportable) navigation.navigate('SessionReport');
-        });
-      }, 900);
-      return;
-    }
-
+  const beginSession = useCallback(async () => {
     if (armable.length === 0) {
       setArmError('Add a rod first.');
       return;
     }
-
-    sessionStartRef.current = Date.now();
+    const window = startSession(isPremium);
+    sessionStartRef.current = window.startedAt;
     sessionConditionsRef.current = null;
     startSessionLog();
     useAdsStore.getState().setFishingActive(true);
     prepareSessionAds();
 
+    if (window.expiresAt !== null) {
+      void scheduleSessionNotifications(window.expiresAt, warningAt(window));
+    }
+
     const errors = await armRods(armable);
     if (errors.length > 0) setArmError(errors.join('\n'));
-    // Every rod failed → there is no session to report on.
+    // Every rod failed → there is no session at all.
     if (errors.length === armable.length) {
       sessionStartRef.current = null;
+      endSession();
+      void cancelSessionNotifications();
       useAdsStore.getState().setFishingActive(false);
     }
-  }, [anyArmed, armable, navigation, setLastSession]);
+  }, [armable, isPremium, startSession, endSession]);
+
+  // Rewarded ad → one more block. Fails open: if no ad can be shown the time is
+  // granted anyway, because refusing to watch rods over an empty ad network is
+  // a worse outcome than a missed impression.
+  const extendGate = useRewardedAction(
+    useCallback(() => {
+      extendSession();
+      const next = useFishingSessionStore.getState().window;
+      if (next?.expiresAt != null) {
+        void scheduleSessionNotifications(next.expiresAt, warningAt(next));
+      }
+      // Re-arm if expiry had already disarmed everything.
+      void armRods(armable).then((errors) => {
+        if (errors.length > 0) setArmError(errors.join('\n'));
+      });
+      useAdsStore.getState().setFishingActive(true);
+    }, [extendSession, armable]),
+  );
+
+  const finishSession = useCallback(async () => {
+    const startedAt = sessionStartRef.current ?? sessionWindow?.startedAt ?? null;
+    const endedAt = Date.now();
+    const capturedBites = getSessionBites();
+    const capturedConditions = sessionConditionsRef.current;
+
+    await disarmAll();
+    sessionStartRef.current = null;
+    endSession();
+    void cancelSessionNotifications();
+    useAdsStore.getState().setFishingActive(false);
+
+    const seconds = startedAt !== null ? (endedAt - startedAt) / 1000 : 0;
+    const reportable = startedAt !== null && seconds >= AD_POLICY.interstitial.minSessionSeconds;
+    if (reportable) {
+      useAdsStore.getState().recordCompletedSession();
+      setLastSession(
+        buildSessionSummary({
+          startedAt,
+          endedAt,
+          bites: capturedBites,
+          conditions: capturedConditions,
+        }),
+      );
+    }
+
+    // One interstitial at session end, then the report. See adPolicy.ts.
+    setTimeout(() => {
+      maybeShowSessionEndInterstitial(seconds, () => {
+        if (reportable) navigation.navigate('SessionReport');
+      });
+    }, 900);
+  }, [sessionWindow, endSession, navigation, setLastSession]);
+
+  // Paying for a further block by ad, when the daily allowance is spent.
+  const startGate = useRewardedAction(
+    useCallback(() => {
+      void beginSession();
+    }, [beginSession]),
+  );
+
+  const onToggleAll = useCallback(async () => {
+    setArmError(null);
+    if (anyArmed || sessionWindow) {
+      await finishSession();
+      return;
+    }
+
+    // A free account gets FREE_SESSIONS_PER_DAY blocks for nothing; beyond that
+    // starting is the same trade as extending — one ad per block.
+    if (!canStartFree(usedToday(Date.now()), isPremium).allowed) {
+      startGate.run();
+      return;
+    }
+    await beginSession();
+  }, [anyArmed, sessionWindow, finishSession, usedToday, isPremium, beginSession, startGate]);
 
   useEffect(() => () => useAdsStore.getState().setFishingActive(false), []);
 
@@ -205,6 +278,15 @@ export default function FishingScreen() {
         </View>
 
         {armError && <Text style={styles.errorText}>{armError}</Text>}
+
+        <SessionBanner
+          window={sessionWindow}
+          remainingMs={remainingMs}
+          isPremium={isPremium}
+          extendReady={extendGate.ready || extendGate.exempt}
+          onExtend={() => extendGate.run()}
+          onGoPremium={() => navigation.navigate('Paywall')}
+        />
 
         {/* Rod strip — every armed rod is visible at a glance, which is the
             whole point of multi-rod: knowing WHICH rod went off. */}
@@ -272,6 +354,97 @@ export default function FishingScreen() {
   );
 }
 
+/**
+ * Milliseconds left on the window, re-rendering once a minute.
+ *
+ * A per-second tick would repaint the whole screen 3,600 times an hour for a
+ * countdown displayed to the minute. Null means unlimited (premium).
+ */
+function useSessionCountdown(window: SessionWindow | null): number | null {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!window || window.expiresAt === null) return;
+    const timer = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, [window]);
+  return msRemaining(window, Date.now());
+}
+
+/**
+ * Session state, countdown and the extend offer.
+ *
+ * Free windows lapse, and a lapse means rods stop being watched — so this is
+ * shown prominently rather than tucked away, and the near-expiry state is
+ * visually distinct so a glance is enough.
+ */
+function SessionBanner({
+  window,
+  remainingMs,
+  isPremium,
+  extendReady,
+  onExtend,
+  onGoPremium,
+}: {
+  window: SessionWindow | null;
+  remainingMs: number | null;
+  isPremium: boolean;
+  extendReady: boolean;
+  onExtend: () => void;
+  onGoPremium: () => void;
+}) {
+  if (!window) return null;
+
+  // Premium: unlimited, so there is nothing to count down or upsell.
+  if (remainingMs === null) {
+    return (
+      <View style={styles.sessionCard}>
+        <Text style={styles.sessionLabel}>Session</Text>
+        <Text style={styles.sessionValue}>No time limit</Text>
+      </View>
+    );
+  }
+
+  const expired = remainingMs <= 0;
+  const near = isNearExpiry(window, Date.now());
+
+  return (
+    <View
+      style={[
+        styles.sessionCard,
+        near && styles.sessionCardWarn,
+        expired && styles.sessionCardExpired,
+      ]}
+    >
+      <View style={styles.sessionRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sessionLabel}>
+            {expired ? 'Session ended' : near ? 'Ending soon' : 'Session'}
+          </Text>
+          <Text style={styles.sessionValue}>
+            {expired ? 'Rods are no longer monitored' : `${formatRemaining(remainingMs)} left`}
+          </Text>
+        </View>
+        {(expired || near) && (
+          <Pressable style={styles.extendBtn} onPress={onExtend}>
+            <Text style={styles.extendBtnText}>
+              {/* Honest label: only promise an ad when one can actually be shown. */}
+              {extendReady ? `🎬 +${SESSION_EXTENSION_HOURS}h` : `+${SESSION_EXTENSION_HOURS}h`}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+
+      {(expired || near) && !isPremium && (
+        <Pressable onPress={onGoPremium} hitSlop={8}>
+          <Text style={styles.sessionUpsell}>
+            Premium fishes without a time limit — no ads, no interruptions.
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 /** Subscribes one rod's view — a component per rod keeps the hook rule intact. */
 function RodCardBinding({
   rodId,
@@ -312,6 +485,27 @@ const styles = StyleSheet.create({
   armBtnActive: { backgroundColor: colors.surfaceAlt },
   armBtnText: { ...typography.h3, color: colors.text },
   errorText: { ...typography.caption, color: colors.danger },
+  sessionCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  sessionCardWarn: { borderColor: colors.accent },
+  sessionCardExpired: { borderColor: colors.danger },
+  sessionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  sessionLabel: { ...typography.caption, color: colors.textMuted, textTransform: 'uppercase' },
+  sessionValue: { ...typography.h3, color: colors.text, marginTop: 2 },
+  extendBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  extendBtnText: { ...typography.body, color: colors.bg, fontWeight: '700' },
+  sessionUpsell: { ...typography.caption, color: colors.accent, marginTop: spacing.xs },
   rodStrip: { marginHorizontal: -spacing.md, paddingHorizontal: spacing.md },
   rodCard: {
     width: 104,

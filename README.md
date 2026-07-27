@@ -31,7 +31,8 @@ src/
    ├─ subscription/   react-native-iap store + paywall (premium removes ads)
    ├─ environment/    Open-Meteo provider (multi-day), moon phase, hourly
    │                  fish-activity model, solunar month model, screens
-   ├─ rods/           rod model + entitlement gate, per-rod runtime, screens
+   ├─ rods/           rod model, per-rod runtime, rod + pairing screens
+   ├─ session/        free-tier session window: limits, expiry, extensions
    ├─ ble/            shared scan broker, GATT + broadcast clients, mock, registry
    ├─ bite-detection/ Kalman + moving-average filters, detector (one per rod)
    ├─ graph/          real-time SVG acceleration chart + per-rod ring buffer
@@ -225,6 +226,58 @@ Verified: a 180-day request returns ~4,300 hours in ~173 KB, cached per
 
 ---
 
+## Fishing sessions (free-tier time limit)
+
+Monitoring runs inside a **session window** (`features/session`). Free accounts
+fish in `FREE_SESSION_HOURS` (6) blocks; premium has no limit at all
+(`expiresAt: null`).
+
+| | Free | Premium |
+| --- | --- | --- |
+| Session length | 6 h blocks | unlimited |
+| First block each local day | free | — |
+| Further blocks | 1 rewarded ad each | — |
+| Opening the pairing screen | 1 rewarded ad (30-min window) | no ad |
+
+### Why the daily allowance exists
+
+Without it the cap is decorative: a user whose window lapsed could simply stop
+and start again for another free six hours, and the extension ad would never be
+worth watching. So the opening session **and every extension** count against
+`FREE_SESSIONS_PER_DAY` — both buy the same amount of fishing, so neither can be
+laundered into the other.
+
+### Enforcement is load-bearing, so lapses must never be silent
+
+When a window lapses the runtime disarms every rod. That is the whole point, and
+also the danger: an angler asleep beside three rods must not discover at dawn
+that nothing was being watched. Three consequences:
+
+- **Expiry is wall-clock, not a timer.** A six-hour `setTimeout` does not survive
+  the app being suspended, so `useSessionExpiryEnforcement` polls and re-checks
+  on every return to foreground.
+- **The warning is an OS-scheduled notification**
+  (`scheduleSessionNotifications`), fired `SESSION_EXPIRY_WARNING_MINUTES` (15)
+  before expiry, precisely because the app may not be running at the moment it
+  matters. A second notification confirms the lapse.
+- **The lapsed window is not cleared.** It stays in an expired state so the UI
+  can say "session ended" and offer the extension. Clearing it would make the
+  lapse invisible — the one outcome this feature exists to prevent.
+
+### Ad gates fail open
+
+`useRewardedGate` and `useRewardedAction` both grant the reward anyway when no ad
+can be shown — no fill, offline, SDK missing. Every gate here stands in front of
+something the user needs, and a bite alarm that will not pair because an ad
+network had no inventory is a broken product. One impression is not worth that.
+
+> **Known trade-off:** the pairing gate is the riskiest of the three, because it
+> lands during first-time setup — a new user's opening experience becomes "watch
+> an ad before you can use the thing you bought". If early churn shows up,
+> exempting the first rod's pairing is the obvious lever.
+
+---
+
 ## Pricing
 
 **Two ways to buy the same entitlement:** a one-off **lifetime** unlock and a
@@ -326,6 +379,7 @@ the whole product (which would cannibalise the subscription it exists to sell):
 
 | Unlock | Gate it opens | Lasts |
 | --- | --- | --- |
+| `rod-pairing` | Opening the pairing screen (free tier) | 30 min |
 | `extended-forecast` | Outlook beyond `FREE_FORECAST_DAYS` (3) | 24 h |
 | `catch-insights` | ERA5 retrospective analysis of your own catches | 24 h |
 | `session-report` | Timeline, strike breakdown, conditions card | 3 h |

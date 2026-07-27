@@ -81,6 +81,27 @@ export const PLAN_KIND: Record<PlanKey, 'oneTime' | 'subscription'> = {
 export const PLAN_ORDER: readonly PlanKey[] = ['lifetime', 'yearly'];
 
 /**
+ * Free-tier fishing-session limits.
+ *
+ * A free account monitors for FREE_SESSION_HOURS at a stretch, and gets
+ * FREE_SESSIONS_PER_DAY such blocks per local day for nothing; continuing beyond
+ * that costs one rewarded ad per block. Premium has no limit at all.
+ *
+ * The per-day allowance is what makes the cap real: without it a user could end
+ * an expired session and immediately start another for free, and the extension
+ * ad would never be worth watching.
+ */
+export const FREE_SESSION_HOURS = 6;
+export const SESSION_EXTENSION_HOURS = 6;
+export const FREE_SESSIONS_PER_DAY = 1;
+/**
+ * How long before expiry the user is warned. They are usually asleep or away
+ * from the phone, so the warning has to arrive early enough to act on — a cap
+ * that lapses silently means rods nobody is watching.
+ */
+export const SESSION_EXPIRY_WARNING_MINUTES = 15;
+
+/**
  * Practical ceiling on simultaneously monitored rods — NOT a paid limit (see
  * features/rods/rod.ts for why rod count isn't gated). 3–4 rods is standard
  * practice, and often the legal limit, for the static-line fishing this app

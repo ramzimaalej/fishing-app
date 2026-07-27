@@ -187,3 +187,76 @@ export async function notifyBite(
 
   await Promise.allSettled(tasks);
 }
+
+/**
+ * Identifier tag for session-window notifications, so they can be cancelled as
+ * a group when the session ends or is extended.
+ */
+const SESSION_NOTIFICATION_IDS: string[] = [];
+
+/**
+ * Schedule the "session ending" warning and the "session ended" alert with the
+ * OS.
+ *
+ * These MUST be OS-scheduled rather than JS timers: a free window is six hours
+ * long and the app will be suspended for most of it, so a setTimeout would
+ * simply never fire. An angler asleep beside three rods needs the warning to
+ * arrive whatever the app is doing.
+ *
+ * Best-effort throughout — a failure here must never break the session itself.
+ */
+export async function scheduleSessionNotifications(
+  expiresAt: number,
+  warningAt: number | null,
+): Promise<void> {
+  await cancelSessionNotifications();
+  try {
+    await ensureNotificationSetup();
+    const now = Date.now();
+    const android = Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {};
+
+    if (warningAt !== null && warningAt > now) {
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏳ Session ending soon',
+          body: 'Your rods stop being monitored shortly. Open Castmate to add more time.',
+          ...android,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: new Date(warningAt),
+        },
+      });
+      SESSION_NOTIFICATION_IDS.push(id);
+    }
+
+    if (expiresAt > now) {
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🛑 Session ended',
+          body: 'Your rods are no longer being monitored. Open Castmate to carry on fishing.',
+          ...android,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: new Date(expiresAt),
+        },
+      });
+      SESSION_NOTIFICATION_IDS.push(id);
+    }
+  } catch {
+    /* scheduling unavailable — the in-app countdown still applies */
+  }
+}
+
+/** Drop any pending session notifications (session ended, or was extended). */
+export async function cancelSessionNotifications(): Promise<void> {
+  const ids = SESSION_NOTIFICATION_IDS.splice(0, SESSION_NOTIFICATION_IDS.length);
+  for (const id of ids) {
+    try {
+      await Notifications.cancelScheduledNotificationAsync(id);
+    } catch {
+      /* already fired or cancelled */
+    }
+  }
+}

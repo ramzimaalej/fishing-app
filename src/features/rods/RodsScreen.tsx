@@ -1,5 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 
 import { MAX_RODS } from '@/config/constants';
-import { AdBanner } from '@/features/ads';
+import { AdBanner, useRewardedGate } from '@/features/ads';
 import { getSensorDevice, listSensorDevices } from '@/features/ble/deviceRegistry';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -26,11 +26,14 @@ function RodRow({
   index,
   onRename,
   onPair,
+  pairRequiresAd,
 }: {
   rod: Rod;
   index: number;
   onRename: (rod: Rod) => void;
   onPair: (rod: Rod) => void;
+  /** Show that opening pairing will play an ad, rather than springing it. */
+  pairRequiresAd: boolean;
 }) {
   const setSensorKind = useRodStore((s) => s.setSensorKind);
   const setEnabled = useRodStore((s) => s.setEnabled);
@@ -95,6 +98,8 @@ function RodRow({
                 {rod.deviceId ?? 'Not paired — tap to pair'}
               </Text>
             </View>
+            {/* Told up front, never sprung on them mid-tap. */}
+            {pairRequiresAd && <Text style={styles.pairAdHint}>🎬 ad</Text>}
             <Text style={styles.chevron}>›</Text>
           </Pressable>
           {needsPairing && (
@@ -128,8 +133,39 @@ export default function RodsScreen() {
 
   const [editing, setEditing] = useState<Rod | null>(null);
   const [draftName, setDraftName] = useState('');
+  /** Rod to open the pairing screen for once the gate resolves. */
+  const [pendingPair, setPendingPair] = useState<Rod | null>(null);
 
   const verdict = canAddRod(rods.length);
+
+  // Free accounts watch one ad to open pairing; the grant is a 30-minute window
+  // so a single ad covers setting up every rod. Premium is exempt, and the gate
+  // fails open when no ad can be shown — see useRewardedGate.
+  const pairGate = useRewardedGate('rod-pairing');
+
+  const openPairing = useCallback(
+    (rod: Rod) => {
+      if (pairGate.open || pairGate.exempt) {
+        navigation.navigate('PairSensor', { rodId: rod.id });
+        return;
+      }
+      // Ad shown (or failed open) → navigate once the grant lands. Remembering
+      // the rod avoids re-prompting when they come back to it.
+      setPendingPair(rod);
+      pairGate.ensureOpen();
+    },
+    [pairGate, navigation],
+  );
+
+  // The grant arrives asynchronously when the rewarded ad reports its reward,
+  // so navigation waits for `open` rather than assuming ensureOpen succeeded.
+  useEffect(() => {
+    if (!pendingPair) return;
+    if (!pairGate.open && !pairGate.exempt) return;
+    const rod = pendingPair;
+    setPendingPair(null);
+    navigation.navigate('PairSensor', { rodId: rod.id });
+  }, [pendingPair, pairGate.open, pairGate.exempt, navigation]);
 
   const onAdd = useCallback(() => {
     if (verdict.allowed) {
@@ -165,7 +201,8 @@ export default function RodsScreen() {
             rod={rod}
             index={i}
             onRename={openRename}
-            onPair={(r) => navigation.navigate('PairSensor', { rodId: r.id })}
+            onPair={openPairing}
+            pairRequiresAd={!pairGate.open && !pairGate.exempt}
           />
         ))}
 
@@ -239,6 +276,7 @@ const styles = StyleSheet.create({
   pairValue: { ...typography.body, color: colors.text, marginTop: 2 },
   pairWarn: { ...typography.body, color: colors.accent, marginTop: 2 },
   pairHint: { ...typography.caption, color: colors.textMuted },
+  pairAdHint: { ...typography.caption, color: colors.accent, fontWeight: '700' },
   chevron: { ...typography.h2, color: colors.textMuted },
   removeText: { ...typography.body, color: colors.danger, fontWeight: '600' },
   addBtn: {

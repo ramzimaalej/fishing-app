@@ -6,6 +6,10 @@ export { default as AdBanner } from './AdBanner';
 export { default as NativeAdCard } from './NativeAdCard';
 export { default as RewardedUnlockCard } from './RewardedUnlockCard';
 export { useRewardedUnlock } from './useRewardedUnlock';
+export { useRewardedAction } from './useRewardedAction';
+export { useRewardedGate } from './useRewardedGate';
+export type { RewardedAction } from './useRewardedAction';
+export type { RewardedGate } from './useRewardedGate';
 export {
   ensureAdsInitialized,
   maybeShowSessionEndInterstitial,

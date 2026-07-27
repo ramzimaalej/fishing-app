@@ -1,6 +1,11 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { AppState } from 'react-native';
 
+import { useAdsStore } from '@/features/ads';
 import { useAuthStore } from '@/features/auth/authStore';
+import { cancelSessionNotifications } from '@/features/notifications/feedback';
+import { useFishingSessionStore } from '@/features/session/fishingSessionStore';
+import { isExpired } from '@/features/session/sessionLimit';
 import { useSettings } from '@/features/settings/settingsStore';
 
 import { activeRods, type Rod } from './rod';
@@ -83,4 +88,64 @@ export function useRodRuntimeBridge(): void {
     },
     [],
   );
+
+  useSessionExpiryEnforcement();
+}
+
+/** How often the running session is checked against the wall clock. */
+const EXPIRY_POLL_MS = 30_000;
+
+/**
+ * Disarms every rod when the session window lapses.
+ *
+ * Checked against the wall clock on a poll AND on every return to foreground,
+ * rather than with a single long timer: a six-hour setTimeout does not survive
+ * the app being suspended, and a user who backgrounds the app past expiry must
+ * not come back to rods still streaming past their allowance.
+ *
+ * The user-facing warning is a scheduled OS notification (see
+ * scheduleSessionNotifications) precisely because this code may not be running
+ * at the moment it matters.
+ */
+function useSessionExpiryEnforcement(): void {
+  const window = useFishingSessionStore((s) => s.window);
+
+  // Kept in a ref so the interval callback never needs re-creating.
+  const windowRef = useRef(window);
+  windowRef.current = window;
+  /** Guards against re-disarming every poll once already expired. */
+  const handled = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!window || window.expiresAt === null) return;
+    // A new or extended window is a fresh deadline to enforce.
+    if (handled.current !== window.expiresAt) handled.current = null;
+
+    const check = () => {
+      const current = windowRef.current;
+      if (!current || current.expiresAt === null) return;
+      if (!isExpired(current, Date.now())) return;
+      if (handled.current === current.expiresAt) return;
+      handled.current = current.expiresAt;
+
+      // The window is deliberately NOT cleared here. It stays in an expired
+      // state so the UI can show "session ended" and offer the extension —
+      // clearing it would make the lapse invisible, which is the one outcome
+      // this whole feature exists to prevent.
+      void disarmAll();
+      void cancelSessionNotifications();
+      useAdsStore.getState().setFishingActive(false);
+    };
+
+    check();
+    const timer = setInterval(check, EXPIRY_POLL_MS);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') check();
+    });
+
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [window]);
 }
