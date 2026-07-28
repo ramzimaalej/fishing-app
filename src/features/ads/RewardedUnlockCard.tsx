@@ -1,7 +1,9 @@
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { dateFnsOptions } from '@/i18n/formatting';
 import { colors, radius, spacing, typography } from '@/theme';
 
 import type { RewardKind } from './rewards';
@@ -27,6 +29,7 @@ export default function RewardedUnlockCard({
   kind,
   hideWhenUnlocked,
 }: Props): JSX.Element | null {
+  const { t } = useTranslation();
   const navigation = useNavigation<{ navigate: (route: string) => void }>();
   const { spec, unlocked, fromReward, until, available, watch } = useRewardedUnlock(kind);
 
@@ -36,11 +39,13 @@ export default function RewardedUnlockCard({
       <View style={[styles.card, styles.cardActive]}>
         <Text style={styles.emoji}>⭐</Text>
         <View style={styles.body}>
-          <Text style={styles.title}>Unlocked</Text>
-          <Text style={styles.sub}>Until {format(until, 'EEE HH:mm')}</Text>
+          <Text style={styles.title}>{t('common.unlocked')}</Text>
+          <Text style={styles.sub}>
+            {t('common.until', { time: format(until, 'EEE HH:mm', dateFnsOptions()) })}
+          </Text>
         </View>
         <Pressable onPress={() => navigation.navigate('Paywall')} hitSlop={8}>
-          <Text style={styles.link}>Keep it</Text>
+          <Text style={styles.link}>{t('common.keepIt')}</Text>
         </Pressable>
       </View>
     );

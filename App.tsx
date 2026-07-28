@@ -10,8 +10,15 @@ import {
 } from '@react-navigation/native';
 
 import RootNavigator from '@/app/navigation/RootNavigator';
+// Side-effect import: initialises i18next before the first render, so no screen
+// can ever paint a raw translation key. The persisted preference is applied a
+// moment later by languageStore's rehydrate hook.
+import { initI18n } from '@/i18n';
+import '@/i18n/languageStore';
 import { trackScreen } from '@/services/firebase/analytics';
 import { colors } from '@/theme';
+
+initI18n();
 
 const navTheme: Theme = {
   ...DarkTheme,

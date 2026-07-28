@@ -3,8 +3,23 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import type { SensorKind } from '@/features/ble/deviceRegistry';
+import i18n from '@/i18n';
 
 import { defaultRodName, normaliseRodName, type Rod } from './rod';
+
+/**
+ * Localised default name, generated once when a rod is created.
+ *
+ * Not translated at render time: the name is persisted and user-editable, so
+ * re-deriving it would overwrite a name the user had kept — and would rename
+ * their rods out from under them on a language switch.
+ */
+function localisedRodName(index: number): string {
+  const translated = i18n.t('rods.defaultName', { number: index + 1 });
+  // Before i18next initialises, `t` echoes the key back — fall back rather than
+  // persisting "rods.defaultName" as somebody's rod name.
+  return translated.includes('rods.defaultName') ? defaultRodName(index) : translated;
+}
 
 /**
  * Persisted rod setup.
@@ -50,7 +65,9 @@ export const useRodStore = create<RodState>()(
         const rods = get().rods;
         const rod: Rod = {
           id: newRodId(),
-          name: normaliseRodName(init?.name ?? '', rods.length),
+          name: init?.name?.trim()
+            ? normaliseRodName(init.name, rods.length)
+            : localisedRodName(rods.length),
           // Default to the simulator so a new rod is immediately usable with no
           // hardware; the user picks the real sensor when they pair a tag.
           sensorKind: init?.sensorKind ?? 'mock',
@@ -108,7 +125,7 @@ export const useRodStore = create<RodState>()(
         if (get().rods.length > 0) return;
         const rod: Rod = {
           id: newRodId(),
-          name: defaultRodName(0),
+          name: localisedRodName(0),
           sensorKind: 'mock',
           deviceId: null,
           enabled: true,

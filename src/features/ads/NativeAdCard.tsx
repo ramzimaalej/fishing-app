@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { useEntitlements } from '@/features/subscription/useEntitlements';
@@ -31,6 +32,7 @@ interface Props {
  * load failure — a feed must never show a dead gap.
  */
 export default function NativeAdCard({ placement }: Props): JSX.Element | null {
+  const { t } = useTranslation();
   const { adFree } = useEntitlements();
   const nonPersonalized = useAdsStore((s) => s.nonPersonalized);
   const [ad, setAd] = useState<any>(null);
@@ -88,7 +90,7 @@ export default function NativeAdCard({ placement }: Props): JSX.Element | null {
       <View style={styles.body}>
         <View style={styles.headerRow}>
           <View style={styles.adBadge}>
-            <Text style={styles.adBadgeText}>Ad</Text>
+            <Text style={styles.adBadgeText}>{t('ads.label')}</Text>
           </View>
           {ad.advertiser ? (
             <NativeAsset assetType={NativeAssetType.ADVERTISER}>

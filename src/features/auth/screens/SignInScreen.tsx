@@ -1,4 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +17,7 @@ import { colors, radius, spacing, typography } from '@/theme';
 import { useAuthStore } from '../authStore';
 
 export default function SignInScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<any>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -34,11 +36,11 @@ export default function SignInScreen() {
     >
       <View style={styles.inner}>
         <Text style={styles.title}>Castmate</Text>
-        <Text style={styles.subtitle}>Sign in to track your bites</Text>
+        <Text style={styles.subtitle}>{t('auth.tagline')}</Text>
 
         <TextInput
           style={styles.input}
-          placeholder="Email"
+          placeholder={t('auth.email')}
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
           autoComplete="email"
@@ -48,7 +50,7 @@ export default function SignInScreen() {
         />
         <TextInput
           style={styles.input}
-          placeholder="Password"
+          placeholder={t('auth.password')}
           placeholderTextColor={colors.textMuted}
           secureTextEntry
           value={password}
@@ -80,12 +82,12 @@ export default function SignInScreen() {
           disabled={busy}
           onPress={() => signInGoogle()}
         >
-          <Text style={styles.socialBtnText}>Continue with Google</Text>
+          <Text style={styles.socialBtnText}>{t('auth.continueGoogle')}</Text>
         </Pressable>
 
         <Pressable style={styles.linkRow} onPress={() => navigation.navigate('SignUp')}>
           <Text style={styles.linkText}>
-            No account? <Text style={styles.linkStrong}>Create one</Text>
+            No account? <Text style={styles.linkStrong}>{t('auth.createOne')}</Text>
           </Text>
         </Pressable>
 
@@ -110,7 +112,7 @@ export default function SignInScreen() {
               })
             }
           >
-            <Text style={styles.devLink}>Continue in demo mode (dev only)</Text>
+            <Text style={styles.devLink}>{t('auth.demoMode')}</Text>
           </Pressable>
         )}
       </View>

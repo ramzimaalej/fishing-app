@@ -62,10 +62,17 @@ export function activeRods(rods: readonly Rod[]): Rod[] {
 export function normaliseRodName(input: string, fallbackIndex: number): string {
   const trimmed = input.trim();
   if (trimmed.length > 0) return trimmed.slice(0, 40);
-  return `Rod ${fallbackIndex + 1}`;
+  return defaultRodName(fallbackIndex);
 }
 
-/** Default name for the nth rod, matching normaliseRodName's fallback. */
+/**
+ * Untranslated fallback name for the nth rod.
+ *
+ * This module stays pure and i18n-free on purpose. Rod names are PERSISTED and
+ * user-editable, so the localised default is produced once at creation time by
+ * rodStore (which already has side effects) — not here, and not at render time,
+ * which would silently rewrite a name the user had accepted.
+ */
 export function defaultRodName(index: number): string {
   return `Rod ${index + 1}`;
 }

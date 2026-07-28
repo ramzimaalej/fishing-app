@@ -1,4 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useEffect } from 'react';
 import {
   ActivityIndicator,
@@ -25,26 +26,26 @@ import { useSubscriptionStore } from './subscriptionStore';
  * things that cost us something per user — weather API calls, cloud storage —
  * plus ad removal.
  */
-const BENEFITS = [
-  'Remove all ads',
-  'Full 7-day bite outlook',
-  'Catch insights from your own history',
-  'Complete session reports',
-  'Unlimited bite history',
-  'All alert sounds',
-  'Cloud backup for catch photos',
-];
+const BENEFIT_KEYS = [
+  'paywall.benefits.noAds',
+  'paywall.benefits.outlook',
+  'paywall.benefits.insights',
+  'paywall.benefits.reports',
+  'paywall.benefits.history',
+  'paywall.benefits.sounds',
+  'paywall.benefits.backup',
+] as const;
 
 /** Copy per plan. Structure (id, product type) lives in config/constants.ts. */
 const PLAN_COPY: Record<PlanKey, { title: string; blurb: string; tag?: string }> = {
   lifetime: {
-    title: 'Lifetime',
-    blurb: 'One payment, yours forever',
-    tag: 'Best value',
+    title: 'paywall.plans.lifetimeTitle',
+    blurb: 'paywall.plans.lifetimeBlurb',
+    tag: 'paywall.plans.lifetimeTag',
   },
   yearly: {
-    title: 'Yearly',
-    blurb: 'Renews each year until cancelled',
+    title: 'paywall.plans.yearlyTitle',
+    blurb: 'paywall.plans.yearlyBlurb',
   },
 };
 
@@ -65,6 +66,7 @@ function priceOf(product: any): string | undefined {
 }
 
 export default function PaywallScreen(): JSX.Element {
+  const { t } = useTranslation();
   const navigation = useNavigation<any>();
   const {
     isPremium,
@@ -95,34 +97,31 @@ export default function PaywallScreen(): JSX.Element {
       </Pressable>
 
       <Text style={styles.emoji}>🎣</Text>
-      <Text style={styles.headline}>Castmate Premium</Text>
-      <Text style={styles.subhead}>Fish smarter. No interruptions.</Text>
+      <Text style={styles.headline}>{t('paywall.title')}</Text>
+      <Text style={styles.subhead}>{t('paywall.subhead')}</Text>
 
       {isPremium ? (
         <View style={styles.premiumBox}>
           <Text style={styles.premiumText}>
-            {source === 'lifetime' ? 'Premium — yours for life ✓' : "You're Premium ✓"}
+            {source === 'lifetime' ? t('paywall.lifetimeActive') : t('paywall.yourePremium')}
           </Text>
           <Text style={styles.subhead}>
             {source === 'subscription'
-              ? 'Renews yearly. Manage it in your store account settings.'
-              : 'Thanks for supporting Castmate.'}
+              ? t('paywall.renewsYearly')
+              : t('paywall.thanks')}
           </Text>
 
           {promptCancel && (
-            <Text style={styles.cancelWarning}>
-              You also have an active yearly plan. Cancel it in your store account settings — your
-              lifetime unlock already covers everything.
-            </Text>
+            <Text style={styles.cancelWarning}>{t('paywall.cancelWarning')}</Text>
           )}
         </View>
       ) : (
         <>
           <View style={styles.benefits}>
-            {BENEFITS.map((b) => (
-              <View key={b} style={styles.benefitRow}>
+            {BENEFIT_KEYS.map((key) => (
+              <View key={key} style={styles.benefitRow}>
                 <Text style={styles.check}>✓</Text>
-                <Text style={styles.benefitText}>{b}</Text>
+                <Text style={styles.benefitText}>{t(key)}</Text>
               </View>
             ))}
           </View>
@@ -150,14 +149,14 @@ export default function PaywallScreen(): JSX.Element {
                 >
                   <View style={{ flex: 1 }}>
                     <View style={styles.planTitleRow}>
-                      <Text style={styles.planTitle}>{copy.title}</Text>
+                      <Text style={styles.planTitle}>{t(copy.title)}</Text>
                       {copy.tag && (
                         <View style={styles.planTag}>
-                          <Text style={styles.planTagText}>{copy.tag}</Text>
+                          <Text style={styles.planTagText}>{t(copy.tag)}</Text>
                         </View>
                       )}
                     </View>
-                    <Text style={styles.planBlurb}>{copy.blurb}</Text>
+                    <Text style={styles.planBlurb}>{t(copy.blurb)}</Text>
                   </View>
                   {busy ? (
                     <ActivityIndicator color={colors.primary} />
@@ -169,16 +168,14 @@ export default function PaywallScreen(): JSX.Element {
             })}
           </View>
 
-          <Text style={styles.planNote}>
-            Both unlock exactly the same features. Lifetime is a single payment — no renewal.
-          </Text>
+          <Text style={styles.planNote}>{t('paywall.planNote')}</Text>
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           {/* Required for the lifetime purchase: Apple mandates a restore path
               for non-consumables, and reviewers test it. */}
           <Pressable onPress={() => void restore()} hitSlop={8} disabled={purchasing}>
-            <Text style={styles.restore}>Restore purchases</Text>
+            <Text style={styles.restore}>{t('paywall.restore')}</Text>
           </Pressable>
 
           {/* No rewarded offer here on purpose. Unlocks are offered at each
@@ -186,11 +183,7 @@ export default function PaywallScreen(): JSX.Element {
               dangling one on the paywall only argues against buying. */}
 
           {anySubscriptionOffered && (
-            <Text style={styles.legal}>
-              The yearly plan renews automatically until cancelled; manage or cancel it anytime in
-              your store account settings. The lifetime unlock is a one-time purchase and does not
-              renew.
-            </Text>
+            <Text style={styles.legal}>{t('paywall.legal')}</Text>
           )}
         </>
       )}

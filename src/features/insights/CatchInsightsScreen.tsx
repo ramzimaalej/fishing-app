@@ -1,4 +1,5 @@
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AdBanner, RewardedUnlockCard, useOfferSlot } from '@/features/ads';
@@ -44,21 +45,24 @@ function BucketRow({ bucket, maxLift }: { bucket: InsightBucket; maxLift: number
 }
 
 function DimensionCard({ dimension }: { dimension: InsightDimension }) {
+  const { t } = useTranslation();
   const maxLift = dimension.buckets.reduce((m, b) => Math.max(m, b.lift), 0);
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle}>{dimension.title}</Text>
         {dimension.best && (
-          <Text style={styles.cardBest}>best: {dimension.best.label}</Text>
+          <Text style={styles.cardBest}>
+            {t('insights.best', { label: dimension.best.label })}
+          </Text>
         )}
       </View>
 
       <View style={styles.bucketHeader}>
         <Text style={[styles.bucketLabel, styles.headerText]} />
-        <Text style={[styles.bucketTrack, styles.headerText]}>vs. chance</Text>
-        <Text style={[styles.bucketLift, styles.headerText]}>lift</Text>
-        <Text style={[styles.bucketCount, styles.headerText]}>n</Text>
+        <Text style={[styles.bucketTrack, styles.headerText]}>{t('insights.vsChance')}</Text>
+        <Text style={[styles.bucketLift, styles.headerText]}>{t('insights.lift')}</Text>
+        <Text style={[styles.bucketCount, styles.headerText]}>{t('insights.count')}</Text>
       </View>
 
       {dimension.buckets.map((b) => (
@@ -69,6 +73,7 @@ function DimensionCard({ dimension }: { dimension: InsightDimension }) {
 }
 
 function Locked() {
+  const { t } = useTranslation();
   return (
     <View style={styles.card}>
       {[0, 1, 2, 3].map((i) => (
@@ -76,18 +81,18 @@ function Locked() {
           <View style={[styles.lockedBar, { width: `${72 - i * 12}%` }]} />
         </View>
       ))}
-      <Text style={styles.muted}>🔒 Unlock to see which conditions produced your bites</Text>
+      <Text style={styles.muted}>{t('insights.locked')}</Text>
     </View>
   );
 }
 
 function NotEnoughYet({ insights }: { insights: CatchInsights }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Not enough data yet</Text>
+      <Text style={styles.cardTitle}>{t('insights.notEnoughTitle')}</Text>
       <Text style={styles.muted}>
-        {insights.matched} of {MIN_SAMPLE} bites matched to historical conditions. Keep fishing —
-        the analysis needs a real sample before it can tell you anything honest.
+        {t('insights.notEnoughBody', { matched: insights.matched, needed: MIN_SAMPLE })}
       </Text>
     </View>
   );
@@ -98,6 +103,7 @@ const INSIGHT_OFFERS = ['catch-insights'] as const;
 const EMPTY_OFFERS = [] as const;
 
 export default function CatchInsightsScreen() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { records, loading: historyLoading } = useBiteHistory(user?.uid ?? null);
   const { insights, pendingRecent, loading, error, refresh } = useCatchInsights(records);
@@ -115,24 +121,22 @@ export default function CatchInsightsScreen() {
           <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={colors.primary} />
         }
       >
-        <Text style={styles.title}>Catch insights</Text>
+        <Text style={styles.title}>{t('insights.title')}</Text>
         <Text style={styles.subtitle}>
-          Your bites matched against ERA5 reanalysis — the corrected historical record, not a
-          forecast. Each condition is scored by how often it produced a bite relative to how often
-          it actually occurred, over the last {INSIGHTS_WINDOW_DAYS} days.
+          {t('insights.subtitle', { days: INSIGHTS_WINDOW_DAYS })}
         </Text>
 
         {busy && insights === null && (
           <View style={styles.centerBox}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={styles.muted}>Loading historical conditions…</Text>
+            <Text style={styles.muted}>{t('insights.loading')}</Text>
           </View>
         )}
 
         {error && (
           <View style={styles.card}>
             <Text style={styles.errorText}>{error}</Text>
-            <Text style={styles.muted}>Pull down to retry.</Text>
+            <Text style={styles.muted}>{t('common.retry')}</Text>
           </View>
         )}
 
@@ -155,25 +159,23 @@ export default function CatchInsightsScreen() {
             {offer && <RewardedUnlockCard kind={offer} hideWhenUnlocked />}
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>How to read this</Text>
+              <Text style={styles.cardTitle}>{t('insights.howToRead')}</Text>
               <Text style={styles.muted}>
-                <Text style={styles.bold}>Lift</Text> is how much more often a condition produced a
-                bite than chance would predict. 1.0× is exactly average; 2.0× means twice as
-                productive as its frequency alone would suggest. <Text style={styles.bold}>n</Text>{' '}
-                is the number of bites in that band.
+                <Text style={styles.bold}>{t('insights.lift')}</Text>{' '}
+                {t('insights.liftExplainer')} <Text style={styles.bold}>{t('insights.count')}</Text>{' '}
+                {t('insights.countExplainer')}
               </Text>
-              <Text style={styles.caveat}>
-                This corrects for how common each condition was, but not for when you chose to fish.
-                If you only ever fish at dawn, dawn will lead regardless of the fish.
-              </Text>
+              <Text style={styles.caveat}>{t('insights.caveat')}</Text>
               <Text style={styles.footnote}>
-                {insights.matched} bites analysed against {insights.backgroundHours} hours of
-                reanalysis.
+                {t('insights.footnote', {
+                  matched: insights.matched,
+                  hours: insights.backgroundHours,
+                })}
                 {insights.excluded > 0
-                  ? ` ${insights.excluded} outside the window or without data.`
+                  ? t('insights.footnoteExcluded', { count: insights.excluded })
                   : ''}
                 {pendingRecent > 0
-                  ? ` ${pendingRecent} too recent — reanalysis lags a few days.`
+                  ? t('insights.footnotePending', { count: pendingRecent })
                   : ''}
               </Text>
             </View>

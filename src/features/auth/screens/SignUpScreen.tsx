@@ -1,4 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +17,7 @@ import { colors, radius, spacing, typography } from '@/theme';
 import { useAuthStore } from '../authStore';
 
 export default function SignUpScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<any>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -53,14 +55,14 @@ export default function SignUpScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.inner}>
-        <Text style={styles.title}>Create account</Text>
+        <Text style={styles.title}>{t('auth.createAccount')}</Text>
         <Text style={styles.subtitle}>
           We&apos;ll email you a confirmation link to activate your account.
         </Text>
 
         <TextInput
           style={styles.input}
-          placeholder="Email"
+          placeholder={t('auth.email')}
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
           autoComplete="email"
@@ -70,7 +72,7 @@ export default function SignUpScreen() {
         />
         <TextInput
           style={styles.input}
-          placeholder="Password (min 6 characters)"
+          placeholder={t('auth.passwordMin')}
           placeholderTextColor={colors.textMuted}
           secureTextEntry
           value={password}
@@ -78,7 +80,7 @@ export default function SignUpScreen() {
         />
         <TextInput
           style={styles.input}
-          placeholder="Confirm password"
+          placeholder={t('auth.confirmPassword')}
           placeholderTextColor={colors.textMuted}
           secureTextEntry
           value={confirm}

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -42,6 +43,7 @@ function TabIcon({ icon, color }: { icon: string; color: string }) {
 }
 
 function MainTabs() {
+  const { t } = useTranslation();
   // Mounted here, above the tabs, so the rod runtime outlives any single screen.
   // Inside FishingScreen its teardown would disarm every rod on a tab switch.
   useRodRuntimeBridge();
@@ -61,19 +63,25 @@ function MainTabs() {
       <Tabs.Screen
         name="Fishing"
         component={FishingScreen}
-        options={{ tabBarIcon: ({ color }) => <TabIcon icon="🎣" color={color} /> }}
+        options={{
+          title: t('tabs.fishing'),
+          tabBarIcon: ({ color }) => <TabIcon icon="🎣" color={color} />,
+        }}
       />
       <Tabs.Screen
         name="Conditions"
         component={EnvironmentScreen}
-        options={{ tabBarIcon: ({ color }) => <TabIcon icon="🌊" color={color} /> }}
+        options={{
+          title: t('tabs.conditions'),
+          tabBarIcon: ({ color }) => <TabIcon icon="🌊" color={color} />,
+        }}
       />
       <Tabs.Screen
         name="History"
         component={BiteHistoryScreen}
         options={{
           headerShown: true,
-          title: 'Bite history',
+          title: t('history.title'),
           tabBarIcon: ({ color }) => <TabIcon icon="📈" color={color} />,
         }}
       />
@@ -81,6 +89,7 @@ function MainTabs() {
         name="Settings"
         component={SettingsScreen}
         options={{
+          title: t('tabs.settings'),
           headerShown: true,
           tabBarIcon: ({ color }) => <TabIcon icon="⚙️" color={color} />,
         }}
@@ -113,6 +122,7 @@ function Splash() {
 }
 
 export default function RootNavigator() {
+  const { t } = useTranslation();
   const { initializing, isAuthenticated, isVerified } = useAuth();
 
   // Bootstrap auth + IAP once for the app lifetime.
@@ -149,24 +159,32 @@ export default function RootNavigator() {
           <RootStack.Screen
             name="BestTimes"
             component={BestTimesScreen}
-            options={{ headerShown: true, title: 'Best times', headerTintColor: colors.text }}
+            options={{ headerShown: true, title: t('bestTimes.title'), headerTintColor: colors.text }}
           />
           {/* ERA5 retrospective analysis, pushed from History. */}
           <RootStack.Screen
             name="CatchInsights"
             component={CatchInsightsScreen}
-            options={{ headerShown: true, title: 'Catch insights', headerTintColor: colors.text }}
+            options={{
+              headerShown: true,
+              title: t('insights.title'),
+              headerTintColor: colors.text,
+            }}
           />
           {/* Rod setup + per-rod sensor pairing, pushed from Fishing. */}
           <RootStack.Screen
             name="Rods"
             component={RodsScreen}
-            options={{ headerShown: true, title: 'Rods', headerTintColor: colors.text }}
+            options={{ headerShown: true, title: t('rods.title'), headerTintColor: colors.text }}
           />
           <RootStack.Screen
             name="PairSensor"
             component={PairSensorScreen}
-            options={{ headerShown: true, title: 'Pair sensor', headerTintColor: colors.text }}
+            options={{
+              headerShown: true,
+              title: t('rods.pairedSensor'),
+              headerTintColor: colors.text,
+            }}
           />
         </>
       ) : (

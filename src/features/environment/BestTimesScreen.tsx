@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -66,6 +67,7 @@ function DayCell({
 }
 
 export default function BestTimesScreen() {
+  const { t } = useTranslation();
   const [monthOffset, setMonthOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -82,11 +84,8 @@ export default function BestTimesScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Best times</Text>
-        <Text style={styles.subtitle}>
-          Solunar outlook — the major feeding periods follow the new and full moon. Moon-based, so it
-          reaches further ahead than the weather forecast.
-        </Text>
+        <Text style={styles.title}>{t('bestTimes.title')}</Text>
+        <Text style={styles.subtitle}>{t('bestTimes.subtitle')}</Text>
 
         <View style={styles.monthHeader}>
           <Pressable hitSlop={12} onPress={() => setMonthOffset(monthOffset - 1)}>
@@ -126,7 +125,7 @@ export default function BestTimesScreen() {
             {(['excellent', 'good', 'fair', 'poor'] as SolunarRating[]).map((r) => (
               <View key={r} style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: RATING_COLOR[r] }]} />
-                <Text style={styles.legendText}>{r}</Text>
+                <Text style={styles.legendText}>{t(`bestTimes.ratings.${r}`)}</Text>
               </View>
             ))}
           </View>
@@ -141,25 +140,23 @@ export default function BestTimesScreen() {
               )}
             </Text>
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Rating</Text>
+              <Text style={styles.detailLabel}>{t('bestTimes.rating')}</Text>
               <Text style={[styles.detailValue, { color: RATING_COLOR[selectedDay.rating] }]}>
-                {selectedDay.rating} · {Math.round(selectedDay.score * 100)}%
+                {t(`bestTimes.ratings.${selectedDay.rating}`)} · {Math.round(selectedDay.score * 100)}%
               </Text>
             </View>
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Moon</Text>
+              <Text style={styles.detailLabel}>{t('bestTimes.moon')}</Text>
               <Text style={styles.detailValue}>
                 {selectedDay.moon.name} ·{' '}
                 {Math.round(selectedDay.moon.illuminationFraction * 100)}% lit
               </Text>
             </View>
-            <Text style={styles.detailHint}>
-              Fish the dawn and dusk windows — they carry the most weight on any rating.
-            </Text>
+            <Text style={styles.detailHint}>{t('bestTimes.hint')}</Text>
           </View>
         )}
 
-        <Text style={styles.sectionTitle}>Top days this month</Text>
+        <Text style={styles.sectionTitle}>{t('bestTimes.topDays')}</Text>
         <View style={styles.card}>
           {top.map((d) => (
             <Pressable key={d.date} style={styles.topRow} onPress={() => setSelected(d.date)}>

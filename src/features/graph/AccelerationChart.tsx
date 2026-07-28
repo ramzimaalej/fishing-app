@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 
@@ -27,6 +28,7 @@ const MIN_Y_MAX = 0.3; // keep a sensible scale when the signal is tiny
  * strings for cheap re-rendering of ~300-point windows.
  */
 function AccelerationChart({ points, bites = [], height = 220 }: AccelerationChartProps) {
+  const { t } = useTranslation();
   const [width, setWidth] = useState(0);
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -117,16 +119,16 @@ function AccelerationChart({ points, bites = [], height = 220 }: AccelerationCha
         )}
         {points.length < 2 && (
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>Waiting for sensor data…</Text>
+            <Text style={styles.emptyText}>{t('chart.waiting')}</Text>
           </View>
         )}
       </View>
 
       <View style={styles.legend}>
-        <LegendItem color={colors.primary} label="Acceleration (g)" />
-        <LegendItem color={colors.textMuted} label="Threshold" dashed />
-        <LegendItem color={colors.small} label="Small bite" dot />
-        <LegendItem color={colors.big} label="Big bite" dot />
+        <LegendItem color={colors.primary} label={t('chart.acceleration')} />
+        <LegendItem color={colors.textMuted} label={t('chart.threshold')} dashed />
+        <LegendItem color={colors.small} label={t('chart.smallBite')} dot />
+        <LegendItem color={colors.big} label={t('chart.bigBite')} dot />
         <Text style={styles.scale}>max {geom.yMax.toFixed(2)}g</Text>
       </View>
     </View>

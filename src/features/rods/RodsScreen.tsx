@@ -1,4 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
@@ -39,14 +40,15 @@ function RodRow({
   // Subscribed, not read imperatively: the label must update when the rod is
   // armed or disarmed from the Fishing screen.
   const armed = useRodRuntimeStore((s) => Boolean(s.views[rod.id]));
+  const { t } = useTranslation();
 
   const dev = getSensorDevice(rod.sensorKind);
   const needsPairing = dev.requiresDeviceBinding && rod.deviceId === null;
 
   const confirmRemove = () =>
-    Alert.alert('Remove rod', `Remove “${rod.name}”? Logged bites are kept.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => removeRod(rod.id) },
+    Alert.alert(t('rods.removeTitle'), t('rods.removeBody', { name: rod.name }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.remove'), style: 'destructive', onPress: () => removeRod(rod.id) },
     ]);
 
   return (
@@ -56,7 +58,7 @@ function RodRow({
           <Text style={styles.rodName}>{rod.name}</Text>
           <Text style={styles.rodSub}>
             {dev.label}
-            {armed ? ' · armed' : ''}
+            {armed ? ` · ${t('rods.armed')}` : ''}
           </Text>
         </Pressable>
         <Switch
@@ -69,7 +71,7 @@ function RodRow({
 
       <View style={styles.divider} />
 
-      <Text style={styles.fieldLabel}>Sensor</Text>
+      <Text style={styles.fieldLabel}>{t('rods.sensorLabel')}</Text>
       <View style={styles.chipRow}>
         {listSensorDevices().map((d) => {
           const active = d.kind === rod.sensorKind;
@@ -90,17 +92,15 @@ function RodRow({
           <View style={styles.divider} />
           <Pressable style={styles.pairRow} onPress={() => onPair(rod)}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>Paired sensor</Text>
+              <Text style={styles.fieldLabel}>{t('rods.pairedSensor')}</Text>
               <Text style={needsPairing ? styles.pairWarn : styles.pairValue}>
-                {rod.deviceId ?? 'Not paired — tap to pair'}
+                {rod.deviceId ?? t('rods.notPaired')}
               </Text>
             </View>
             <Text style={styles.chevron}>›</Text>
           </Pressable>
           {needsPairing && (
-            <Text style={styles.pairHint}>
-              Each rod must be bound to its own sensor, or two rods would read the same one.
-            </Text>
+            <Text style={styles.pairHint}>{t('rods.pairHint')}</Text>
           )}
         </>
       )}
@@ -109,18 +109,19 @@ function RodRow({
         <>
           <View style={styles.divider} />
           <Pressable onPress={confirmRemove}>
-            <Text style={styles.removeText}>Remove rod</Text>
+            <Text style={styles.removeText}>{t('rods.removeTitle')}</Text>
           </Pressable>
         </>
       )}
       {index === 0 && rods.length === 1 && (
-        <Text style={styles.pairHint}>Your first rod can&apos;t be removed.</Text>
+        <Text style={styles.pairHint}>{t('rods.firstRodFixed')}</Text>
       )}
     </View>
   );
 }
 
 export default function RodsScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<{ navigate: (route: string, params?: object) => void }>();
   const rods = useRodStore((s) => s.rods);
   const addRod = useRodStore((s) => s.addRod);
@@ -161,8 +162,8 @@ export default function RodsScreen() {
     }
     // The only refusal is the practical ceiling, which paying cannot lift — so
     // this path never offers the paywall.
-    Alert.alert('Maximum rods', `Castmate monitors up to ${MAX_RODS} rods at once.`);
-  }, [verdict, addRod]);
+    Alert.alert(t('rods.maxTitle'), t('rods.maxBody', { max: MAX_RODS }));
+  }, [verdict, addRod, t]);
 
   const openRename = (rod: Rod) => {
     setEditing(rod);
@@ -177,10 +178,7 @@ export default function RodsScreen() {
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.intro}>
-          Each rod runs its own detector and its own alarm, so a bite alert tells you which rod to
-          pick up.
-        </Text>
+        <Text style={styles.intro}>{t('rods.intro')}</Text>
 
         {rods.map((rod, i) => (
           <RodRow
@@ -194,7 +192,9 @@ export default function RodsScreen() {
 
         <Pressable style={styles.addBtn} onPress={onAdd}>
           <Text style={styles.addBtnText}>
-            {verdict.allowed ? '＋ Add rod' : `＋ Add rod (${rods.length}/${MAX_RODS})`}
+            {verdict.allowed
+              ? t('rods.addRod')
+              : t('rods.addRodCount', { current: rods.length, max: MAX_RODS })}
           </Text>
         </Pressable>
       </ScrollView>
@@ -211,22 +211,24 @@ export default function RodsScreen() {
       <Modal visible={editing !== null} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Rod name</Text>
+            <Text style={styles.modalTitle}>{t('rods.nameTitle')}</Text>
             <TextInput
               style={styles.input}
               value={draftName}
               onChangeText={setDraftName}
-              placeholder="e.g. Left rod"
+              placeholder={t('rods.namePlaceholder')}
               placeholderTextColor={colors.textMuted}
               autoFocus
               maxLength={40}
             />
             <View style={styles.modalActions}>
               <Pressable style={styles.modalBtn} onPress={() => setEditing(null)}>
-                <Text style={styles.modalBtnText}>Cancel</Text>
+                <Text style={styles.modalBtnText}>{t('common.cancel')}</Text>
               </Pressable>
               <Pressable style={[styles.modalBtn, styles.modalBtnPrimary]} onPress={saveName}>
-                <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>Save</Text>
+                <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>
+                  {t('common.save')}
+                </Text>
               </Pressable>
             </View>
           </View>

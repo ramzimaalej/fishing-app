@@ -1,4 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { useCallback, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -9,6 +10,7 @@ import {
   maybeShowSessionEndInterstitial,
   RewardedUnlockCard,
 } from '@/features/ads';
+import { dateFnsOptions } from '@/i18n/formatting';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -50,25 +52,31 @@ function Timeline({ summary }: { summary: SessionSummary }) {
         ))}
       </View>
       <View style={styles.timelineAxis}>
-        <Text style={styles.axisLabel}>{format(summary.startedAt, 'HH:mm')}</Text>
-        <Text style={styles.axisLabel}>{format(summary.endedAt, 'HH:mm')}</Text>
+        <Text style={styles.axisLabel}>
+          {format(summary.startedAt, 'HH:mm', dateFnsOptions())}
+        </Text>
+        <Text style={styles.axisLabel}>
+          {format(summary.endedAt, 'HH:mm', dateFnsOptions())}
+        </Text>
       </View>
     </View>
   );
 }
 
 function LockedBlock({ lines }: { lines: number }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.lockedBlock}>
       {Array.from({ length: lines }, (_, i) => (
         <View key={i} style={[styles.lockedBar, { width: `${88 - i * 16}%` }]} />
       ))}
-      <Text style={styles.lockedHint}>🔒 Unlock to see the full breakdown</Text>
+      <Text style={styles.lockedHint}>{t('report.lockedHint')}</Text>
     </View>
   );
 }
 
 export default function SessionReportScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<{ goBack: () => void; navigate: (r: string) => void }>();
   const summary = useSessionStore((s) => s.last);
   const pendingSeconds = useSessionStore((s) => s.pendingInterstitialSeconds);
@@ -96,12 +104,10 @@ export default function SessionReportScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.emptyBox}>
-          <Text style={styles.emptyTitle}>No session to report</Text>
-          <Text style={styles.emptySub}>
-            Finish a fishing session and its debrief appears here.
-          </Text>
+          <Text style={styles.emptyTitle}>{t('report.noSessionTitle')}</Text>
+          <Text style={styles.emptySub}>{t('report.noSessionSub')}</Text>
           <Pressable style={styles.doneBtn} onPress={() => navigation.goBack()}>
-            <Text style={styles.doneText}>Back</Text>
+            <Text style={styles.doneText}>{t('common.back')}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -113,18 +119,19 @@ export default function SessionReportScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Session report</Text>
+        <Text style={styles.title}>{t('report.title')}</Text>
         <Text style={styles.subtitle}>
-          {format(summary.startedAt, 'EEE d MMM · HH:mm')} — {format(summary.endedAt, 'HH:mm')}
+          {format(summary.startedAt, 'EEE d MMM · HH:mm', dateFnsOptions())} —{' '}
+          {format(summary.endedAt, 'HH:mm', dateFnsOptions())}
         </Text>
 
         {/* Headline numbers stay free: this is the payoff for the session the
             user just fished, and paywalling it would sour the whole debrief. */}
         <View style={styles.statsRow}>
-          <Stat label="Bites" value={String(summary.totalBites)} accent />
-          <Stat label="Duration" value={formatDuration(summary.durationSeconds)} />
+          <Stat label={t('report.bites')} value={String(summary.totalBites)} accent />
+          <Stat label={t('report.duration')} value={formatDuration(summary.durationSeconds)} />
           <Stat
-            label="Best strike"
+            label={t('report.bestStrike')}
             value={
               summary.strongest ? `${summary.strongest.event.peakMagnitude.toFixed(2)} g` : '—'
             }
@@ -133,11 +140,8 @@ export default function SessionReportScreen() {
 
         {summary.totalBites === 0 ? (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>No bites this time</Text>
-            <Text style={styles.muted}>
-              Blank sessions happen. Check the Conditions tab for the next good window before you
-              head out again.
-            </Text>
+            <Text style={styles.cardTitle}>{t('report.noBitesTitle')}</Text>
+            <Text style={styles.muted}>{t('report.noBitesSub')}</Text>
           </View>
         ) : (
           <>
@@ -146,7 +150,7 @@ export default function SessionReportScreen() {
                 loses the banner impression AND the rewarded offer along with
                 it. The analytical breakdown below is what Premium gates. */}
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Bite timeline</Text>
+              <Text style={styles.cardTitle}>{t('report.timeline')}</Text>
               <Timeline summary={summary} />
             </View>
 
@@ -154,13 +158,15 @@ export default function SessionReportScreen() {
                 is the primary fact of the session, not a premium detail. */}
             {summary.perRod.length > 1 && (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>By rod</Text>
+                <Text style={styles.cardTitle}>{t('report.byRod')}</Text>
                 {summary.perRod.map((r) => (
                   <View key={r.rodId} style={styles.detailRow}>
                     <Text style={styles.detailLabel}>{r.rodName}</Text>
                     <Text style={styles.detailValue}>
-                      {r.bites} {r.bites === 1 ? 'bite' : 'bites'} · peak{' '}
-                      {r.peakMagnitude.toFixed(2)} g
+                      {t('report.rodTally', {
+                        count: r.bites,
+                        peak: r.peakMagnitude.toFixed(2),
+                      })}
                     </Text>
                   </View>
                 ))}
@@ -168,31 +174,35 @@ export default function SessionReportScreen() {
             )}
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Strike breakdown</Text>
+              <Text style={styles.cardTitle}>{t('report.breakdown')}</Text>
               {detailed ? (
                 <>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Big fish</Text>
+                    <Text style={styles.detailLabel}>{t('report.bigFish')}</Text>
                     <Text style={styles.detailValue}>{summary.bigBites}</Text>
                   </View>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Nibbles</Text>
+                    <Text style={styles.detailLabel}>{t('report.nibbles')}</Text>
                     <Text style={styles.detailValue}>{summary.smallBites}</Text>
                   </View>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Bite rate</Text>
-                    <Text style={styles.detailValue}>{summary.biteRate.toFixed(1)} / hour</Text>
+                    <Text style={styles.detailLabel}>{t('report.biteRate')}</Text>
+                    <Text style={styles.detailValue}>
+                      {t('report.biteRateValue', { rate: summary.biteRate.toFixed(1) })}
+                    </Text>
                   </View>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Mean confidence</Text>
+                    <Text style={styles.detailLabel}>{t('report.meanConfidence')}</Text>
                     <Text style={styles.detailValue}>
                       {Math.round(summary.avgConfidence * 100)}%
                     </Text>
                   </View>
                   {summary.hottestWindow && (
                     <Text style={styles.hotLine}>
-                      🔥 Hottest half hour: {format(summary.hottestWindow.startAt, 'HH:mm')} —{' '}
-                      {summary.hottestWindow.count} bites
+                      {t('report.hottest', {
+                        time: format(summary.hottestWindow.startAt, 'HH:mm', dateFnsOptions()),
+                        count: summary.hottestWindow.count,
+                      })}
                     </Text>
                   )}
                 </>
@@ -203,19 +213,21 @@ export default function SessionReportScreen() {
 
             {conditions && (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Conditions that produced them</Text>
+                <Text style={styles.cardTitle}>{t('report.conditionsTitle')}</Text>
                 {detailed ? (
                   <View style={styles.condGrid}>
                     {conditions.pressure != null && (
-                      <Stat label="Pressure" value={`${conditions.pressure.toFixed(0)} hPa`} />
+                      <Stat label={t('conditions.pressure')} value={`${conditions.pressure.toFixed(0)} hPa`} />
                     )}
                     {conditions.temperature != null && (
-                      <Stat label="Air" value={`${conditions.temperature.toFixed(1)} °C`} />
+                      <Stat label={t('report.air')} value={`${conditions.temperature.toFixed(1)} °C`} />
                     )}
                     {conditions.windSpeed != null && (
-                      <Stat label="Wind" value={`${conditions.windSpeed.toFixed(1)} m/s`} />
+                      <Stat label={t('conditions.wind')} value={`${conditions.windSpeed.toFixed(1)} m/s`} />
                     )}
-                    {conditions.moon?.name && <Stat label="Moon" value={conditions.moon.name} />}
+                    {conditions.moon?.name && (
+                      <Stat label={t('conditions.moon')} value={conditions.moon.name} />
+                    )}
                   </View>
                 ) : (
                   <LockedBlock lines={2} />
@@ -232,7 +244,7 @@ export default function SessionReportScreen() {
         )}
 
         <Pressable style={styles.doneBtn} onPress={leave}>
-          <Text style={styles.doneText}>Done</Text>
+          <Text style={styles.doneText}>{t('common.done')}</Text>
         </Pressable>
       </ScrollView>
 

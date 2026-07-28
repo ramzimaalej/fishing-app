@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   Alert,
@@ -13,6 +14,7 @@ import { colors, radius, spacing, typography } from '@/theme';
 import { useAuthStore } from '../authStore';
 
 export default function VerifyEmailScreen() {
+  const { t } = useTranslation();
   const [checking, setChecking] = useState(false);
 
   const user = useAuthStore((s) => s.user);
@@ -39,7 +41,7 @@ export default function VerifyEmailScreen() {
     <View style={styles.container}>
       <View style={styles.inner}>
         <Text style={styles.emoji}>📩</Text>
-        <Text style={styles.title}>Confirm your email</Text>
+        <Text style={styles.title}>{t('auth.verifyTitle')}</Text>
         <Text style={styles.body}>
           We sent a confirmation link to{'\n'}
           <Text style={styles.email}>{user?.email ?? 'your inbox'}</Text>.{'\n\n'}
@@ -65,11 +67,11 @@ export default function VerifyEmailScreen() {
           disabled={busy}
           onPress={() => sendVerification()}
         >
-          <Text style={styles.secondaryBtnText}>Resend email</Text>
+          <Text style={styles.secondaryBtnText}>{t('auth.resend')}</Text>
         </Pressable>
 
         <Pressable style={styles.linkRow} onPress={() => signOut()}>
-          <Text style={styles.linkText}>Sign out</Text>
+          <Text style={styles.linkText}>{t('auth.signOut')}</Text>
         </Pressable>
       </View>
     </View>

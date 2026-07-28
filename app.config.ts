@@ -84,6 +84,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       { sounds: [] },
     ],
     '@react-native-google-signin/google-signin',
+    // Exposes the device's preferred locales so the app can pick a language.
+    'expo-localization',
     [
       'expo-location',
       {

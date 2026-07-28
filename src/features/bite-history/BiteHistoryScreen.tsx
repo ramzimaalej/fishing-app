@@ -1,4 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -32,6 +33,8 @@ import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
 import type { BiteRecord } from '@/types';
 
+import { dateFnsOptions } from '@/i18n/formatting';
+
 import { biteRepository } from './biteRepository';
 import { applyHistoryWindow } from './historyGate';
 import { resolveLocalPhoto } from './photoStorage';
@@ -60,6 +63,7 @@ function BiteRow({
   onEditNote: (record: BiteRecord) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const { t } = useTranslation();
 
   // Prefer the cloud copy (works across devices); fall back to the local file.
   const photoUri = record.imageUrl ?? (record.localImage ? resolveLocalPhoto(record.localImage) : null);
@@ -67,7 +71,7 @@ function BiteRow({
   const addPhoto = useCallback(async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to attach a catch photo.');
+      Alert.alert(t('history.permissionTitle'), t('history.permissionBody'));
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -81,11 +85,14 @@ function BiteRow({
       // Saved on-device for everyone; cloud backup depends on entitlement.
       await biteRepository.attachImage(uid, record.id, result.assets[0].uri, { cloudBackup });
     } catch (e) {
-      Alert.alert('Could not attach photo', e instanceof Error ? e.message : 'Please try again.');
+      Alert.alert(
+        t('history.photoFailedTitle'),
+        e instanceof Error ? e.message : t('history.photoFailedBody'),
+      );
     } finally {
       setBusy(false);
     }
-  }, [record.id, uid, cloudBackup]);
+  }, [record.id, uid, cloudBackup, t]);
 
   return (
     <View style={styles.row}>
@@ -108,30 +115,36 @@ function BiteRow({
       <View style={styles.rowBody}>
         <View style={styles.rowHeader}>
           <SizeBadge record={record} />
-          <Text style={styles.time}>{format(record.timestamp, 'MMM d, HH:mm:ss')}</Text>
+          <Text style={styles.time}>
+            {format(record.timestamp, 'MMM d, HH:mm:ss', dateFnsOptions())}
+          </Text>
         </View>
 
         {/* Name as captured, so renaming or deleting a rod can't rewrite history. */}
         {record.rodName ? <Text style={styles.rodTag}>🎣 {record.rodName}</Text> : null}
 
         <Text style={styles.metrics}>
-          peak {record.peakMagnitude.toFixed(2)} g · {Math.round(record.confidence * 100)}%
-          confidence
+          {t('history.metrics', {
+            peak: record.peakMagnitude.toFixed(2),
+            confidence: Math.round(record.confidence * 100),
+          })}
         </Text>
 
         <Pressable onPress={() => onEditNote(record)}>
           <Text style={record.note ? styles.note : styles.notePlaceholder}>
-            {record.note ? record.note : 'Add a note…'}
+            {record.note ? record.note : t('history.addNote')}
           </Text>
         </Pressable>
 
         {photoUri && (
           <View style={styles.photoMetaRow}>
             <Text style={styles.photoMeta}>
-              {record.imageUrl ? '☁️ Backed up' : '📱 On this device'}
+              {record.imageUrl ? t('history.backedUp') : t('history.onDevice')}
             </Text>
             <Pressable onPress={addPhoto} disabled={busy}>
-              <Text style={styles.replacePhoto}>{busy ? 'Saving…' : 'Replace'}</Text>
+              <Text style={styles.replacePhoto}>
+                {busy ? t('history.saving') : t('history.replace')}
+              </Text>
             </Pressable>
           </View>
         )}
@@ -141,6 +154,7 @@ function BiteRow({
 }
 
 export default function BiteHistoryScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<{ navigate: (route: string) => void }>();
   const { user } = useAuth();
   const uid = user?.uid ?? null;
@@ -230,20 +244,23 @@ export default function BiteHistoryScreen() {
     try {
       await biteRepository.updateNote(uid, target.id, draftNote.trim());
     } catch (e) {
-      Alert.alert('Save failed', e instanceof Error ? e.message : 'Could not save note.');
+      Alert.alert(
+        t('history.saveFailedTitle'),
+        e instanceof Error ? e.message : t('history.saveFailedBody'),
+      );
     }
-  }, [uid, editing, draftNote]);
+  }, [uid, editing, draftNote, t]);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.titleRow}>
-        <Text style={styles.title}>Bite History</Text>
+        <Text style={styles.title}>{t('history.title')}</Text>
         {records.length > 0 && (
           <Pressable
             style={styles.insightsBtn}
             onPress={() => navigation.navigate('CatchInsights')}
           >
-            <Text style={styles.insightsText}>📊 Insights</Text>
+            <Text style={styles.insightsText}>{t('history.insights')}</Text>
           </Pressable>
         )}
       </View>
@@ -277,18 +294,15 @@ export default function BiteHistoryScreen() {
           }
           ListEmptyComponent={
             <View style={styles.center}>
-              <Text style={styles.emptyTitle}>No bites logged yet</Text>
-              <Text style={styles.emptySub}>
-                Connect your sensor and start fishing — detected bites appear here.
-              </Text>
+              <Text style={styles.emptyTitle}>{t('history.emptyTitle')}</Text>
+              <Text style={styles.emptySub}>{t('history.emptySub')}</Text>
             </View>
           }
           ListFooterComponent={
             hiddenCount > 0 ? (
               <View style={styles.footer}>
                 <Text style={styles.footerText}>
-                  🔒 {hiddenCount} older {hiddenCount === 1 ? 'bite' : 'bites'} beyond the last{' '}
-                  {FREE_HISTORY_DAYS} days
+                  {t('history.hidden', { count: hiddenCount, days: FREE_HISTORY_DAYS })}
                 </Text>
               </View>
             ) : null
@@ -311,22 +325,24 @@ export default function BiteHistoryScreen() {
       <Modal visible={editing !== null} transparent animationType="fade" onRequestClose={() => setEditing(null)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Note</Text>
+            <Text style={styles.modalTitle}>{t('history.noteTitle')}</Text>
             <TextInput
               style={styles.input}
               value={draftNote}
               onChangeText={setDraftNote}
-              placeholder="e.g. rainbow trout, spinner lure"
+              placeholder={t('history.notePlaceholder')}
               placeholderTextColor={colors.textMuted}
               multiline
               autoFocus
             />
             <View style={styles.modalActions}>
               <Pressable style={styles.modalBtn} onPress={() => setEditing(null)}>
-                <Text style={styles.modalBtnText}>Cancel</Text>
+                <Text style={styles.modalBtnText}>{t('common.cancel')}</Text>
               </Pressable>
               <Pressable style={[styles.modalBtn, styles.modalBtnPrimary]} onPress={saveNote}>
-                <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>Save</Text>
+                <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>
+                  {t('common.save')}
+                </Text>
               </Pressable>
             </View>
           </View>
