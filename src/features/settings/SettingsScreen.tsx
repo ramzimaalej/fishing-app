@@ -2,6 +2,7 @@
  * Settings screen. All changes persist automatically through useSettingsStore.
  */
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   ScrollView,
@@ -13,6 +14,9 @@ import {
 } from 'react-native';
 
 import { useNavigation } from '@react-navigation/native';
+
+import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, type LanguagePreference } from '@/i18n';
+import { useLanguagePreference, useLanguageStore } from '@/i18n/languageStore';
 
 import { FREE_SOUND_COUNT, NOTIFICATION_SOUNDS } from '@/config/constants';
 import { RewardedUnlockCard, useOfferSlot } from '@/features/ads';
@@ -30,6 +34,9 @@ const SOUND_OFFERS = ['sound-pack'] as const;
 const EMPTY_OFFERS = [] as const;
 
 export default function SettingsScreen() {
+  const { t } = useTranslation();
+  const languagePreference = useLanguagePreference();
+  const setLanguagePreference = useLanguageStore((st) => st.setPreference);
   const settings = useSettingsStore((s) => s.settings);
   const setSensitivity = useSettingsStore((s) => s.setSensitivity);
   const setLiveBaitMode = useSettingsStore((s) => s.setLiveBaitMode);
@@ -64,16 +71,16 @@ export default function SettingsScreen() {
     setPushEnabled(granted);
     if (!granted) {
       Alert.alert(
-        'Notifications disabled',
-        'Enable notifications for Castmate in your device Settings to receive bite alerts.',
+        t('settings.pushDeniedTitle'),
+        t('settings.pushDeniedBody'),
       );
     }
   };
 
   const confirmReset = () =>
-    Alert.alert('Reset settings', 'Restore all settings to their defaults?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Reset', style: 'destructive', onPress: reset },
+    Alert.alert(t('settings.resetTitle'), t('settings.resetBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('settings.reset'), style: 'destructive', onPress: reset },
     ]);
 
   const sensitivityPct = Math.round(settings.sensitivity * 100);
@@ -82,14 +89,12 @@ export default function SettingsScreen() {
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
       {/* Detection --------------------------------------------------------- */}
-      <Text style={styles.sectionTitle}>Detection</Text>
+      <Text style={styles.sectionTitle}>{t('settings.detection')}</Text>
       <View style={styles.card}>
         <View style={styles.row}>
           <View style={styles.rowText}>
-            <Text style={styles.rowLabel}>Live Bait Mode</Text>
-            <Text style={styles.rowHelp}>
-              Adapts to constant bait motion so a lively bait isn&apos;t mistaken for a bite.
-            </Text>
+            <Text style={styles.rowLabel}>{t('settings.liveBait')}</Text>
+            <Text style={styles.rowHelp}>{t('settings.liveBaitHelp')}</Text>
           </View>
           <Switch
             value={settings.liveBaitMode}
@@ -103,21 +108,19 @@ export default function SettingsScreen() {
 
         <View style={styles.rowText}>
           <View style={styles.sliderHeader}>
-            <Text style={styles.rowLabel}>Bite Sensitivity</Text>
+            <Text style={styles.rowLabel}>{t('settings.sensitivity')}</Text>
             <Text style={styles.sliderValue}>{sensitivityPct}%</Text>
           </View>
-          <Text style={styles.rowHelp}>
-            Higher sensitivity detects smaller nibbles; lower ignores all but strong strikes.
-          </Text>
+          <Text style={styles.rowHelp}>{t('settings.sensitivityHelp')}</Text>
           <SensitivitySlider value={settings.sensitivity} onChange={setSensitivity} />
         </View>
       </View>
 
       {/* Alerts ------------------------------------------------------------ */}
-      <Text style={styles.sectionTitle}>Alerts</Text>
+      <Text style={styles.sectionTitle}>{t('settings.alerts')}</Text>
       <View style={styles.card}>
         <View style={styles.row}>
-          <Text style={styles.rowLabel}>Vibration</Text>
+          <Text style={styles.rowLabel}>{t('settings.vibration')}</Text>
           <Switch
             value={settings.vibrationEnabled}
             onValueChange={setVibration}
@@ -129,7 +132,7 @@ export default function SettingsScreen() {
         <View style={styles.divider} />
 
         <View style={styles.row}>
-          <Text style={styles.rowLabel}>Sound</Text>
+          <Text style={styles.rowLabel}>{t('settings.sound')}</Text>
           <Switch
             value={settings.soundEnabled}
             onValueChange={setSoundEnabled}
@@ -163,7 +166,7 @@ export default function SettingsScreen() {
                     style={styles.previewBtn}
                     onPress={() => playSoundPreview(sound.key)}
                   >
-                    <Text style={styles.previewText}>Preview</Text>
+                    <Text style={styles.previewText}>{t('settings.preview')}</Text>
                   </TouchableOpacity>
                 </View>
               );
@@ -177,8 +180,8 @@ export default function SettingsScreen() {
 
         <View style={styles.row}>
           <View style={styles.rowText}>
-            <Text style={styles.rowLabel}>Push Notifications</Text>
-            <Text style={styles.rowHelp}>Get a notification the moment a bite is detected.</Text>
+            <Text style={styles.rowLabel}>{t('settings.push')}</Text>
+            <Text style={styles.rowHelp}>{t('settings.pushHelp')}</Text>
           </View>
           <Switch
             value={settings.pushEnabled}
@@ -190,24 +193,50 @@ export default function SettingsScreen() {
         </View>
       </View>
 
+      {/* Language ---------------------------------------------------------- */}
+      <Text style={styles.sectionTitle}>{t('settings.language')}</Text>
+      <View style={styles.card}>
+        {(['system', ...SUPPORTED_LANGUAGES] as LanguagePreference[]).map((option, i) => {
+          const selected = option === languagePreference;
+          return (
+            <View key={option}>
+              {i > 0 && <View style={styles.divider} />}
+              <TouchableOpacity
+                style={styles.row}
+                onPress={() => setLanguagePreference(option)}
+              >
+                <Text style={styles.rowLabel}>
+                  {/* Each language is named in itself, so someone can find their
+                      own language without reading the current UI language. */}
+                  {option === 'system' ? t('settings.languageSystem') : LANGUAGE_NAMES[option]}
+                </Text>
+                <Text style={[styles.check, selected && styles.checkOn]}>
+                  {selected ? '●' : '○'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })}
+      </View>
+
       {/* Premium ----------------------------------------------------------- */}
-      <Text style={styles.sectionTitle}>Premium</Text>
+      <Text style={styles.sectionTitle}>{t('settings.premium')}</Text>
       <View style={styles.card}>
         <View style={styles.row}>
           <View style={styles.rowText}>
             <Text style={styles.rowLabel}>
               {isPremium
                 ? premiumSource === 'lifetime'
-                  ? 'Premium — lifetime'
-                  : 'Premium active'
-                : 'Castmate Premium'}
+                  ? t('settings.premiumLifetime')
+                  : t('settings.premiumActive')
+                : t('settings.premiumTitle')}
             </Text>
             <Text style={styles.rowHelp}>
               {isPremium
                 ? premiumSource === 'subscription'
-                  ? 'Renews yearly. Manage it in your store account settings.'
-                  : 'Ads removed and all features unlocked. Thank you!'
-                : 'Remove ads and unlock everything.'}
+                  ? t('settings.premiumRenews')
+                  : t('settings.premiumThanks')
+                : t('settings.premiumPitch')}
             </Text>
           </View>
           {!isPremium && (
@@ -215,7 +244,7 @@ export default function SettingsScreen() {
               style={styles.upgradeBtn}
               onPress={() => navigation.navigate('Paywall')}
             >
-              <Text style={styles.upgradeText}>Upgrade</Text>
+              <Text style={styles.upgradeText}>{t('settings.upgrade')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -223,30 +252,30 @@ export default function SettingsScreen() {
           <>
             <View style={styles.divider} />
             <TouchableOpacity style={styles.row} onPress={() => restore()} disabled={purchasing}>
-              <Text style={styles.rowLabel}>Restore purchases</Text>
-              <Text style={styles.rowHelp}>{purchasing ? 'Working…' : ''}</Text>
+              <Text style={styles.rowLabel}>{t('settings.restore')}</Text>
+              <Text style={styles.rowHelp}>{purchasing ? t('settings.working') : ''}</Text>
             </TouchableOpacity>
           </>
         )}
       </View>
 
       {/* Account ----------------------------------------------------------- */}
-      <Text style={styles.sectionTitle}>Account</Text>
+      <Text style={styles.sectionTitle}>{t('settings.account')}</Text>
       <View style={styles.card}>
         <View style={styles.row}>
-          <Text style={styles.rowLabel}>Signed in</Text>
+          <Text style={styles.rowLabel}>{t('settings.signedIn')}</Text>
           <Text style={styles.rowHelp} numberOfLines={1}>
             {user?.email ?? '—'}
           </Text>
         </View>
         <View style={styles.divider} />
         <TouchableOpacity style={styles.row} onPress={() => signOut()}>
-          <Text style={[styles.rowLabel, { color: colors.danger }]}>Sign out</Text>
+          <Text style={[styles.rowLabel, { color: colors.danger }]}>{t('settings.signOut')}</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.resetBtn} onPress={confirmReset}>
-        <Text style={styles.resetText}>Reset to defaults</Text>
+        <Text style={styles.resetText}>{t('settings.resetToDefaults')}</Text>
       </TouchableOpacity>
       </ScrollView>
 

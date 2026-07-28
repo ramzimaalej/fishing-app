@@ -1,4 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FREE_FORECAST_DAYS } from '@/config/constants';
 import { AdBanner, NativeAdCard, RewardedUnlockCard, useOfferSlot } from '@/features/ads';
+import { intlTag } from '@/i18n/formatting';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
 import type { EnvironmentSnapshot } from '@/types';
@@ -22,27 +25,32 @@ import { type DayForecast, useEnvironment } from './useEnvironment';
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const compass = (deg: number): string => COMPASS[Math.round(deg / 45) % 8]!;
 const hourLabel = (iso: string): string =>
-  new Date(iso).toLocaleTimeString([], { hour: 'numeric' });
+  new Date(iso).toLocaleTimeString(intlTag(), { hour: 'numeric' });
 
 const activityColor = (v: number): string =>
   v >= 0.66 ? colors.success : v >= 0.4 ? colors.accent : colors.textMuted;
 
-/** "Today" / "Tomorrow" / "Wed 30" for a local yyyy-mm-dd key. */
-function dayLabel(date: string, index: number): string {
-  if (index === 0) return 'Today';
-  if (index === 1) return 'Tomorrow';
+/**
+ * "Today" / "Tomorrow" / "Wed 30" for a local yyyy-mm-dd key.
+ * Takes `t` rather than calling a hook: this is a plain helper, and the weekday
+ * comes from Intl so it is localised without needing a translation key per day.
+ */
+function dayLabel(date: string, index: number, t: TFunction): string {
+  if (index === 0) return t('conditions.today');
+  if (index === 1) return t('conditions.tomorrow');
   const [y, m, d] = date.split('-').map(Number);
   const when = new Date(y!, m! - 1, d!);
-  return `${when.toLocaleDateString([], { weekday: 'short' })} ${when.getDate()}`;
+  return `${when.toLocaleDateString(intlTag(), { weekday: 'short' })} ${when.getDate()}`;
 }
 
 function ActivityMeter({ value }: { value: number }) {
+  const { t } = useTranslation();
   const pct = Math.round(value * 100);
   const barColor = activityColor(value);
   return (
     <View style={styles.meterWrap}>
       <View style={styles.meterHeader}>
-        <Text style={styles.meterTitle}>Fish activity</Text>
+        <Text style={styles.meterTitle}>{t('conditions.fishActivity')}</Text>
         <Text style={[styles.meterPct, { color: barColor }]}>{pct}%</Text>
       </View>
       <View style={styles.meterTrack}>
@@ -65,25 +73,26 @@ function StatTile({ label, value, unit }: { label: string; value: string; unit?:
 }
 
 function CurrentConditions({ s }: { s: EnvironmentSnapshot }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.card}>
       <ActivityMeter value={s.fishActivity} />
       <View style={styles.tileGrid}>
-        <StatTile label="Pressure" value={s.pressure.toFixed(0)} unit="hPa" />
-        <StatTile label="Temperature" value={s.temperature.toFixed(1)} unit="°C" />
+        <StatTile label={t('conditions.pressure')} value={s.pressure.toFixed(0)} unit="hPa" />
+        <StatTile label={t('conditions.temperature')} value={s.temperature.toFixed(1)} unit="°C" />
         <StatTile
-          label="Wind"
+          label={t('conditions.wind')}
           value={s.windSpeed.toFixed(1)}
           unit={`m/s ${compass(s.windDirection)}`}
         />
-        <StatTile label="Wave height" value={s.waveHeight.toFixed(2)} unit="m" />
+        <StatTile label={t('conditions.waveHeight')} value={s.waveHeight.toFixed(2)} unit="m" />
         <StatTile
-          label="Tide"
+          label={t('conditions.tide')}
           value={s.tide ? s.tide.state : '—'}
           unit={s.tide ? `${s.tide.height.toFixed(2)} m` : undefined}
         />
         <StatTile
-          label="Moon"
+          label={t('conditions.moon')}
           value={s.moon.name}
           unit={`${Math.round(s.moon.illuminationFraction * 100)}%`}
         />
@@ -120,12 +129,13 @@ function DayRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useTranslation();
   const pct = Math.round(day.peak.fishActivity * 100);
   const barColor = activityColor(day.peak.fishActivity);
   return (
     <View style={styles.dayWrap}>
       <Pressable style={styles.dayRow} onPress={onToggle}>
-        <Text style={styles.dayLabel}>{dayLabel(day.date, index)}</Text>
+        <Text style={styles.dayLabel}>{dayLabel(day.date, index, t)}</Text>
         <View style={styles.dayBarTrack}>
           <View
             style={[styles.dayBarFill, { width: `${pct}%`, backgroundColor: barColor }]}
@@ -148,6 +158,7 @@ function DayRow({
 }
 
 export default function EnvironmentScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<{ navigate: (route: string) => void }>();
   const { hourly, daily, current, loading, error, refresh } = useEnvironment();
   const { has } = useEntitlements();
@@ -175,19 +186,19 @@ export default function EnvironmentScreen() {
           <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={colors.primary} />
         }
       >
-        <Text style={styles.title}>Conditions</Text>
+        <Text style={styles.title}>{t('conditions.title')}</Text>
 
         {loading && hourly.length === 0 && (
           <View style={styles.centerBox}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={styles.muted}>Loading local conditions…</Text>
+            <Text style={styles.muted}>{t('conditions.loading')}</Text>
           </View>
         )}
 
         {error && hourly.length === 0 && (
           <View style={styles.centerBox}>
             <Text style={styles.errorText}>{error}</Text>
-            <Text style={styles.muted}>Pull down to retry.</Text>
+            <Text style={styles.muted}>{t('common.retry')}</Text>
           </View>
         )}
 
@@ -195,13 +206,16 @@ export default function EnvironmentScreen() {
 
         {best && (
           <Text style={styles.bestLine}>
-            🎣 Best window today around {hourLabel(best.time)} ({Math.round(best.fishActivity * 100)}%)
+            {t('conditions.bestWindow', {
+              time: hourLabel(best.time),
+              percent: Math.round(best.fishActivity * 100),
+            })}
           </Text>
         )}
 
         {hourly.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>Hourly forecast</Text>
+            <Text style={styles.sectionTitle}>{t('conditions.hourlyForecast')}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hourRow}>
               {hourly.map((h) => (
                 <HourColumn key={h.time} s={h} />
@@ -212,7 +226,7 @@ export default function EnvironmentScreen() {
 
         {daily.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>Outlook</Text>
+            <Text style={styles.sectionTitle}>{t('conditions.outlook')}</Text>
             <View style={styles.card}>
               {visibleDays.map((d, i) => (
                 <DayRow
@@ -227,7 +241,7 @@ export default function EnvironmentScreen() {
               {lockedDays > 0 && (
                 <View style={styles.lockedRow}>
                   <Text style={styles.lockedText}>
-                    🔒 {lockedDays} more {lockedDays === 1 ? 'day' : 'days'} in the full outlook
+                    {t('conditions.lockedDays', { count: lockedDays })}
                   </Text>
                 </View>
               )}
@@ -246,10 +260,8 @@ export default function EnvironmentScreen() {
         <Pressable style={styles.calendarLink} onPress={() => navigation.navigate('BestTimes')}>
           <Text style={styles.calendarLinkEmoji}>🌙</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.calendarLinkTitle}>Best times calendar</Text>
-            <Text style={styles.calendarLinkSub}>
-              Solunar outlook for the month — plan your next trip
-            </Text>
+            <Text style={styles.calendarLinkTitle}>{t('conditions.bestTimesLink')}</Text>
+            <Text style={styles.calendarLinkSub}>{t('conditions.bestTimesSub')}</Text>
           </View>
           <Text style={styles.calendarLinkChevron}>›</Text>
         </Pressable>

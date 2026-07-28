@@ -25,6 +25,7 @@ src/
 ├─ config/            constants + default settings
 ├─ types/             shared domain types (single source of truth)
 ├─ theme/             design tokens (dark theme)
+├─ i18n/              en/fr/es locales, language resolution, locale formatting
 ├─ services/firebase/ auth · firestore · storage · messaging · analytics (modular RNFirebase API)
 └─ features/
    ├─ auth/           email + Google sign-in, email-verification gate
@@ -270,6 +271,56 @@ that nothing was being watched. Three consequences:
 can be shown — no fill, offline, SDK missing. Every gate here stands in front of
 something the user needs, and a bite alarm that will not pair because an ad
 network had no inventory is a broken product. One impression is not worth that.
+
+---
+
+## Languages
+
+English, French and Spanish (`src/i18n`), on **i18next + react-i18next +
+expo-localization**. English is the base and the fallback.
+
+i18next rather than a lookup table because of **plural rules**: English has two
+forms, but CLDR gives French and Spanish `one/many/other`, and a hand-rolled
+`count === 1 ? a : b` is wrong in both. Plurals go through `Intl.PluralRules`, so
+call sites never encode an English assumption.
+
+### A missing translation is a compile error
+
+`en.ts` is declared `as const`, and `Translation` (in `locales/types.ts`) widens
+its literals to `string`. Every other locale must satisfy that type — so a
+missing or misspelled key fails the build instead of rendering as its own dotted
+key in front of a user.
+
+`__tests__/locales.test.ts` catches what types cannot:
+
+- every locale uses the **same `{{placeholders}}`** as English — a dropped
+  `{{count}}` renders a sentence with a hole in it and never throws;
+- every plural key carries `{{count}}`, since i18next only selects a plural form
+  when `count` is passed;
+- the files are not simply copies of English.
+
+### Formatting is localised too
+
+The half that gets forgotten and then looks broken. Two systems, both fed the
+locale from `i18n/formatting.ts`: `date-fns` `format()` takes a locale **object**,
+`Intl` / `toLocaleDateString` take a locale **tag**. A French user sees
+"mer. 30" and "1,5", not "Wed 30" and "1.5".
+
+### Two decisions worth keeping
+
+**Angling vocabulary, not literal translation.** A bite is a *touche* in French
+and a *picada* in Spanish; live-bait mode is *mode vif* / *cebo vivo*. An angler
+reading "morsure" would know instantly that nobody who fishes wrote it.
+
+**Rod names are localised once, at creation.** `rod.ts` stays pure and
+i18n-free; `rodStore` produces the localised default when a rod is created.
+Translating at render time would rename the user's rods out from under them on a
+language switch — the name is persisted and user-editable.
+
+> ⚠️ **`paywall.legal`, `paywall.planNote` and `paywall.cancelWarning` need a
+> native-speaker review** in both fr.ts and es.ts before release. They state
+> subscription terms; a mistranslated auto-renewal disclosure is an App Store
+> rejection and a consumer-law problem. Both files carry the warning in-header.
 
 ---
 

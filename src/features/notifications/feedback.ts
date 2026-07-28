@@ -15,6 +15,7 @@ import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 
+import i18n from '@/i18n';
 import type { AppSettings, BiteEvent } from '@/types';
 
 const ANDROID_CHANNEL_ID = 'bite-alerts';
@@ -172,8 +173,13 @@ export async function notifyBite(
           const where = rodName ? ` — ${rodName}` : '';
           await Notifications.scheduleNotificationAsync({
             content: {
-              title: (isBig ? '🎣 Big fish bite!' : '🐟 Nibble detected') + where,
-              body: `Peak ${event.peakMagnitude.toFixed(2)} g · ${pct}% confidence`,
+              title:
+                (isBig ? `🎣 ${i18n.t('fishing.bigFish')}` : `🐟 ${i18n.t('fishing.nibble')}`) +
+                where,
+              body: i18n.t('fishing.bitePeak', {
+                peak: event.peakMagnitude.toFixed(2),
+                confidence: pct,
+              }),
               ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
             },
             trigger: null, // deliver immediately
@@ -218,8 +224,8 @@ export async function scheduleSessionNotifications(
     if (warningAt !== null && warningAt > now) {
       const id = await Notifications.scheduleNotificationAsync({
         content: {
-          title: '⏳ Session ending soon',
-          body: 'Your rods stop being monitored shortly. Open Castmate to add more time.',
+          title: i18n.t('session.warnTitle'),
+          body: i18n.t('session.warnBody'),
           ...android,
         },
         trigger: {
@@ -233,8 +239,8 @@ export async function scheduleSessionNotifications(
     if (expiresAt > now) {
       const id = await Notifications.scheduleNotificationAsync({
         content: {
-          title: '🛑 Session ended',
-          body: 'Your rods are no longer being monitored. Open Castmate to carry on fishing.',
+          title: i18n.t('session.endedTitle'),
+          body: i18n.t('session.endedBody'),
           ...android,
         },
         trigger: {

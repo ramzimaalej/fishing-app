@@ -1,4 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -42,15 +43,16 @@ import { useSettings, useSettingsStore } from '@/features/settings/settingsStore
 import { colors, radius, spacing, typography } from '@/theme';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
-const STATUS_LABEL: Record<string, string> = {
-  idle: 'Not armed',
-  poweredOff: 'Bluetooth off',
-  unauthorized: 'Permission needed',
-  scanning: 'Scanning…',
-  connecting: 'Connecting…',
-  connected: 'Live',
-  reconnecting: 'Reconnecting…',
-  error: 'Error',
+/** Status → translation key. Resolved through `t` at the call site. */
+const STATUS_KEY: Record<string, string> = {
+  idle: 'fishing.status.idle',
+  poweredOff: 'fishing.status.poweredOff',
+  unauthorized: 'fishing.status.unauthorized',
+  scanning: 'fishing.status.scanning',
+  connecting: 'fishing.status.connecting',
+  connected: 'fishing.status.connected',
+  reconnecting: 'fishing.status.reconnecting',
+  error: 'fishing.status.error',
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -65,16 +67,20 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 function BiteBanner({ bite, rodName }: { bite: BiteEvent; rodName: string }) {
+  const { t } = useTranslation();
   const isBig = bite.size === 'big';
   return (
     <View style={[styles.banner, { borderColor: isBig ? colors.big : colors.small }]}>
       <Text style={styles.bannerEmoji}>{isBig ? '🎣' : '🐟'}</Text>
       <View style={{ flex: 1 }}>
         <Text style={styles.bannerTitle}>
-          {isBig ? 'Big fish!' : 'Nibble'} — {rodName}
+          {isBig ? t('fishing.bigFish') : t('fishing.nibble')} — {rodName}
         </Text>
         <Text style={styles.bannerMeta}>
-          Peak {bite.peakMagnitude.toFixed(2)} g · {Math.round(bite.confidence * 100)}% confidence
+          {t('fishing.bitePeak', {
+            peak: bite.peakMagnitude.toFixed(2),
+            confidence: Math.round(bite.confidence * 100),
+          })}
         </Text>
       </View>
     </View>
@@ -93,6 +99,7 @@ function RodCard({
   selected: boolean;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Pressable style={[styles.rodCard, selected && styles.rodCardSelected]} onPress={onPress}>
       <View style={styles.rodCardHeader}>
@@ -106,8 +113,8 @@ function RodCard({
       <Text style={styles.rodCardCount}>{view.biteCount}</Text>
       <Text style={styles.rodCardLabel}>
         {view.status === 'connected' && !view.isWarmedUp
-          ? 'Calibrating'
-          : (STATUS_LABEL[view.status] ?? view.status)}
+          ? t('fishing.status.calibrating')
+          : t(STATUS_KEY[view.status] ?? 'fishing.status.idle')}
       </Text>
       {view.device?.battery != null && (
         <Text style={styles.rodCardBattery}>🔋{view.device.battery}%</Text>
@@ -117,6 +124,7 @@ function RodCard({
 }
 
 export default function FishingScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<{ navigate: (route: string) => void }>();
 
   // NOTE: the rod-runtime bridge is mounted by MainTabs, not here. Tying it to
@@ -156,7 +164,7 @@ export default function FishingScreen() {
 
   const beginSession = useCallback(async () => {
     if (armable.length === 0) {
-      setArmError('Add a rod first.');
+      setArmError(t('fishing.addRodFirst'));
       return;
     }
     const window = startSession(isPremium);
@@ -179,7 +187,7 @@ export default function FishingScreen() {
       void cancelSessionNotifications();
       useAdsStore.getState().setFishingActive(false);
     }
-  }, [armable, isPremium, startSession, endSession]);
+  }, [armable, isPremium, startSession, endSession, t]);
 
   // Rewarded ad → one more block. Fails open: if no ad can be shown the time is
   // granted anyway, because refusing to watch rods over an empty ad network is
@@ -266,17 +274,20 @@ export default function FishingScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Fishing</Text>
+            <Text style={styles.title}>{t('fishing.title')}</Text>
             <Text style={styles.subtitle}>
-              {armable.length} {armable.length === 1 ? 'rod' : 'rods'}
-              {anyArmed ? ' · monitoring' : ' · idle'}
+              {t('fishing.rodCount', { count: armable.length })}
+              {' · '}
+              {anyArmed ? t('fishing.monitoring') : t('fishing.idle')}
             </Text>
           </View>
           <Pressable
             style={[styles.armBtn, anyArmed && styles.armBtnActive]}
             onPress={() => void onToggleAll()}
           >
-            <Text style={styles.armBtnText}>{anyArmed ? 'Stop' : 'Start'}</Text>
+            <Text style={styles.armBtnText}>
+              {anyArmed ? t('fishing.stop') : t('fishing.start')}
+            </Text>
           </Pressable>
         </View>
 
@@ -305,7 +316,7 @@ export default function FishingScreen() {
           ))}
           <Pressable style={styles.addRodCard} onPress={() => navigation.navigate('Rods')}>
             <Text style={styles.addRodPlus}>＋</Text>
-            <Text style={styles.rodCardLabel}>Manage</Text>
+            <Text style={styles.rodCardLabel}>{t('fishing.manage')}</Text>
           </Pressable>
         </ScrollView>
 
@@ -314,16 +325,19 @@ export default function FishingScreen() {
             <Text style={styles.chartTitle}>{selectedRod.name}</Text>
             <AccelerationChart points={selectedView.points} bites={selectedView.bites} />
             <View style={styles.statsRow}>
-              <Stat label="Bites" value={String(selectedView.biteCount)} />
-              <Stat label="Threshold" value={`${selectedView.threshold.toFixed(2)} g`} />
+              <Stat label={t('fishing.bites')} value={String(selectedView.biteCount)} />
               <Stat
-                label="Sensor"
+                label={t('fishing.threshold')}
+                value={`${selectedView.threshold.toFixed(2)} g`}
+              />
+              <Stat
+                label={t('fishing.sensor')}
                 value={
                   selectedView.status === 'connected'
                     ? selectedView.isWarmedUp
-                      ? 'Ready'
-                      : 'Calibrating'
-                    : (STATUS_LABEL[selectedView.status] ?? '—')
+                      ? t('fishing.status.ready')
+                      : t('fishing.status.calibrating')
+                    : t(STATUS_KEY[selectedView.status] ?? 'fishing.status.idle')
                 }
               />
             </View>
@@ -337,10 +351,8 @@ export default function FishingScreen() {
         <View style={styles.card}>
           <View style={styles.switchRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.switchTitle}>Live bait mode</Text>
-              <Text style={styles.switchSub}>
-                Filters constant bait motion — applies to every rod
-              </Text>
+              <Text style={styles.switchTitle}>{t('fishing.liveBait')}</Text>
+              <Text style={styles.switchSub}>{t('fishing.liveBaitHelp')}</Text>
             </View>
             <Switch
               value={settings.liveBaitMode}
@@ -395,14 +407,15 @@ function SessionBanner({
   onExtend: () => void;
   onGoPremium: () => void;
 }) {
+  const { t } = useTranslation();
   if (!window) return null;
 
   // Premium: unlimited, so there is nothing to count down or upsell.
   if (remainingMs === null) {
     return (
       <View style={styles.sessionCard}>
-        <Text style={styles.sessionLabel}>Session</Text>
-        <Text style={styles.sessionValue}>No time limit</Text>
+        <Text style={styles.sessionLabel}>{t('session.label')}</Text>
+        <Text style={styles.sessionValue}>{t('session.noLimit')}</Text>
       </View>
     );
   }
@@ -421,17 +434,20 @@ function SessionBanner({
       <View style={styles.sessionRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.sessionLabel}>
-            {expired ? 'Session ended' : near ? 'Ending soon' : 'Session'}
+            {expired ? t('session.ended') : near ? t('session.endingSoon') : t('session.label')}
           </Text>
           <Text style={styles.sessionValue}>
-            {expired ? 'Rods are no longer monitored' : `${formatRemaining(remainingMs)} left`}
+            {expired
+              ? t('session.notMonitored')
+              : t('session.remaining', { time: formatRemaining(remainingMs) })}
           </Text>
         </View>
         {(expired || near) && (
           <Pressable style={styles.extendBtn} onPress={onExtend}>
             <Text style={styles.extendBtnText}>
               {/* Honest label: only promise an ad when one can actually be shown. */}
-              {extendReady ? `🎬 +${SESSION_EXTENSION_HOURS}h` : `+${SESSION_EXTENSION_HOURS}h`}
+              {extendReady ? '🎬 ' : ''}
+              {t('session.extend', { hours: SESSION_EXTENSION_HOURS })}
             </Text>
           </Pressable>
         )}
@@ -439,9 +455,7 @@ function SessionBanner({
 
       {(expired || near) && !isPremium && (
         <Pressable onPress={onGoPremium} hitSlop={8}>
-          <Text style={styles.sessionUpsell}>
-            Premium fishes without a time limit — no ads, no interruptions.
-          </Text>
+          <Text style={styles.sessionUpsell}>{t('session.upsell')}</Text>
         </Pressable>
       )}
     </View>

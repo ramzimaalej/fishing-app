@@ -1,4 +1,5 @@
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -43,6 +44,7 @@ function minewReading(serviceData: Record<string, string> | null | undefined) {
  * already armed and fishing.
  */
 export default function PairSensorScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<{ goBack: () => void }>();
   const route = useRoute<{ key: string; name: string; params?: { rodId?: string } }>();
   const rodId = route.params?.rodId ?? null;
@@ -76,13 +78,13 @@ export default function PairSensorScreen() {
     void (async () => {
       const granted = await ensureBlePermissions();
       if (!granted) {
-        setError('Bluetooth permission denied.');
+        setError(t('pairing.permissionDenied'));
         return;
       }
       try {
         await waitForPoweredOn();
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Bluetooth unavailable.');
+        setError(e instanceof Error ? e.message : t('pairing.bluetoothUnavailable'));
         return;
       }
       if (!active) return;
@@ -121,7 +123,7 @@ export default function PairSensorScreen() {
       setScanning(false);
       release?.();
     };
-  }, [rod, dev.requiresBle, dev.discoverable]);
+  }, [rod, dev.requiresBle, dev.discoverable, t]);
 
   const candidates = useMemo(
     () =>
@@ -134,7 +136,7 @@ export default function PairSensorScreen() {
   if (!rod) {
     return (
       <View style={styles.center}>
-        <Text style={styles.muted}>Rod not found.</Text>
+        <Text style={styles.muted}>{t('pairing.rodNotFound')}</Text>
       </View>
     );
   }
@@ -146,21 +148,21 @@ export default function PairSensorScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Pair {rod.name}</Text>
+      <Text style={styles.title}>{t('pairing.title', { name: rod.name })}</Text>
       <Text style={styles.subtitle}>
         {dev.discoverable
-          ? 'Move the tag you want for this rod — the one with the strongest signal is usually nearest.'
-          : `Looking for ${dev.label} devices.`}
+          ? t('pairing.subtitleBroadcast')
+          : t('pairing.subtitleGatt', { device: dev.label })}
       </Text>
 
       {error && <Text style={styles.error}>{error}</Text>}
 
       {rod.deviceId && (
         <View style={styles.currentCard}>
-          <Text style={styles.currentLabel}>Currently paired</Text>
+          <Text style={styles.currentLabel}>{t('pairing.currentlyPaired')}</Text>
           <Text style={styles.currentValue}>{rod.deviceId}</Text>
           <Pressable onPress={() => setDeviceId(rod.id, null)}>
-            <Text style={styles.unpair}>Unpair</Text>
+            <Text style={styles.unpair}>{t('pairing.unpair')}</Text>
           </Pressable>
         </View>
       )}
@@ -168,7 +170,7 @@ export default function PairSensorScreen() {
       {scanning && candidates.length === 0 && !error && (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
-          <Text style={styles.muted}>Scanning…</Text>
+          <Text style={styles.muted}>{t('pairing.scanning')}</Text>
         </View>
       )}
 
@@ -185,7 +187,7 @@ export default function PairSensorScreen() {
               {c.battery != null ? ` · 🔋${c.battery}%` : ''} · {c.rssi} dBm
             </Text>
             {c.takenBy && (
-              <Text style={styles.rowWarn}>Already paired to {c.takenBy} — tap to move it here</Text>
+              <Text style={styles.rowWarn}>{t('pairing.takenBy', { name: c.takenBy })}</Text>
             )}
           </View>
           <Text style={styles.chevron}>›</Text>
