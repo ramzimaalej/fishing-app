@@ -363,6 +363,15 @@ const fr: Translation = {
     label: 'Pub',
   },
 
+  battery: {
+    lowTitle: '🔋 Batterie du capteur faible',
+    criticalTitle: '🪫 Batterie du capteur critique',
+    warnBody:
+      '{{rod}} est à {{percent}} % — changez la pile avant qu’elle ne cesse de surveiller.',
+    label: 'Batterie',
+    unknown: 'Batterie inconnue',
+  },
+
   chart: {
     waiting: 'En attente des données du capteur…',
     acceleration: 'Accélération (g)',

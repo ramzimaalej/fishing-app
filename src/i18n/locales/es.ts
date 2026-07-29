@@ -360,6 +360,14 @@ const es: Translation = {
     label: 'Anuncio',
   },
 
+  battery: {
+    lowTitle: '🔋 Batería del sensor baja',
+    criticalTitle: '🪫 Batería del sensor crítica',
+    warnBody: '{{rod}} está al {{percent}} % — cambia la pila antes de que deje de vigilar.',
+    label: 'Batería',
+    unknown: 'Batería desconocida',
+  },
+
   chart: {
     waiting: 'Esperando datos del sensor…',
     acceleration: 'Aceleración (g)',

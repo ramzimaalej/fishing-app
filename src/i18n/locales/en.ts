@@ -348,6 +348,14 @@ const en = {
     label: 'Ad',
   },
 
+  battery: {
+    lowTitle: '🔋 Sensor battery low',
+    criticalTitle: '🪫 Sensor battery critical',
+    warnBody: '{{rod}} is at {{percent}}% — change the battery before it stops watching.',
+    label: 'Battery',
+    unknown: 'Battery unknown',
+  },
+
   chart: {
     waiting: 'Waiting for sensor data…',
     acceleration: 'Acceleration (g)',
