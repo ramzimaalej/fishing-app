@@ -41,8 +41,14 @@ import { useSettings, useSettingsStore } from '@/features/settings/settingsStore
 import { colors, radius, spacing, typography } from '@/theme';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
-/** Status → translation key. Resolved through `t` at the call site. */
-const STATUS_KEY: Record<string, string> = {
+/**
+ * Status → translation key.
+ *
+ * `as const` matters: typed as Record<string, string> the values widen and the
+ * i18next augmentation can no longer verify them, so a typo'd key would render
+ * as its own literal text.
+ */
+const STATUS_KEY = {
   idle: 'fishing.status.idle',
   poweredOff: 'fishing.status.poweredOff',
   unauthorized: 'fishing.status.unauthorized',
@@ -51,7 +57,7 @@ const STATUS_KEY: Record<string, string> = {
   connected: 'fishing.status.connected',
   reconnecting: 'fishing.status.reconnecting',
   error: 'fishing.status.error',
-};
+} as const satisfies Record<string, string>;
 
 const STATUS_COLOR: Record<string, string> = {
   connected: colors.success,
@@ -112,7 +118,7 @@ function RodCard({
       <Text style={styles.rodCardLabel}>
         {view.status === 'connected' && !view.isWarmedUp
           ? t('fishing.status.calibrating')
-          : t(STATUS_KEY[view.status] ?? 'fishing.status.idle')}
+          : t(STATUS_KEY[view.status as keyof typeof STATUS_KEY] ?? 'fishing.status.idle')}
       </Text>
       {view.device?.battery != null && (
         <Text style={[styles.rodCardBattery, { color: batteryColor(view.device.battery) }]}>
@@ -324,7 +330,7 @@ export default function FishingScreen() {
                     ? selectedView.isWarmedUp
                       ? t('fishing.status.ready')
                       : t('fishing.status.calibrating')
-                    : t(STATUS_KEY[selectedView.status] ?? 'fishing.status.idle')
+                    : t(STATUS_KEY[selectedView.status as keyof typeof STATUS_KEY] ?? 'fishing.status.idle')
                 }
               />
             </View>

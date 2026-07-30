@@ -10,10 +10,9 @@ import {
   View,
 } from 'react-native';
 
-import { PLAN_KIND, PLAN_ORDER, type PlanKey } from '@/config/constants';
+import { PLAN_ORDER, type PlanKey } from '@/config/constants';
 import { colors, radius, spacing, typography } from '@/theme';
 
-import { shouldPromptSubscriptionCancel } from './premiumSource';
 import { useSubscriptionStore } from './subscriptionStore';
 
 /**
@@ -35,8 +34,15 @@ const BENEFIT_KEYS = [
   'paywall.benefits.backup',
 ] as const;
 
-/** Copy per plan. Structure (id, product type) lives in config/constants.ts. */
-const PLAN_COPY: Record<PlanKey, { title: string; blurb: string; tag?: string }> = {
+/**
+ * Copy per plan, as translation KEYS. Structure (id, product type) lives in
+ * config/constants.ts.
+ *
+ * `as const` keeps the values literal so the i18next augmentation can verify
+ * them; widened to `string` they would silently accept a key that no longer
+ * exists.
+ */
+const PLAN_COPY = {
   lifetime: {
     title: 'paywall.plans.lifetimeTitle',
     blurb: 'paywall.plans.lifetimeBlurb',
@@ -45,8 +51,11 @@ const PLAN_COPY: Record<PlanKey, { title: string; blurb: string; tag?: string }>
   yearly: {
     title: 'paywall.plans.yearlyTitle',
     blurb: 'paywall.plans.yearlyBlurb',
+    // Explicit undefined, not omitted: under `as const` an absent property is
+    // absent from the union type, so `copy.tag` would not typecheck at all.
+    tag: undefined,
   },
-};
+} as const satisfies Record<PlanKey, { title: string; blurb: string; tag?: string }>;
 
 /**
  * Price string the STORE quoted for a plan. Never a hardcoded figure: each
@@ -64,6 +73,15 @@ function priceOf(product: any): string | undefined {
   );
 }
 
+/**
+ * ⚠️ BEFORE ENABLING SUBSCRIPTIONS: this screen has NO auto-renewal disclosure.
+ *
+ * The `paywall.legal`, `paywall.planNote` and `paywall.cancelWarning` strings
+ * were removed while the paid tier is dormant, rather than carry translations
+ * nobody had reviewed. Shipping an auto-renewing subscription without stating
+ * its terms is an App Store 3.1.2 rejection — restore them, translated and
+ * reviewed, at the same time you flip SUBSCRIPTIONS_ENABLED.
+ */
 export default function PaywallScreen(): JSX.Element {
   const { t } = useTranslation();
   const navigation = useNavigation<any>();
@@ -71,7 +89,6 @@ export default function PaywallScreen(): JSX.Element {
     isPremium,
     source,
     products,
-    ownedProductIds,
     purchasing,
     pendingPlan,
     error,
@@ -84,10 +101,6 @@ export default function PaywallScreen(): JSX.Element {
     void init();
   }, [init]);
 
-  // Owning lifetime while a yearly plan is still running means paying twice.
-  // Only the store can cancel it, so all we can do is say so — clearly.
-  const promptCancel = shouldPromptSubscriptionCancel(source, ownedProductIds);
-  const anySubscriptionOffered = PLAN_ORDER.some((p) => PLAN_KIND[p] === 'subscription');
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -110,9 +123,6 @@ export default function PaywallScreen(): JSX.Element {
               : t('paywall.thanks')}
           </Text>
 
-          {promptCancel && (
-            <Text style={styles.cancelWarning}>{t('paywall.cancelWarning')}</Text>
-          )}
         </View>
       ) : (
         <>
@@ -167,7 +177,6 @@ export default function PaywallScreen(): JSX.Element {
             })}
           </View>
 
-          <Text style={styles.planNote}>{t('paywall.planNote')}</Text>
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -177,9 +186,6 @@ export default function PaywallScreen(): JSX.Element {
             <Text style={styles.restore}>{t('paywall.restore')}</Text>
           </Pressable>
 
-          {anySubscriptionOffered && (
-            <Text style={styles.legal}>{t('paywall.legal')}</Text>
-          )}
         </>
       )}
     </ScrollView>

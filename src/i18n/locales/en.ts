@@ -136,6 +136,7 @@ const en = {
     tomorrow: 'Tomorrow',
     bestTimesLink: 'Best times calendar',
     bestTimesSub: 'Solunar outlook for the month — plan your next trip',
+    attribution: 'Weather and marine data by Open-Meteo.com (CC BY 4.0)',
   },
 
   location: {
@@ -307,12 +308,7 @@ const en = {
     lifetimeActive: 'Premium — yours for life ✓',
     thanks: 'Thanks for supporting Castmate.',
     renewsYearly: 'Renews yearly. Manage it in your store account settings.',
-    cancelWarning:
-      'You also have an active yearly plan. Cancel it in your store account settings — your lifetime unlock already covers everything.',
-    planNote: 'Both unlock exactly the same features. Lifetime is a single payment — no renewal.',
     restore: 'Restore purchases',
-    legal:
-      'The yearly plan renews automatically until cancelled; manage or cancel it anytime in your store account settings. The lifetime unlock is a one-time purchase and does not renew.',
     plans: {
       lifetimeTitle: 'Lifetime',
       lifetimeBlurb: 'One payment, yours forever',

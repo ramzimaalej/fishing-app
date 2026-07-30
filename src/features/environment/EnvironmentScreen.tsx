@@ -285,6 +285,10 @@ export default function EnvironmentScreen() {
         )}
 
 
+        {/* Attribution is required by Open-Meteo's CC BY 4.0 data licence,
+            independently of the commercial-use question. */}
+        <Text style={styles.attribution}>{t('conditions.attribution')}</Text>
+
         <Pressable style={styles.calendarLink} onPress={() => navigation.navigate('BestTimes')}>
           <Text style={styles.calendarLinkEmoji}>🌙</Text>
           <View style={{ flex: 1 }}>
@@ -404,6 +408,7 @@ const styles = StyleSheet.create({
   calendarLinkTitle: { ...typography.h3, color: colors.text },
   calendarLinkSub: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
   calendarLinkChevron: { ...typography.h2, color: colors.textMuted },
+  attribution: { ...typography.caption, color: colors.border, textAlign: 'center' },
   centerBox: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
   muted: { ...typography.body, color: colors.textMuted },
   errorText: { ...typography.body, color: colors.danger, textAlign: 'center' },

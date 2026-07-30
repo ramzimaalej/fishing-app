@@ -218,10 +218,18 @@ Bites too recent to analyse are surfaced as a count, not silently dropped.
 Verified: a 180-day request returns ~4,300 hours in ~173 KB, cached per
 (coords, window).
 
-> **Licensing:** Open-Meteo's free tier is **non-commercial only** — apps with
-> ads or subscriptions require a paid plan or self-hosting (it is AGPL open
-> source). This applies to the whole `environment` feature, not just the
-> archive. Resolve before shipping.
+> **Licensing — unresolved, deliberately documented.** Open-Meteo's free tier is
+> non-commercial. Its terms define commercial use by naming *"apps that have
+> subscriptions or display advertisements"* — Castmate now has neither, so the
+> free tier arguably applies.
+>
+> The terms do not address a free app that exists to sell hardware, which is what
+> this is, and Open-Meteo's own guidance for unclear cases is to ask them. **Send
+> them a one-line email before launch.** If they call it commercial, the options
+> are $29/mo or self-hosting (it is AGPL open source).
+>
+> Attribution is required **either way** under the data's CC BY 4.0 licence, and
+> is now rendered on the Conditions screen (`conditions.attribution`).
 
 ---
 
@@ -281,10 +289,19 @@ call sites never encode an English assumption.
 
 ### A missing translation is a compile error
 
-`en.ts` is declared `as const`, and `Translation` (in `locales/types.ts`) widens
-its literals to `string`. Every other locale must satisfy that type — so a
-missing or misspelled key fails the build instead of rendering as its own dotted
-key in front of a user.
+Two halves, and both are needed:
+
+- **Between locales** — `en.ts` is declared `as const`, and `Translation` (in
+  `locales/types.ts`) widens its literals to `string`. Every other locale must
+  satisfy that type, so a key missing from a translation fails the build.
+- **At call sites** — `i18next.d.ts` augments i18next's `CustomTypeOptions` with
+  the English resource, so `t('some.key')` only compiles for a key that exists.
+
+The second half was missing at first, and it mattered: deleting the paywall's
+legal strings left three live `t()` calls compiling happily, which would have
+rendered the literal text `paywall.legal` to a user. Note this makes maps that
+hold keys (`STATUS_KEY`, `PLAN_COPY`) need `as const` — widened to `string` their
+values escape checking.
 
 `__tests__/locales.test.ts` catches what types cannot:
 
@@ -435,6 +452,14 @@ Turning it on is a build-config change:
 FEATURE_SUBSCRIPTIONS=true
 ```
 
+> ⚠️ **But it is not ONLY a flag flip.** The paywall currently carries no
+> auto-renewal disclosure — `paywall.legal`, `paywall.planNote` and
+> `paywall.cancelWarning` were removed rather than shipped as unreviewed
+> translations. A subscription that does not state its terms is an App Store
+> 3.1.2 rejection, so restore those strings, translated and reviewed, at the same
+> time you set this. The warning is repeated in `features.ts` and
+> `PaywallScreen.tsx`, which are the two files you would actually touch.
+
 The free-tier limits in `config/constants.ts` then apply, each mapped to a key in
 `subscription/premiumFeatures.ts`. A limit with no key is unreachable; a key with
 no limit is a lie on the paywall.
@@ -458,12 +483,16 @@ fire-and-forget and can never crash the app. Instrumented events:
 No manual iOS setup is needed — Analytics comes in via CocoaPods at
 `expo prebuild` (like the other Firebase modules).
 
-⚠️ **IDFA — worth acting on now.** The standard (AdId-capable) SDK is still
-pulled in. That was correct while AdMob shipped; with ads gone the IDFA buys
-nothing, yet its presence still forces an App Privacy *tracking* declaration and
-an ATT prompt on iOS. Switch to the no-AdId pod by setting
-`$RNFirebaseAnalyticsWithoutAdIdSupport = true` in the Podfile via a prebuild
-config plugin.
+**No advertising identifier.** The app serves no ads, so `withoutAnalyticsAdId`
+(a config plugin) keeps the ad id out of both platforms: it sets
+`$RNFirebaseAnalyticsWithoutAdIdSupport = true` in the iOS Podfile, and on Android
+excludes `play-services-ads-identifier`, which otherwise arrives transitively via
+Firebase `measurement-api`. Verified absent from the built APK and from the
+runtime classpath.
+
+That means the app can honestly declare that it does **not** track, and no ATT
+prompt appears on iOS. Merely linking the identifier would have obliged a
+tracking declaration even though nothing used it.
 
 ---
 
