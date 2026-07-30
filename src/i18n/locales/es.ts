@@ -7,10 +7,6 @@ import type { Translation } from './types';
  * live bait is *cebo vivo*. Phrased to read naturally in both Spain and Latin
  * America — no vosotros, no regionalisms — so one file serves both markets.
  *
- * ⚠️ NEEDS REVIEW before shipping — the `paywall.legal`, `paywall.planNote` and
- * `paywall.cancelWarning` strings state subscription terms. A mistranslated
- * auto-renewal disclosure is an App Store review rejection and, worse, a
- * consumer-law problem. Have a native speaker check those three before release.
  */
 const es: Translation = {
   common: {
@@ -140,6 +136,7 @@ const es: Translation = {
     tomorrow: 'Mañana',
     bestTimesLink: 'Calendario de mejores momentos',
     bestTimesSub: 'Tendencia solunar del mes — planifica tu próxima salida',
+    attribution: 'Datos meteorológicos y marinos de Open-Meteo.com (CC BY 4.0)',
   },
 
   location: {
@@ -308,7 +305,6 @@ const es: Translation = {
     resetToDefaults: 'Restablecer valores por defecto',
   },
 
-  // ⚠️ NEEDS REVIEW — subscription terms. See the file header.
   paywall: {
     title: 'Castmate Premium',
     subhead: 'Pesca con más cabeza. Sin interrupciones.',
@@ -317,13 +313,7 @@ const es: Translation = {
     thanks: 'Gracias por apoyar a Castmate.',
     renewsYearly:
       'Se renueva cada año. Gestiónalo en los ajustes de tu cuenta de la tienda.',
-    cancelWarning:
-      'También tienes una suscripción anual activa. Cancélala en los ajustes de tu cuenta de la tienda — tu acceso de por vida ya lo cubre todo.',
-    planNote:
-      'Ambos desbloquean exactamente las mismas funciones. El acceso de por vida es un pago único, sin renovación.',
     restore: 'Restaurar compras',
-    legal:
-      'El plan anual se renueva automáticamente hasta que se cancele; puedes gestionarlo o cancelarlo en cualquier momento en los ajustes de tu cuenta de la tienda. El acceso de por vida es una compra única y no se renueva.',
     plans: {
       lifetimeTitle: 'De por vida',
       lifetimeBlurb: 'Un solo pago, para siempre',

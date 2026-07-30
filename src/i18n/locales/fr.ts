@@ -8,11 +8,6 @@ import type { Translation } from './types';
  * reading "morsure" instead of "touche" would know immediately that nobody who
  * fishes wrote this.
  *
- * ⚠️ NEEDS REVIEW before shipping — the `paywall.legal`, `paywall.planNote` and
- * `paywall.cancelWarning` strings state subscription terms. A mistranslated
- * auto-renewal disclosure is an App Store review rejection and, worse, a
- * consumer-law problem. Have a native speaker (ideally with the store's own
- * localised terms to hand) check those three before release.
  */
 const fr: Translation = {
   common: {
@@ -143,6 +138,7 @@ const fr: Translation = {
     tomorrow: 'Demain',
     bestTimesLink: 'Calendrier des meilleurs moments',
     bestTimesSub: 'Tendance solunaire du mois — préparez votre prochaine sortie',
+    attribution: 'Données météo et marines par Open-Meteo.com (CC BY 4.0)',
   },
 
   location: {
@@ -311,7 +307,6 @@ const fr: Translation = {
     resetToDefaults: 'Rétablir les valeurs par défaut',
   },
 
-  // ⚠️ NEEDS REVIEW — subscription terms. See the file header.
   paywall: {
     title: 'Castmate Premium',
     subhead: 'Pêchez plus malin. Sans interruption.',
@@ -320,13 +315,7 @@ const fr: Translation = {
     thanks: 'Merci de soutenir Castmate.',
     renewsYearly:
       'Renouvellement annuel. Gérez-le dans les réglages de votre compte de store.',
-    cancelWarning:
-      'Vous avez également un abonnement annuel actif. Résiliez-le dans les réglages de votre compte de store — votre accès à vie couvre déjà tout.',
-    planNote:
-      'Les deux débloquent exactement les mêmes fonctions. L’accès à vie est un paiement unique — sans renouvellement.',
     restore: 'Restaurer les achats',
-    legal:
-      'L’abonnement annuel se renouvelle automatiquement jusqu’à sa résiliation ; gérez-le ou résiliez-le à tout moment dans les réglages de votre compte de store. L’accès à vie est un achat unique et ne se renouvelle pas.',
     plans: {
       lifetimeTitle: 'À vie',
       lifetimeBlurb: 'Un paiement unique, pour toujours',

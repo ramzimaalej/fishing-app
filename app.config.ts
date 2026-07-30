@@ -85,6 +85,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     // react-native-iap needs an Android store flavor selected (Play).
     './plugins/withIapAndroidFlavor',
+    // No ads → no advertising identifier, on either platform.
+    './plugins/withoutAnalyticsAdId',
   ],
   extra: {
     /**

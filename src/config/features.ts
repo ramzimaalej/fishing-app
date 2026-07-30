@@ -16,6 +16,11 @@ import Constants from 'expo-constants';
  *
  * Defaults to OFF. A missing or malformed config yields the hardware-only model
  * rather than silently switching monetization on.
+ *
+ * ⚠️ TURNING THIS ON IS NOT JUST A FLAG FLIP. The paywall currently carries no
+ * auto-renewal disclosure — those strings were removed while the tier is dormant
+ * rather than shipped unreviewed. A subscription without stated terms is an App
+ * Store 3.1.2 rejection. See the header of PaywallScreen.tsx.
  */
 
 interface FeatureExtra {
