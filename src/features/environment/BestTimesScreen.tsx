@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AdBanner } from '@/features/ads';
 import { colors, radius, spacing, typography } from '@/theme';
 
 import {
@@ -179,8 +178,6 @@ export default function BestTimesScreen() {
         </View>
       </ScrollView>
 
-      {/* Planning surface — same doctrine as Conditions. */}
-      <AdBanner placement="best-times" />
     </SafeAreaView>
   );
 }

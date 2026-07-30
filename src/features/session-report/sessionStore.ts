@@ -12,25 +12,12 @@ import type { SessionSummary } from './sessionSummary';
  */
 interface SessionState {
   last: SessionSummary | null;
-  /**
-   * Session length in seconds, still owed to the session-end interstitial.
-   *
-   * The ad fires when the user LEAVES the report, not before it opens: the
-   * report is the payoff for hours of fishing, and putting a full-screen ad in
-   * front of it taxes the one moment the app earns goodwill. Same impression,
-   * better order. Null once spent.
-   */
-  pendingInterstitialSeconds: number | null;
-  setLast: (summary: SessionSummary, sessionSeconds: number) => void;
-  clearPendingInterstitial: () => void;
+  setLast: (summary: SessionSummary) => void;
   clear: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
   last: null,
-  pendingInterstitialSeconds: null,
-  setLast: (summary, sessionSeconds) =>
-    set({ last: summary, pendingInterstitialSeconds: sessionSeconds }),
-  clearPendingInterstitial: () => set({ pendingInterstitialSeconds: null }),
-  clear: () => set({ last: null, pendingInterstitialSeconds: null }),
+  setLast: (summary) => set({ last: summary }),
+  clear: () => set({ last: null }),
 }));

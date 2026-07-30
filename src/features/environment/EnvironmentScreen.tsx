@@ -14,7 +14,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FREE_FORECAST_DAYS } from '@/config/constants';
-import { AdBanner, NativeAdCard, RewardedUnlockCard, useOfferSlot } from '@/features/ads';
 import { intlTag } from '@/i18n/formatting';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -168,9 +167,6 @@ export default function EnvironmentScreen() {
   const visibleDays = fullOutlook ? daily : daily.slice(0, FREE_FORECAST_DAYS);
   const lockedDays = daily.length - visibleDays.length;
 
-  const offer = useOfferSlot(
-    useMemo(() => (lockedDays > 0 ? (['extended-forecast'] as const) : []), [lockedDays]),
-  );
 
   const best = useMemo(() => {
     let top: EnvironmentSnapshot | null = null;
@@ -249,13 +245,6 @@ export default function EnvironmentScreen() {
           </>
         )}
 
-        {/* One offer, and only while there is genuinely something locked. */}
-        {offer && <RewardedUnlockCard kind={offer} />}
-
-        {/* Conditions has by far the most dwell time in the app — people browse
-            forecasts. A native unit here earns materially more than the anchored
-            banner does, and reads as content rather than chrome. */}
-        <NativeAdCard placement="conditions-outlook" />
 
         <Pressable style={styles.calendarLink} onPress={() => navigation.navigate('BestTimes')}>
           <Text style={styles.calendarLinkEmoji}>🌙</Text>
@@ -267,8 +256,6 @@ export default function EnvironmentScreen() {
         </Pressable>
       </ScrollView>
 
-      {/* Planning surface — the anchored banner lives here, never on Fishing. */}
-      <AdBanner placement="conditions" />
     </SafeAreaView>
   );
 }

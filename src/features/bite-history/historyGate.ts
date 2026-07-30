@@ -3,7 +3,7 @@
  *
  * The free tier keeps the most recent FREE_HISTORY_DAYS of bites readable.
  * Nothing is deleted or hidden destructively: older records stay in Firestore
- * and reappear the moment the user subscribes or takes the rewarded unlock.
+ * and reappear the moment the user subscribes.
  */
 
 import { FREE_HISTORY_DAYS } from '@/config/constants';
@@ -22,7 +22,8 @@ export interface HistoryWindow {
 
 /**
  * Split history into what's readable and what's behind the depth gate.
- * `unlocked` short-circuits everything — premium and rewarded users see all.
+ * `unlocked` short-circuits everything — and is always true unless a paid
+ * tier is enabled.
  */
 export function applyHistoryWindow(
   records: BiteRecord[],

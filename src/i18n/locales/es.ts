@@ -22,7 +22,6 @@ const es: Translation = {
     retry: 'Desliza hacia abajo para reintentar.',
     loading: 'Cargando…',
     notNow: 'Ahora no',
-    watchAd: 'Ver anuncio',
     keepIt: 'Conservar',
     unlocked: 'Desbloqueado',
     until: 'Hasta las {{time}}',
@@ -75,7 +74,7 @@ const es: Translation = {
     remaining: 'Quedan {{time}}',
     notMonitored: 'Las cañas ya no están vigiladas',
     extend: '+{{hours}} h',
-    upsell: 'Premium pesca sin límite de tiempo — sin anuncios ni interrupciones.',
+    upsell: 'Premium pesca sin límite de tiempo.',
     expired: 'finalizada',
     underMinute: 'menos de un minuto',
     warnTitle: '⏳ La sesión termina pronto',
@@ -308,8 +307,7 @@ const es: Translation = {
       yearlyBlurb: 'Se renueva cada año hasta que se cancele',
     },
     benefits: {
-      noAds: 'Eliminar todos los anuncios',
-      outlook: 'Tendencia completa de 7 días',
+        outlook: 'Tendencia completa de 7 días',
       insights: 'Análisis a partir de tu propio historial',
       reports: 'Informes de sesión completos',
       history: 'Historial de picadas ilimitado',
@@ -318,47 +316,7 @@ const es: Translation = {
     },
   },
 
-  rewards: {
-    extendedForecast: {
-      title: 'Desbloquea la tendencia completa de 7 días',
-      blurb: 'Planifica toda la semana — el mejor momento de cada día.',
-    },
-    catchInsights: {
-      title: 'Desbloquea tus análisis de capturas',
-      blurb:
-        'La presión, la temperatura y la marea que realmente produjeron tus picadas.',
-    },
-    sessionReport: {
-      title: 'Desbloquea el informe de sesión completo',
-      blurb:
-        'Cronología de picadas, detalle de su intensidad y las condiciones que las produjeron.',
-    },
-    historyDepth: {
-      title: 'Consulta todo tu historial de picadas',
-      blurb: 'Abre por un día todo lo anterior a los últimos 30 días.',
-    },
-    soundPack: {
-      title: 'Desbloquea todos los sonidos de aviso',
-      blurb: 'Bite Bell y Sonar Ping, tuyos durante la semana.',
-    },
-    photoBackup: {
-      title: 'Guarda esta captura en la nube',
-      blurb: 'Conserva la foto aunque pierdas o cambies de teléfono.',
-    },
-    watchToUnlock: '{{blurb}} Mira un anuncio corto para desbloquear {{duration}}.',
-    durations: {
-      hours_one: 'durante {{count}} hora',
-      hours_other: 'durante {{count}} horas',
-      days_one: 'durante {{count}} día',
-      days_other: 'durante {{count}} días',
-      minutes_one: 'durante {{count}} minuto',
-      minutes_other: 'durante {{count}} minutos',
-    },
-  },
 
-  ads: {
-    label: 'Anuncio',
-  },
 
   battery: {
     lowTitle: '🔋 Batería del sensor baja',

@@ -4,10 +4,10 @@ import { ExpoConfig, ConfigContext } from 'expo/config';
  * Dynamic Expo config.
  *
  * All native modules used here (react-native-firebase, react-native-ble-plx,
- * react-native-google-mobile-ads, IAP) require a custom dev client / prebuild —
+ * IAP, expo-localization) require a custom dev client / prebuild —
  * they do NOT run in Expo Go. Run `npm run prebuild` then `npm run ios|android`.
  *
- * Secrets (AdMob IDs, Google web client id) come from environment variables so
+ * Secrets (Google web client id) come from environment variables so
  * they never land in source control. See `.env.example`.
  */
 export default ({ config }: ConfigContext): ExpoConfig => ({
@@ -70,16 +70,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     [
-      'react-native-google-mobile-ads',
-      {
-        androidAppId: process.env.ADMOB_ANDROID_APP_ID ?? 'ca-app-pub-3940256099942544~3347511713',
-        iosAppId: process.env.ADMOB_IOS_APP_ID ?? 'ca-app-pub-3940256099942544~1458002511',
-        // Shown by the iOS ATT prompt (UMP drives it when configured in AdMob).
-        userTrackingUsageDescription:
-          'This identifier will be used to show you fewer, more relevant ads.',
-      },
-    ],
-    [
       'expo-notifications',
       { sounds: [] },
     ],
@@ -97,29 +87,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     './plugins/withIapAndroidFlavor',
   ],
   extra: {
-    googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
-    // Per-slot AdMob unit ids. Dev builds always use Google's test ids; in
-    // production a missing value falls back to test ids (never crashes).
-    admob: {
-      banner: {
-        ios: process.env.ADMOB_BANNER_ID_IOS ?? '',
-        android: process.env.ADMOB_BANNER_ID_ANDROID ?? '',
-      },
-      // In-feed native units (bite history). Create these as "Native advanced"
-      // ad units in AdMob — a banner id will not serve here.
-      native: {
-        ios: process.env.ADMOB_NATIVE_ID_IOS ?? '',
-        android: process.env.ADMOB_NATIVE_ID_ANDROID ?? '',
-      },
-      interstitial: {
-        ios: process.env.ADMOB_INTERSTITIAL_ID_IOS ?? '',
-        android: process.env.ADMOB_INTERSTITIAL_ID_ANDROID ?? '',
-      },
-      rewarded: {
-        ios: process.env.ADMOB_REWARDED_ID_IOS ?? '',
-        android: process.env.ADMOB_REWARDED_ID_ANDROID ?? '',
-      },
+    /**
+     * Monetization toggle. Default OFF — the revenue model is hardware-only:
+     * sell the sensor, give the software away. Ads are not merely disabled but
+     * removed entirely; see src/config/features.ts.
+     */
+    features: {
+      subscriptions: process.env.FEATURE_SUBSCRIPTIONS ?? 'false',
     },
+    googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
     eas: { projectId: process.env.EAS_PROJECT_ID ?? '' },
   },
 });

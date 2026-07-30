@@ -21,12 +21,16 @@ import type { BiteSize } from '@/types';
  * is swallowed. Uses the modular RNFirebase API to match the rest of the
  * service layer.
  *
- * IDFA note: this uses the standard Analytics SDK (AdId-capable). That is
- * consistent with the app already shipping AdMob (which uses the IDFA under ATT
- * consent). If AdMob is ever removed and you want zero IDFA collection, switch
- * to the no-AdId Analytics pod via the Podfile flag
- * `$RNFirebaseAnalyticsWithoutAdIdSupport = true` (a prebuild config-plugin
- * tweak) — see README.
+ * ⚠️ IDFA — ACTION AVAILABLE NOW THAT ADMOB IS GONE.
+ *
+ * This still pulls the standard Analytics SDK, which is AdId-capable. That was
+ * the right call while AdMob shipped (it used the IDFA under ATT consent), but
+ * the app no longer serves ads, so the IDFA buys nothing and its presence still
+ * forces an App Privacy "tracking" declaration and an ATT prompt on iOS.
+ *
+ * Switching to the no-AdId pod removes both:
+ *   $RNFirebaseAnalyticsWithoutAdIdSupport = true
+ * set in the Podfile via a prebuild config plugin. See README.
  */
 
 type Analytics = FirebaseAnalyticsTypes.Module;

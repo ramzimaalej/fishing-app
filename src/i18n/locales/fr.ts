@@ -24,7 +24,6 @@ const fr: Translation = {
     retry: 'Tirez vers le bas pour réessayer.',
     loading: 'Chargement…',
     notNow: 'Plus tard',
-    watchAd: 'Voir une pub',
     keepIt: 'Conserver',
     unlocked: 'Débloqué',
     until: "Jusqu'à {{time}}",
@@ -77,7 +76,7 @@ const fr: Translation = {
     remaining: '{{time}} restant',
     notMonitored: 'Les cannes ne sont plus surveillées',
     extend: '+{{hours}} h',
-    upsell: 'Premium pêche sans limite de durée — sans pub, sans interruption.',
+    upsell: 'Premium pêche sans limite de durée.',
     expired: 'expirée',
     underMinute: "moins d'une minute",
     warnTitle: '⏳ Session bientôt terminée',
@@ -311,8 +310,7 @@ const fr: Translation = {
       yearlyBlurb: 'Se renouvelle chaque année jusqu’à résiliation',
     },
     benefits: {
-      noAds: 'Supprimer toutes les publicités',
-      outlook: 'Tendance complète sur 7 jours',
+        outlook: 'Tendance complète sur 7 jours',
       insights: 'Analyses issues de votre propre historique',
       reports: 'Rapports de session complets',
       history: 'Historique des touches illimité',
@@ -321,47 +319,7 @@ const fr: Translation = {
     },
   },
 
-  rewards: {
-    extendedForecast: {
-      title: 'Débloquez la tendance complète sur 7 jours',
-      blurb: 'Planifiez toute la semaine — le meilleur créneau de chaque jour.',
-    },
-    catchInsights: {
-      title: 'Débloquez vos analyses de prises',
-      blurb:
-        'La pression, la température et la marée qui ont réellement produit vos touches.',
-    },
-    sessionReport: {
-      title: 'Débloquez le rapport de session complet',
-      blurb:
-        'Chronologie des touches, détail de leur intensité et conditions qui les ont produites.',
-    },
-    historyDepth: {
-      title: 'Consultez tout votre historique',
-      blurb: 'Ouvrez pour une journée tout ce qui dépasse les 30 derniers jours.',
-    },
-    soundPack: {
-      title: 'Débloquez tous les sons d’alerte',
-      blurb: 'Bite Bell et Sonar Ping, à vous pour la semaine.',
-    },
-    photoBackup: {
-      title: 'Sauvegardez cette prise dans le cloud',
-      blurb: 'Gardez la photo même en cas de perte ou de changement de téléphone.',
-    },
-    watchToUnlock: '{{blurb}} Regardez une courte publicité pour débloquer {{duration}}.',
-    durations: {
-      hours_one: 'pendant {{count}} heure',
-      hours_other: 'pendant {{count}} heures',
-      days_one: 'pendant {{count}} jour',
-      days_other: 'pendant {{count}} jours',
-      minutes_one: 'pendant {{count}} minute',
-      minutes_other: 'pendant {{count}} minutes',
-    },
-  },
 
-  ads: {
-    label: 'Pub',
-  },
 
   battery: {
     lowTitle: '🔋 Batterie du capteur faible',

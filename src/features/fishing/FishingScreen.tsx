@@ -4,14 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { SESSION_EXTENSION_HOURS } from '@/config/constants';
 import {
-  AD_POLICY,
-  maybeShowSessionEndInterstitial,
-  prepareSessionAds,
-  useAdsStore,
-  useRewardedAction,
-} from '@/features/ads';
+  MIN_REPORTABLE_SESSION_SECONDS,
+  SESSION_EXTENSION_HOURS,
+} from '@/config/constants';
+import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
 import {
   cancelSessionNotifications,
   scheduleSessionNotifications,
@@ -25,7 +22,7 @@ import {
   type SessionWindow,
   warningAt,
 } from '@/features/session/sessionLimit';
-import { useIsPremium } from '@/features/subscription/subscriptionStore';
+import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import AccelerationChart from '@/features/graph/AccelerationChart';
 import {
@@ -151,7 +148,9 @@ export default function FishingScreen() {
   const [armError, setArmError] = useState<string | null>(null);
 
   // Session window: persisted and entitlement-limited (see sessionLimit.ts).
-  const isPremium = useIsPremium();
+  // `pro` rather than `isPremium` so a hardware-only build (subscriptions off)
+  // fishes without any time limit.
+  const { pro, isPremium } = useEntitlements();
   const sessionWindow = useFishingSessionStore((s) => s.window);
   const startSession = useFishingSessionStore((s) => s.start);
   const endSession = useFishingSessionStore((s) => s.end);
@@ -171,12 +170,10 @@ export default function FishingScreen() {
       setArmError(t('fishing.addRodFirst'));
       return;
     }
-    const window = startSession(isPremium);
+    const window = startSession(pro);
     sessionStartRef.current = window.startedAt;
     sessionConditionsRef.current = null;
     startSessionLog();
-    useAdsStore.getState().setFishingActive(true);
-    prepareSessionAds();
 
     if (window.expiresAt !== null) {
       void scheduleSessionNotifications(window.expiresAt, warningAt(window));
@@ -189,27 +186,27 @@ export default function FishingScreen() {
       sessionStartRef.current = null;
       endSession();
       void cancelSessionNotifications();
-      useAdsStore.getState().setFishingActive(false);
     }
-  }, [armable, isPremium, startSession, endSession, t]);
+  }, [armable, pro, startSession, endSession, t]);
 
-  // Rewarded ad → one more block. Fails open: if no ad can be shown the time is
-  // granted anyway, because refusing to watch rods over an empty ad network is
-  // a worse outcome than a missed impression.
-  const extendGate = useRewardedAction(
-    useCallback(() => {
-      extendSession();
-      const next = useFishingSessionStore.getState().window;
-      if (next?.expiresAt != null) {
-        void scheduleSessionNotifications(next.expiresAt, warningAt(next));
-      }
-      // Re-arm if expiry had already disarmed everything.
-      void armRods(armable).then((errors) => {
-        if (errors.length > 0) setArmError(errors.join('\n'));
-      });
-      useAdsStore.getState().setFishingActive(true);
-    }, [extendSession, armable]),
-  );
+  /**
+   * Extend the session by one more block.
+   *
+   * Unreachable on a hardware-only build: `pro` is true there, so the window
+   * never expires and there is nothing to extend. It exists for a future paid
+   * tier, where a free window does lapse.
+   */
+  const extendSessionBlock = useCallback(() => {
+    extendSession();
+    const next = useFishingSessionStore.getState().window;
+    if (next?.expiresAt != null) {
+      void scheduleSessionNotifications(next.expiresAt, warningAt(next));
+    }
+    // Re-arm if expiry had already disarmed everything.
+    void armRods(armable).then((errors) => {
+      if (errors.length > 0) setArmError(errors.join('\n'));
+    });
+  }, [extendSession, armable]);
 
   const finishSession = useCallback(async () => {
     const startedAt = sessionStartRef.current ?? sessionWindow?.startedAt ?? null;
@@ -221,12 +218,10 @@ export default function FishingScreen() {
     sessionStartRef.current = null;
     endSession();
     void cancelSessionNotifications();
-    useAdsStore.getState().setFishingActive(false);
 
     const seconds = startedAt !== null ? (endedAt - startedAt) / 1000 : 0;
-    const reportable = startedAt !== null && seconds >= AD_POLICY.interstitial.minSessionSeconds;
+    const reportable = startedAt !== null && seconds >= MIN_REPORTABLE_SESSION_SECONDS;
     if (reportable) {
-      useAdsStore.getState().recordCompletedSession();
       setLastSession(
         buildSessionSummary({
           startedAt,
@@ -234,26 +229,12 @@ export default function FishingScreen() {
           bites: capturedBites,
           conditions: capturedConditions,
         }),
-        seconds,
       );
-      // Payoff first: the report opens immediately and the session-end
-      // interstitial fires when the user leaves it. Same one impression, but it
-      // no longer stands between hours of fishing and the debrief.
       navigation.navigate('SessionReport');
       return;
     }
 
-    // Too short to debrief — there is no payoff to protect, so the policy gate
-    // gets its usual shot here.
-    setTimeout(() => maybeShowSessionEndInterstitial(seconds), 900);
   }, [sessionWindow, endSession, navigation, setLastSession]);
-
-  // Paying for a further block by ad, when the daily allowance is spent.
-  const startGate = useRewardedAction(
-    useCallback(() => {
-      void beginSession();
-    }, [beginSession]),
-  );
 
   const onToggleAll = useCallback(async () => {
     setArmError(null);
@@ -262,16 +243,17 @@ export default function FishingScreen() {
       return;
     }
 
-    // A free account gets FREE_SESSIONS_PER_DAY blocks for nothing; beyond that
-    // starting is the same trade as extending — one ad per block.
-    if (!canStartFree(usedToday(Date.now()), isPremium).allowed) {
-      startGate.run();
+    // The daily free allowance. Self-disabling on a hardware-only build: `pro`
+    // is true there, so canStartFree always allows. It only bites if a paid tier
+    // is switched on, and then the only way past it is subscribing — there is no
+    // only way past it is subscribing.
+    if (!canStartFree(usedToday(Date.now()), pro).allowed) {
+      if (SUBSCRIPTIONS_ENABLED) navigation.navigate('Paywall');
       return;
     }
-    await beginSession();
-  }, [anyArmed, sessionWindow, finishSession, usedToday, isPremium, beginSession, startGate]);
 
-  useEffect(() => () => useAdsStore.getState().setFishingActive(false), []);
+    await beginSession();
+  }, [anyArmed, sessionWindow, finishSession, beginSession, usedToday, pro, navigation]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -300,10 +282,11 @@ export default function FishingScreen() {
         <SessionBanner
           window={sessionWindow}
           remainingMs={remainingMs}
-          isPremium={isPremium}
-          extendReady={extendGate.ready || extendGate.exempt}
-          onExtend={() => extendGate.run()}
-          onGoPremium={() => navigation.navigate('Paywall')}
+          isPremium={isPremium || !SUBSCRIPTIONS_ENABLED}
+          onExtend={extendSessionBlock}
+          onGoPremium={() => {
+            if (SUBSCRIPTIONS_ENABLED) navigation.navigate('Paywall');
+          }}
         />
 
         {/* Rod strip — every armed rod is visible at a glance, which is the
@@ -400,14 +383,12 @@ function SessionBanner({
   window,
   remainingMs,
   isPremium,
-  extendReady,
   onExtend,
   onGoPremium,
 }: {
   window: SessionWindow | null;
   remainingMs: number | null;
   isPremium: boolean;
-  extendReady: boolean;
   onExtend: () => void;
   onGoPremium: () => void;
 }) {
@@ -449,8 +430,6 @@ function SessionBanner({
         {(expired || near) && (
           <Pressable style={styles.extendBtn} onPress={onExtend}>
             <Text style={styles.extendBtnText}>
-              {/* Honest label: only promise an ad when one can actually be shown. */}
-              {extendReady ? '🎬 ' : ''}
               {t('session.extend', { hours: SESSION_EXTENSION_HOURS })}
             </Text>
           </Pressable>

@@ -19,5 +19,4 @@ jest.mock('@react-native-firebase/auth', () => ({}), { virtual: true });
 jest.mock('@react-native-firebase/firestore', () => ({}), { virtual: true });
 jest.mock('@react-native-firebase/storage', () => ({}), { virtual: true });
 jest.mock('@react-native-firebase/messaging', () => ({}), { virtual: true });
-jest.mock('react-native-google-mobile-ads', () => ({}), { virtual: true });
 jest.mock('react-native-iap', () => ({}), { virtual: true });

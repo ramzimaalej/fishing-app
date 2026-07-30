@@ -19,14 +19,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FREE_HISTORY_DAYS } from '@/config/constants';
-import {
-  AdBanner,
-  interleaveNativeAds,
-  NATIVE_FEED_INTERVAL,
-  NativeAdCard,
-  RewardedUnlockCard,
-  useOfferSlot,
-} from '@/features/ads';
 import { useAuth } from '@/features/auth/useAuth';
 import { useIsPremium } from '@/features/subscription/subscriptionStore';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
@@ -159,7 +151,7 @@ export default function BiteHistoryScreen() {
   const { user } = useAuth();
   const uid = user?.uid ?? null;
   const isPremium = useIsPremium();
-  const { adFree, has } = useEntitlements();
+  const { has } = useEntitlements();
   const { records, loading, error } = useBiteHistory(uid);
 
   const [refreshing, setRefreshing] = useState(false);
@@ -172,38 +164,11 @@ export default function BiteHistoryScreen() {
   const historyUnlocked = has('history-depth');
 
   // Free tier reads the last FREE_HISTORY_DAYS; the rest sits behind the depth
-  // gate (premium or a rewarded unlock). Nothing is deleted either way.
+  // gate. Nothing is deleted either way, and with subscriptions disabled the
+  // window is simply never applied.
   const { visible, hiddenCount } = useMemo(
     () => applyHistoryWindow(records, historyUnlocked),
     [records, historyUnlocked],
-  );
-
-  // ONE rewarded offer for this screen, not two. Depth first: a user looking at
-  // truncated history is reaching for exactly that, whereas photo backup is
-  // incidental to why they opened the list.
-  const hasUnbackedPhoto = useMemo(
-    () => records.some((r) => r.localImage && !r.imageUrl),
-    [records],
-  );
-  const offer = useOfferSlot(
-    useMemo(
-      () => [
-        ...(hiddenCount > 0 ? (['history-depth'] as const) : []),
-        ...(hasUnbackedPhoto ? (['photo-backup'] as const) : []),
-      ],
-      [hiddenCount, hasUnbackedPhoto],
-    ),
-  );
-
-  // Interleave native units into the readable rows. Rebuilt only when the rows
-  // or the entitlement change, so scrolling never reshuffles ad positions.
-  const feed = useMemo(
-    () =>
-      interleaveNativeAds(visible, (r) => r.id, {
-        interval: NATIVE_FEED_INTERVAL,
-        enabled: !adFree,
-      }),
-    [visible, adFree],
   );
 
   // When a premium user has on-device-only photos (e.g. just upgraded), back
@@ -275,20 +240,19 @@ export default function BiteHistoryScreen() {
         </View>
       ) : (
         <FlatList
-          data={feed}
-          keyExtractor={(entry) => entry.key}
-          renderItem={({ item: entry }) => {
-            if (entry.type === 'ad') return <NativeAdCard placement="history-feed" />;
-            return uid ? (
+          data={visible}
+          keyExtractor={(record) => record.id}
+          renderItem={({ item }) =>
+            uid ? (
               <BiteRow
-                record={entry.item}
+                record={item}
                 uid={uid}
                 cloudBackup={cloudBackup}
                 onEditNote={openNote}
               />
-            ) : null;
-          }}
-          contentContainerStyle={feed.length === 0 && styles.emptyContainer}
+            ) : null
+          }
+          contentContainerStyle={visible.length === 0 && styles.emptyContainer}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
           }
@@ -310,17 +274,6 @@ export default function BiteHistoryScreen() {
         />
       )}
 
-      {/* Exactly one rewarded offer per screen, chosen by relevance — see
-          useOfferSlot. Previously this screen carried two cards plus a banner
-          plus in-feed natives. */}
-      {offer && (
-        <View style={styles.unlockSlot}>
-          <RewardedUnlockCard kind={offer} hideWhenUnlocked />
-        </View>
-      )}
-
-      {/* Review surface — anchored banner below the list, above the tab bar. */}
-      <AdBanner placement="history" />
 
       <Modal visible={editing !== null} transparent animationType="fade" onRequestClose={() => setEditing(null)}>
         <View style={styles.modalBackdrop}>
@@ -374,7 +327,6 @@ const styles = StyleSheet.create({
   emptyContainer: { flexGrow: 1 },
   footer: { padding: spacing.md, gap: spacing.sm },
   footerText: { ...typography.caption, color: colors.textMuted, textAlign: 'center' },
-  unlockSlot: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   emptyTitle: { ...typography.h3, color: colors.text },
   emptySub: { ...typography.body, color: colors.textMuted, textAlign: 'center' },
   error: { color: colors.danger, ...typography.body },

@@ -2,7 +2,6 @@ import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View }
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AdBanner, RewardedUnlockCard, useOfferSlot } from '@/features/ads';
 import { useAuth } from '@/features/auth/useAuth';
 import { useBiteHistory } from '@/features/bite-history/useBiteHistory';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
@@ -98,9 +97,6 @@ function NotEnoughYet({ insights }: { insights: CatchInsights }) {
   );
 }
 
-/** Module-level so the arrays keep a stable identity across renders. */
-const INSIGHT_OFFERS = ['catch-insights'] as const;
-const EMPTY_OFFERS = [] as const;
 
 export default function CatchInsightsScreen() {
   const { t } = useTranslation();
@@ -109,7 +105,6 @@ export default function CatchInsightsScreen() {
   const { insights, pendingRecent, loading, error, refresh } = useCatchInsights(records);
   const { has } = useEntitlements();
   const unlocked = has('catch-insights');
-  const offer = useOfferSlot(unlocked ? EMPTY_OFFERS : INSIGHT_OFFERS);
 
   const busy = loading || historyLoading;
 
@@ -156,7 +151,6 @@ export default function CatchInsightsScreen() {
               <Locked />
             )}
 
-            {offer && <RewardedUnlockCard kind={offer} hideWhenUnlocked />}
 
             <View style={styles.card}>
               <Text style={styles.cardTitle}>{t('insights.howToRead')}</Text>
@@ -183,8 +177,6 @@ export default function CatchInsightsScreen() {
         )}
       </ScrollView>
 
-      {/* Review surface — same doctrine as History and Conditions. */}
-      <AdBanner placement="insights" />
     </SafeAreaView>
   );
 }

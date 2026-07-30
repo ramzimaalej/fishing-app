@@ -19,7 +19,7 @@ import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, type LanguagePreference } from '@/
 import { useLanguagePreference, useLanguageStore } from '@/i18n/languageStore';
 
 import { FREE_SOUND_COUNT, NOTIFICATION_SOUNDS } from '@/config/constants';
-import { RewardedUnlockCard, useOfferSlot } from '@/features/ads';
+import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
 import { useAuthStore } from '@/features/auth/authStore';
 import { playSoundPreview, requestNotificationPermissions } from '@/features/notifications/feedback';
 import { useSubscriptionStore } from '@/features/subscription/subscriptionStore';
@@ -28,10 +28,6 @@ import { colors, radius, spacing, typography } from '@/theme';
 
 import SensitivitySlider from './components/SensitivitySlider';
 import { useSettingsStore } from './settingsStore';
-
-/** Module-level constants so the arrays keep a stable identity. */
-const SOUND_OFFERS = ['sound-pack'] as const;
-const EMPTY_OFFERS = [] as const;
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
@@ -56,8 +52,6 @@ export default function SettingsScreen() {
   const { has } = useEntitlements();
 
   const allSounds = has('sound-pack');
-  // Single offer, and only while the sounds are actually locked.
-  const soundOffer = useOfferSlot(allSounds ? EMPTY_OFFERS : SOUND_OFFERS);
   const [requesting, setRequesting] = useState(false);
 
   const onTogglePush = async (next: boolean) => {
@@ -146,14 +140,18 @@ export default function SettingsScreen() {
             {NOTIFICATION_SOUNDS.map((sound, i) => {
               const selected = sound.key === settings.soundKey;
               // The first FREE_SOUND_COUNT sounds are always available; the rest
-              // need premium or the 'sound-pack' rewarded unlock. Preview stays
-              // open for every sound — hearing it is what sells the unlock.
+              // need premium. Preview stays open for every sound — hearing it
+              // is what sells the upgrade.
               const locked = !allSounds && i >= FREE_SOUND_COUNT;
               return (
                 <View key={sound.key} style={styles.soundRow}>
                   <TouchableOpacity
                     style={styles.soundSelect}
-                    onPress={() => (locked ? navigation.navigate('Paywall') : setSoundKey(sound.key))}
+                    onPress={() =>
+                      locked && SUBSCRIPTIONS_ENABLED
+                        ? navigation.navigate('Paywall')
+                        : setSoundKey(sound.key)
+                    }
                   >
                     <Text style={[styles.check, selected && styles.checkOn]}>
                       {locked ? '🔒' : selected ? '●' : '○'}
@@ -172,7 +170,6 @@ export default function SettingsScreen() {
               );
             })}
 
-            {soundOffer && <RewardedUnlockCard kind={soundOffer} hideWhenUnlocked />}
           </View>
         )}
 
@@ -220,6 +217,11 @@ export default function SettingsScreen() {
       </View>
 
       {/* Premium ----------------------------------------------------------- */}
+      {/* Hidden wholesale on a hardware-only build: with no paid tier there is
+          nothing to upgrade to and nothing to restore, and an "Upgrade" row
+          that leads nowhere is worse than no row. */}
+      {SUBSCRIPTIONS_ENABLED && (
+      <>
       <Text style={styles.sectionTitle}>{t('settings.premium')}</Text>
       <View style={styles.card}>
         <View style={styles.row}>
@@ -259,6 +261,9 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      </>
+      )}
+
       {/* Account ----------------------------------------------------------- */}
       <Text style={styles.sectionTitle}>{t('settings.account')}</Text>
       <View style={styles.card}>
@@ -279,9 +284,6 @@ export default function SettingsScreen() {
       </TouchableOpacity>
       </ScrollView>
 
-      {/* Banner removed: Settings is a task screen — users come to change one
-          thing and leave, so dwell time is seconds and a banner earned close to
-          nothing while making the screen feel cheap. */}
     </View>
   );
 }
