@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { AppState } from 'react-native';
 
-import { useAdsStore } from '@/features/ads';
 import { useAuthStore } from '@/features/auth/authStore';
 import { cancelSessionNotifications } from '@/features/notifications/feedback';
 import { useFishingSessionStore } from '@/features/session/fishingSessionStore';
@@ -129,12 +128,11 @@ function useSessionExpiryEnforcement(): void {
       handled.current = current.expiresAt;
 
       // The window is deliberately NOT cleared here. It stays in an expired
-      // state so the UI can show "session ended" and offer the extension —
-      // clearing it would make the lapse invisible, which is the one outcome
-      // this whole feature exists to prevent.
+      // state so the UI can show "session ended" — clearing it would make the
+      // lapse invisible, which is the one outcome this feature exists to
+      // prevent.
       void disarmAll();
       void cancelSessionNotifications();
-      useAdsStore.getState().setFishingActive(false);
     };
 
     check();

@@ -4,6 +4,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
 import { useAuth } from '@/features/auth/useAuth';
 import { useAuthStore } from '@/features/auth/authStore';
 import SignInScreen from '@/features/auth/screens/SignInScreen';
@@ -144,11 +145,16 @@ export default function RootNavigator() {
       {fullyIn ? (
         <>
           <RootStack.Screen name="Main" component={MainTabs} />
-          <RootStack.Screen
-            name="Paywall"
-            component={PaywallScreen}
-            options={{ presentation: 'modal' }}
-          />
+          {/* Not registered at all when subscriptions are disabled, so a stray
+              navigate('Paywall') fails loudly in development instead of opening
+              a screen that cannot sell anything. */}
+          {SUBSCRIPTIONS_ENABLED && (
+            <RootStack.Screen
+              name="Paywall"
+              component={PaywallScreen}
+              options={{ presentation: 'modal' }}
+            />
+          )}
           {/* Post-session debrief, pushed once the session-end ad is dismissed. */}
           <RootStack.Screen
             name="SessionReport"

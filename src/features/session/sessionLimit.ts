@@ -3,7 +3,7 @@
  * clock, a store, or an ad network.
  *
  * Free accounts monitor in FREE_SESSION_HOURS blocks: the first block of each
- * local day is free, and continuing costs one rewarded ad per further block.
+ * local day is free, and continuing beyond that means subscribing.
  * Premium has no limit — `expiresAt: null` means "never".
  *
  * Enforcement is genuinely load-bearing here: when a window lapses the runtime
@@ -27,7 +27,7 @@ export interface SessionWindow {
   startedAt: number;
   /** Epoch ms the session lapses, or null for an unlimited (premium) session. */
   expiresAt: number | null;
-  /** How many rewarded extensions have been applied to this window. */
+  /** How many extensions have been applied to this window. */
   extensions: number;
   /** Local day key the session was started on (see dayKeyOf). */
   dayKey: string;

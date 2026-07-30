@@ -27,7 +27,6 @@ import { useSubscriptionStore } from './subscriptionStore';
  * plus ad removal.
  */
 const BENEFIT_KEYS = [
-  'paywall.benefits.noAds',
   'paywall.benefits.outlook',
   'paywall.benefits.insights',
   'paywall.benefits.reports',
@@ -177,10 +176,6 @@ export default function PaywallScreen(): JSX.Element {
           <Pressable onPress={() => void restore()} hitSlop={8} disabled={purchasing}>
             <Text style={styles.restore}>{t('paywall.restore')}</Text>
           </Pressable>
-
-          {/* No rewarded offer here on purpose. Unlocks are offered at each
-              feature's point of need, where the user already wants the thing —
-              dangling one on the paywall only argues against buying. */}
 
           {anySubscriptionOffered && (
             <Text style={styles.legal}>{t('paywall.legal')}</Text>

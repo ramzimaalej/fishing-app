@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
-import { dayKeyOf } from '@/features/ads/adPolicy';
+import { dayKeyOf } from '@/utils/dayKey';
 
 import { createWindow, extendWindow, type SessionWindow } from './sessionLimit';
 
@@ -28,7 +28,7 @@ interface FishingSessionState {
   blocksUsedToday: number;
 
   start: (isPremium: boolean) => SessionWindow;
-  /** Apply one rewarded extension to the running session. */
+  /** Apply one extension block to the running session. */
   extend: () => void;
   end: () => void;
   /** Blocks used on the local day containing `now`, normalised across midnight. */

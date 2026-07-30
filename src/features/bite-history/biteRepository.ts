@@ -118,9 +118,8 @@ export const biteRepository = {
    * devices. The cloud step is best-effort — if Storage isn't enabled/reachable
    * the local copy still succeeds, so the feature never hard-fails.
    *
-   * `cloudBackup` is an entitlement decision made by the caller — it is true for
-   * subscribers and for a live 'photo-backup' rewarded unlock alike, so this
-   * layer never needs to know which.
+   * `cloudBackup` is an entitlement decision made by the caller, so this layer
+   * never needs to know why the user is entitled.
    */
   async attachImage(
     uid: string,

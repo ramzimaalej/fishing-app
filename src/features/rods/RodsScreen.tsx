@@ -1,6 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 
 import { MAX_RODS } from '@/config/constants';
-import { RewardedUnlockCard, useOfferSlot } from '@/features/ads';
 import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import { getSensorDevice, listSensorDevices } from '@/features/ble/deviceRegistry';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -142,24 +141,6 @@ export default function RodsScreen() {
 
   const verdict = canAddRod(rods.length);
 
-  /**
-   * Pairing is NOT ad-gated any more.
-   *
-   * It was, and it was the worst trade in the app: pairing is first-time setup,
-   * so the gate turned a new user's opening experience into "watch an ad before
-   * you can use the thing you just bought" — at the exact moment they are least
-   * invested and most likely to leave. It earned one impression per 30 minutes.
-   *
-   * The impression is not lost, only moved: a rewarded offer is now presented
-   * after a rod is successfully paired (see the offer slot below), which is a
-   * moment of success rather than a moment of blocking. Post-success offers
-   * convert better, so this should earn more, not less.
-   */
-  const paired = rods.some((r) => r.deviceId !== null);
-  const offer = useOfferSlot(
-    useMemo(() => (paired ? (['extended-forecast'] as const) : []), [paired]),
-  );
-
   const openPairing = useCallback(
     (rod: Rod) => navigation.navigate('PairSensor', { rodId: rod.id }),
     [navigation],
@@ -209,14 +190,6 @@ export default function RodsScreen() {
         </Pressable>
       </ScrollView>
 
-      {/* Banner removed: Rods is a task screen with seconds of dwell, so a
-          banner earned almost nothing while adding chrome to setup. The offer
-          below only appears once a rod is actually paired. */}
-      {offer && (
-        <View style={styles.offerSlot}>
-          <RewardedUnlockCard kind={offer} hideWhenUnlocked />
-        </View>
-      )}
 
       <Modal visible={editing !== null} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
@@ -252,7 +225,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xl },
   intro: { ...typography.caption, color: colors.textMuted },
-  offerSlot: { paddingHorizontal: spacing.md, paddingBottom: spacing.md },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,

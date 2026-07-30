@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
 import { IAP_PRODUCT_IDS, PLAN_KIND, type PlanKey } from '@/config/constants';
+import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
 import { trackPurchase } from '@/services/firebase/analytics';
 
 import {
@@ -109,6 +110,12 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
   init: async () => {
     if (get().initialized) return;
     set({ initialized: true });
+
+    // Subscriptions disabled → no store connection, no product lookups, no
+    // purchase listeners. The products need not even exist in the stores.
+    // Entitlements grant everything anyway (see useEntitlements), so there is
+    // nothing to restore either.
+    if (!SUBSCRIPTIONS_ENABLED) return;
 
     // 1. Hydrate the last known entitlement so the UI is correct instantly.
     try {

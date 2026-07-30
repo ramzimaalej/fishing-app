@@ -20,7 +20,6 @@ const en = {
     retry: 'Pull down to retry.',
     loading: 'Loading…',
     notNow: 'Not now',
-    watchAd: 'Watch ad',
     keepIt: 'Keep it',
     unlocked: 'Unlocked',
     until: 'Until {{time}}',
@@ -73,7 +72,7 @@ const en = {
     remaining: '{{time}} left',
     notMonitored: 'Rods are no longer monitored',
     extend: '+{{hours}}h',
-    upsell: 'Premium fishes without a time limit — no ads, no interruptions.',
+    upsell: 'Premium fishes without a time limit.',
     expired: 'expired',
     underMinute: 'under a minute',
     warnTitle: '⏳ Session ending soon',
@@ -247,6 +246,8 @@ const en = {
     sensitivity: 'Bite Sensitivity',
     sensitivityHelp:
       'Higher sensitivity detects smaller nibbles; lower ignores all but strong strikes.',
+    sensitivityLow: 'Low',
+    sensitivityHigh: 'High',
     alerts: 'Alerts',
     vibration: 'Vibration',
     sound: 'Sound',
@@ -298,8 +299,7 @@ const en = {
       yearlyBlurb: 'Renews each year until cancelled',
     },
     benefits: {
-      noAds: 'Remove all ads',
-      outlook: 'Full 7-day bite outlook',
+        outlook: 'Full 7-day bite outlook',
       insights: 'Catch insights from your own history',
       reports: 'Complete session reports',
       history: 'Unlimited bite history',
@@ -308,45 +308,7 @@ const en = {
     },
   },
 
-  rewards: {
-    extendedForecast: {
-      title: 'Unlock the full 7-day outlook',
-      blurb: 'Plan the whole week — peak feeding window for every day.',
-    },
-    catchInsights: {
-      title: 'Unlock your catch insights',
-      blurb: 'The barometer, temperature and tide that actually produced your bites.',
-    },
-    sessionReport: {
-      title: 'Unlock the full session report',
-      blurb: 'Bite timeline, strike strength breakdown and the conditions that produced them.',
-    },
-    historyDepth: {
-      title: 'See your full bite history',
-      blurb: 'Open everything older than the last 30 days for a day.',
-    },
-    soundPack: {
-      title: 'Unlock all alert sounds',
-      blurb: 'Bite Bell and Sonar Ping, yours for the week.',
-    },
-    photoBackup: {
-      title: 'Back up this catch to the cloud',
-      blurb: 'Keep the photo safe even if you lose or change phone.',
-    },
-    watchToUnlock: '{{blurb}} Watch one short ad to unlock {{duration}}.',
-    durations: {
-      hours_one: 'for {{count}} hour',
-      hours_other: 'for {{count}} hours',
-      days_one: 'for {{count}} day',
-      days_other: 'for {{count}} days',
-      minutes_one: 'for {{count}} minute',
-      minutes_other: 'for {{count}} minutes',
-    },
-  },
 
-  ads: {
-    label: 'Ad',
-  },
 
   battery: {
     lowTitle: '🔋 Sensor battery low',

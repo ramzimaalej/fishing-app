@@ -5,11 +5,6 @@ import { useCallback, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  AdBanner,
-  maybeShowSessionEndInterstitial,
-  RewardedUnlockCard,
-} from '@/features/ads';
 import { dateFnsOptions } from '@/i18n/formatting';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -79,26 +74,10 @@ export default function SessionReportScreen() {
   const { t } = useTranslation();
   const navigation = useNavigation<{ goBack: () => void; navigate: (r: string) => void }>();
   const summary = useSessionStore((s) => s.last);
-  const pendingSeconds = useSessionStore((s) => s.pendingInterstitialSeconds);
-  const clearPending = useSessionStore((s) => s.clearPendingInterstitial);
   const { has } = useEntitlements();
   const detailed = has('session-report');
 
-  /**
-   * Leaving the report is where the session-end interstitial fires — the report
-   * itself is the payoff for hours of fishing, so the ad goes after it rather
-   * than in front of it. Exactly one impression either way; the policy gate in
-   * adPolicy.ts still decides whether it shows at all.
-   */
-  const leave = useCallback(() => {
-    const seconds = pendingSeconds;
-    clearPending();
-    if (seconds === null) {
-      navigation.goBack();
-      return;
-    }
-    maybeShowSessionEndInterstitial(seconds, () => navigation.goBack());
-  }, [pendingSeconds, clearPending, navigation]);
+  const leave = useCallback(() => navigation.goBack(), [navigation]);
 
   if (!summary) {
     return (
@@ -145,10 +124,9 @@ export default function SessionReportScreen() {
           </View>
         ) : (
           <>
-            {/* FREE. The timeline is the payoff for the session just fished,
-                and a report that looks locked stops getting opened — which
-                loses the banner impression AND the rewarded offer along with
-                it. The analytical breakdown below is what Premium gates. */}
+            {/* The timeline is the payoff for the session just fished, so it is
+                never gated. The analytical breakdown below is what a paid tier
+                would gate, if one is enabled. */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>{t('report.timeline')}</Text>
               <Timeline summary={summary} />
@@ -237,19 +215,12 @@ export default function SessionReportScreen() {
           </>
         )}
 
-        {/* Opt-in rewarded slot — hidden once unlocked, since the content
-            appearing is confirmation enough. */}
-        {summary.totalBites > 0 && (
-          <RewardedUnlockCard kind="session-report" hideWhenUnlocked />
-        )}
 
         <Pressable style={styles.doneBtn} onPress={leave}>
           <Text style={styles.doneText}>{t('common.done')}</Text>
         </Pressable>
       </ScrollView>
 
-      {/* Terminal review surface — a natural place for the anchored banner. */}
-      <AdBanner placement="session-report" />
     </SafeAreaView>
   );
 }

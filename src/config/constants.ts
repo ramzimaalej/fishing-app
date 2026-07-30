@@ -19,11 +19,13 @@ export const NOTIFICATION_SOUNDS: readonly { key: string; label: string }[] = [
 ];
 
 /**
- * Free-tier limits. Each one is the gate behind a rewarded unlock in
- * features/ads/rewards.ts — a limit with no unlock path is just an annoyance,
- * and an unlock with no limit is a lie, so these two tables move together.
+ * Free-tier limits, applied only when SUBSCRIPTIONS_ENABLED is true. Each one
+ * maps to a key in subscription/premiumFeatures.ts — a limit with no key is
+ * unreachable, and a key with no limit is a lie on the paywall.
+ *
+ * On the hardware-only build none of these apply: entitlements grant everything.
  */
-/** Days of the multi-day outlook shown without premium or a rewarded unlock. */
+/** Days of the multi-day outlook shown without premium. */
 export const FREE_FORECAST_DAYS = 3;
 /** How far back bite history is readable on the free tier. */
 export const FREE_HISTORY_DAYS = 30;
@@ -83,13 +85,13 @@ export const PLAN_ORDER: readonly PlanKey[] = ['lifetime', 'yearly'];
 /**
  * Free-tier fishing-session limits.
  *
- * A free account monitors for FREE_SESSION_HOURS at a stretch, and gets
- * FREE_SESSIONS_PER_DAY such blocks per local day for nothing; continuing beyond
- * that costs one rewarded ad per block. Premium has no limit at all.
+ * Only enforced when SUBSCRIPTIONS_ENABLED is true. A free account then
+ * monitors for FREE_SESSION_HOURS at a stretch and gets FREE_SESSIONS_PER_DAY
+ * such blocks per local day; continuing beyond that means subscribing.
  *
  * The per-day allowance is what makes the cap real: without it a user could end
- * an expired session and immediately start another for free, and the extension
- * ad would never be worth watching.
+ * an expired session and immediately start another, and the limit would mean
+ * nothing.
  */
 export const FREE_SESSION_HOURS = 6;
 export const SESSION_EXTENSION_HOURS = 6;
@@ -100,6 +102,13 @@ export const FREE_SESSIONS_PER_DAY = 1;
  * that lapses silently means rods nobody is watching.
  */
 export const SESSION_EXPIRY_WARNING_MINUTES = 15;
+
+/**
+ * Shortest session worth debriefing. Below this it was a quick fiddle with the
+ * sensor, not a trip, so no report is produced and it doesn't count as a
+ * completed session.
+ */
+export const MIN_REPORTABLE_SESSION_SECONDS = 120;
 
 /**
  * Practical ceiling on simultaneously monitored rods — NOT a paid limit (see
