@@ -252,6 +252,8 @@ const es: Translation = {
     sensitivity: 'Sensibilidad',
     sensitivityHelp:
       'Una sensibilidad alta detecta los mordiscos más pequeños; una baja ignora todo salvo las picadas fuertes.',
+    sensitivityLow: 'Baja',
+    sensitivityHigh: 'Alta',
     alerts: 'Avisos',
     vibration: 'Vibración',
     sound: 'Sonido',

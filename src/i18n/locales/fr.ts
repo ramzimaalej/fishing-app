@@ -255,6 +255,8 @@ const fr: Translation = {
     sensitivity: 'Sensibilité',
     sensitivityHelp:
       'Une sensibilité élevée détecte les plus petites touches ; une sensibilité faible ne retient que les touches franches.',
+    sensitivityLow: 'Faible',
+    sensitivityHigh: 'Élevée',
     alerts: 'Alertes',
     vibration: 'Vibration',
     sound: 'Son',

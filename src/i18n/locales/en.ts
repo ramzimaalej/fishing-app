@@ -246,6 +246,8 @@ const en = {
     sensitivity: 'Bite Sensitivity',
     sensitivityHelp:
       'Higher sensitivity detects smaller nibbles; lower ignores all but strong strikes.',
+    sensitivityLow: 'Low',
+    sensitivityHigh: 'High',
     alerts: 'Alerts',
     vibration: 'Vibration',
     sound: 'Sound',
