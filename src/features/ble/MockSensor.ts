@@ -20,8 +20,19 @@ import type { BleDeviceInfo, SensorConnection } from './types';
  */
 let mockInstances = 0;
 
+/**
+ * How fast the simulator's battery falls, in samples per percent.
+ *
+ * A real coin cell lasts weeks, which would make the low-battery UI and its
+ * warning unreachable without waiting for hardware to go flat. At the mock's
+ * ~10 Hz this drains 87% → 0 in roughly 7 minutes, so the whole path —
+ * indicator colour, glyph change, and the two notification bands — is
+ * exercisable in one sitting.
+ */
+const MOCK_DRAIN_SAMPLES_PER_PCT = 50;
+
 export class MockSensor implements SensorConnection {
-  readonly info: BleDeviceInfo;
+  info: BleDeviceInfo;
 
   private sampleListeners = new Set<(s: AccelSample) => void>();
   private disconnectListeners = new Set<() => void>();
@@ -30,6 +41,7 @@ export class MockSensor implements SensorConnection {
   private fishingMode = false;
 
   private n = 0;
+  private drainTicks = 0;
   private biteRemaining = 0;
   private biteDuration = 0;
   private bitePeak = 0;
@@ -58,9 +70,24 @@ export class MockSensor implements SensorConnection {
       const frame = encodeMinewAccFrame({ ...reading, batteryPct: this.info.battery ?? 87, mac: this.info.id });
       const decoded = decodeMinewAccFrame(frame);
       if (!decoded) return;
+      this.drainBattery();
       const sample: AccelSample = { t: Date.now(), x: decoded.x, y: decoded.y, z: decoded.z };
       this.sampleListeners.forEach((l) => l(sample));
     }, intervalMs);
+  }
+
+  /**
+   * Tick the simulated battery down. Replaces `info` wholesale, exactly as the
+   * real clients do — which is what the runtime's live-info read has to cope
+   * with (a cached reference would freeze at the first value).
+   */
+  private drainBattery(): void {
+    this.drainTicks += 1;
+    if (this.drainTicks < MOCK_DRAIN_SAMPLES_PER_PCT) return;
+    this.drainTicks = 0;
+    const current = this.info.battery ?? 87;
+    if (current <= 0) return;
+    this.info = { ...this.info, battery: current - 1 };
   }
 
   private gaussian(): number {

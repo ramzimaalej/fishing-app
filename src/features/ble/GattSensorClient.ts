@@ -2,6 +2,11 @@ import type { Device, Subscription } from 'react-native-ble-plx';
 
 import type { AccelSample } from '@/types';
 
+import {
+  BATTERY_LEVEL_CHAR_UUID,
+  BATTERY_SERVICE_UUID,
+  decodeBatteryLevel,
+} from './battery';
 import { getBleManager } from './bleManager';
 import { b64ToHex, BLE_DEBUG, bleLog } from './debug';
 import { subscribeToScan } from './scanBroker';
@@ -50,6 +55,8 @@ export interface GattSensorConfig {
 const CONNECT_TIMEOUT_MS = 12000;
 /** Delay before re-scanning after a drop/failure — avoids Android scan throttle. */
 const RECONNECT_DELAY_MS = 3000;
+/** Battery changes over hours — polling faster would drain what it measures. */
+const BATTERY_POLL_MS = 5 * 60_000;
 
 /**
  * Connection-based (GATT) bite-sensor source.
@@ -79,6 +86,8 @@ export class GattSensorClient implements SensorConnection {
   private notifCount = 0;
   private readonly seenIds = new Set<string>();
   private unsubscribeScan: (() => void) | null = null;
+  private batterySub: Subscription | null = null;
+  private batteryTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * @param config      how to find, unlock and decode the device
@@ -139,6 +148,61 @@ export class GattSensorClient implements SensorConnection {
       this.releaseScan();
       void this.connect(device.id);
     });
+  }
+
+  /**
+   * Track the standard Battery Service (0x180F / 0x2A19).
+   *
+   * Read once for an immediate value, then subscribe if the characteristic
+   * supports notification, else poll slowly. Battery moves over hours, so a
+   * 5-minute poll is ample and costs almost nothing — polling it at the accel
+   * rate would drain the very battery being measured.
+   *
+   * Entirely best-effort: many sensors omit the service, and a sensor without it
+   * must still work.
+   */
+  private async startBatteryMonitor(device: Device): Promise<void> {
+    const read = async () => {
+      try {
+        const c = await device.readCharacteristicForService(
+          BATTERY_SERVICE_UUID,
+          BATTERY_LEVEL_CHAR_UUID,
+        );
+        const pct = decodeBatteryLevel(c?.value);
+        if (pct !== null) {
+          this.info = { ...this.info, battery: pct };
+          bleLog(`${this.config.label}: battery ${pct}%`);
+        }
+      } catch {
+        /* no battery service, or a transient read failure */
+      }
+    };
+
+    await read();
+
+    try {
+      this.batterySub = device.monitorCharacteristicForService(
+        BATTERY_SERVICE_UUID,
+        BATTERY_LEVEL_CHAR_UUID,
+        (err, characteristic) => {
+          if (err) return;
+          const pct = decodeBatteryLevel(characteristic?.value);
+          if (pct !== null) this.info = { ...this.info, battery: pct };
+        },
+      );
+    } catch {
+      // Not notifiable — fall back to a slow poll.
+      this.batteryTimer = setInterval(() => void read(), BATTERY_POLL_MS);
+    }
+  }
+
+  private teardownBattery(): void {
+    this.batterySub?.remove();
+    this.batterySub = null;
+    if (this.batteryTimer) {
+      clearInterval(this.batteryTimer);
+      this.batteryTimer = null;
+    }
   }
 
   /** Give up our slot on the shared scan without disturbing other listeners. */
@@ -207,6 +271,9 @@ export class GattSensorClient implements SensorConnection {
       bleLog(`${this.config.label}: subscription active — waiting for notifications…`);
 
       if (this.config.poll) this.startPolling(device, target, this.config.poll.intervalMs);
+      // Independent of the accel stream: a sensor with no battery service still
+      // streams fine, so this must never be able to fail the connection.
+      void this.startBatteryMonitor(device);
     } catch (e) {
       bleLog(`${this.config.label}: connect failed:`, e instanceof Error ? e.message : String(e));
       this.connecting = false;
@@ -313,6 +380,7 @@ export class GattSensorClient implements SensorConnection {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    this.teardownBattery();
     this.monitorSub?.remove();
     this.monitorSub = null;
     this.disconnectSub?.remove();

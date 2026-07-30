@@ -15,6 +15,7 @@ import {
 
 import { MAX_RODS } from '@/config/constants';
 import { RewardedUnlockCard, useOfferSlot } from '@/features/ads';
+import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import { getSensorDevice, listSensorDevices } from '@/features/ble/deviceRegistry';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -40,6 +41,8 @@ function RodRow({
   // Subscribed, not read imperatively: the label must update when the rod is
   // armed or disarmed from the Fishing screen.
   const armed = useRodRuntimeStore((s) => Boolean(s.views[rod.id]));
+  // Battery only exists while the rod is armed and the sensor has reported it.
+  const battery = useRodRuntimeStore((s) => s.views[rod.id]?.device?.battery ?? null);
   const { t } = useTranslation();
 
   const dev = getSensorDevice(rod.sensorKind);
@@ -60,6 +63,13 @@ function RodRow({
             {dev.label}
             {armed ? ` · ${t('rods.armed')}` : ''}
           </Text>
+          {/* Surfaced here too: this is the screen you check before a session,
+              which is the moment a flat battery is still fixable. */}
+          {battery !== null && (
+            <Text style={[styles.rodBattery, { color: batteryColor(battery) }]}>
+              {batteryGlyph(battery)} {t('battery.label')} {battery}%
+            </Text>
+          )}
         </Pressable>
         <Switch
           value={rod.enabled}
@@ -254,6 +264,7 @@ const styles = StyleSheet.create({
   rowHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   rodName: { ...typography.h3, color: colors.text },
   rodSub: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+  rodBattery: { ...typography.caption, marginTop: 2, fontWeight: '600' },
   divider: { height: 1, backgroundColor: colors.border },
   fieldLabel: { ...typography.caption, color: colors.textMuted, textTransform: 'uppercase' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },

@@ -26,6 +26,7 @@ import {
   warningAt,
 } from '@/features/session/sessionLimit';
 import { useIsPremium } from '@/features/subscription/subscriptionStore';
+import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import AccelerationChart from '@/features/graph/AccelerationChart';
 import {
   armRods,
@@ -117,7 +118,10 @@ function RodCard({
           : t(STATUS_KEY[view.status] ?? 'fishing.status.idle')}
       </Text>
       {view.device?.battery != null && (
-        <Text style={styles.rodCardBattery}>🔋{view.device.battery}%</Text>
+        <Text style={[styles.rodCardBattery, { color: batteryColor(view.device.battery) }]}>
+          {batteryGlyph(view.device.battery)}
+          {view.device.battery}%
+        </Text>
       )}
     </Pressable>
   );

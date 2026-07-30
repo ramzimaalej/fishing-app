@@ -266,3 +266,30 @@ export async function cancelSessionNotifications(): Promise<void> {
     }
   }
 }
+
+/**
+ * Warn that a sensor's battery is running down.
+ *
+ * Deliberately a notification and not just a coloured number: a rod whose
+ * sensor dies stops being watched while the UI still says "armed", which is the
+ * silent failure this app exists to prevent. Best-effort — never fatal.
+ */
+export async function notifySensorBattery(
+  rodName: string,
+  percent: number,
+  state: 'low' | 'critical',
+): Promise<void> {
+  try {
+    await ensureNotificationSetup();
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: i18n.t(state === 'critical' ? 'battery.criticalTitle' : 'battery.lowTitle'),
+        body: i18n.t('battery.warnBody', { rod: rodName, percent }),
+        ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
+      },
+      trigger: null,
+    });
+  } catch {
+    /* notification unavailable — the in-app indicator still shows it */
+  }
+}

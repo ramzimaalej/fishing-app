@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import { SENSOR_SAMPLE_RATE_HZ } from '@/config/constants';
 import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
+import { batteryState, type BatteryState } from '@/features/ble/battery';
 import { getSensorDevice } from '@/features/ble/deviceRegistry';
 import type { BleDeviceInfo, ConnectionStatus, SensorConnection } from '@/features/ble/types';
 import { BiteDetector } from '@/features/bite-detection/BiteDetector';
@@ -9,7 +10,7 @@ import { biteRepository } from '@/features/bite-history/biteRepository';
 import { getCurrentConditions } from '@/features/environment/useEnvironment';
 import { AccelRingBuffer } from '@/features/graph/AccelRingBuffer';
 import type { AccelPoint } from '@/features/graph/types';
-import { notifyBite } from '@/features/notifications/feedback';
+import { notifyBite, notifySensorBattery } from '@/features/notifications/feedback';
 import type { SessionBite } from '@/features/session-report/sessionSummary';
 import { useSettingsStore } from '@/features/settings/settingsStore';
 import { trackBite } from '@/services/firebase/analytics';
@@ -62,6 +63,8 @@ interface Runtime {
   error: string | null;
   biteCount: number;
   lastBite: BiteEvent | null;
+  /** Last battery band we warned about, so each step warns exactly once. */
+  warnedBattery: BatteryState;
 }
 
 const runtimes = new Map<string, Runtime>();
@@ -108,10 +111,15 @@ let flushScheduled = false;
 
 function buildView(rt: Runtime): RodRuntimeView {
   const snap = rt.buffer.snapshot();
+  // Read the connection's CURRENT info rather than the snapshot taken at connect
+  // time. The sensor clients replace `info` wholesale when battery changes
+  // (`this.info = { ...this.info, battery }`), so a cached reference would show
+  // the level from the first sample forever.
+  const device = rt.connection?.info ?? rt.device;
   return {
     rodId: rt.rod.id,
     status: rt.status,
-    device: rt.device,
+    device,
     error: rt.error,
     biteCount: rt.biteCount,
     threshold: rt.detector.threshold,
@@ -124,8 +132,29 @@ function buildView(rt: Runtime): RodRuntimeView {
 
 function flush(): void {
   const views: Record<string, RodRuntimeView> = {};
-  for (const [id, rt] of runtimes) views[id] = buildView(rt);
+  for (const [id, rt] of runtimes) {
+    views[id] = buildView(rt);
+    checkBattery(rt, views[id]!.device?.battery ?? null);
+  }
   useRodRuntimeStore.setState({ views, anyArmed: runtimes.size > 0 });
+}
+
+/**
+ * Warn once per band as a sensor's battery falls.
+ *
+ * A bite alarm whose sensor dies stops watching a rod while still LOOKING
+ * armed — the same silent failure as a lapsed session, and the reason this
+ * warns rather than only colouring a number. The latch only ever moves
+ * downwards, so a reading jittering around a threshold cannot re-notify.
+ */
+function checkBattery(rt: Runtime, percent: number | null): void {
+  if (percent === null) return;
+  const state = batteryState(percent);
+  if (state === 'ok' || state === rt.warnedBattery) return;
+  // 'low' -> 'critical' warns again; 'critical' -> 'low' (recharged) does not.
+  if (rt.warnedBattery === 'critical') return;
+  rt.warnedBattery = state;
+  void notifySensorBattery(rt.rod.name, percent, state);
 }
 
 /** Coalesce publishes: N rods × ~10 Hz would otherwise be N×10 renders/sec. */
@@ -226,6 +255,7 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     error: null,
     biteCount: 0,
     lastBite: null,
+    warnedBattery: 'ok',
   };
   runtimes.set(rod.id, rt);
   scheduleFlush();
