@@ -138,6 +138,28 @@ const en = {
     bestTimesSub: 'Solunar outlook for the month — plan your next trip',
   },
 
+  location: {
+    title: 'Location',
+    intro:
+      'Conditions, tides and the outlook are all fetched for this location. Use your current position, or pin a city to check somewhere else.',
+    useMyLocation: 'Use my location',
+    useMyLocationSub: 'Follow your current position',
+    usePinned: 'Use this',
+    permissionDenied: 'Location permission denied',
+    permissionHint:
+      'Allow location for Castmate in your device Settings, or search for a city below.',
+    searchTitle: 'Search for a city',
+    searchPlaceholder: 'e.g. Bizerte, Valencia, Norwich',
+    searchFailed: 'Place search failed.',
+    noResults: 'Nothing found for “{{query}}”.',
+    marineNote:
+      'Tide and wave data only exists near the coast — inland locations show conditions without them.',
+    notSet: 'No location set',
+    change: 'Change',
+    neededTitle: 'Set your fishing location',
+    neededSub: 'Conditions are local, so nothing can be shown until we know where you are.',
+  },
+
   bestTimes: {
     title: 'Best times',
     subtitle:

@@ -1,71 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { resolveCoords } from '@/features/location/location';
 import type { EnvironmentSnapshot, GeoCoords } from '@/types';
 
-import { DEFAULT_COORDS, openMeteoProvider } from './openMeteo';
+import { useLocationStore } from '@/features/location/locationStore';
+
+import { type DayForecast, groupByDay } from './grouping';
+import { openMeteoProvider } from './openMeteo';
+import { nearestHourIndex } from './snapshotTime';
 
 const REFRESH_MS = 30 * 60 * 1000; // 30 minutes
 
 /** How far the multi-day outlook reaches. Open-Meteo serves up to 16 days. */
 export const FORECAST_DAYS = 7;
 
-/** Index of the hourly snapshot nearest to `now`. */
-function nearestIndex(hourly: EnvironmentSnapshot[], now = Date.now()): number {
-  let best = -1;
-  let bestDelta = Infinity;
-  for (let i = 0; i < hourly.length; i++) {
-    const delta = Math.abs(new Date(hourly[i]!.time).getTime() - now);
-    if (delta < bestDelta) {
-      bestDelta = delta;
-      best = i;
-    }
-  }
-  return best;
-}
-
-/** One calendar day of the outlook, with its peak feeding window pre-computed. */
-export interface DayForecast {
-  /** Local yyyy-mm-dd. */
-  date: string;
-  hours: EnvironmentSnapshot[];
-  /** The single best hour of the day. */
-  peak: EnvironmentSnapshot;
-  /** Mean fish activity across the day. */
-  avgActivity: number;
-}
-
-/**
- * Group a flat hourly series into days.
- *
- * The provider requests `timezone=auto`, so `time` is a local ISO string with no
- * offset ("2026-07-27T14:00") — its first 10 chars are the local day key. That
- * avoids re-deriving the day through Date, which would reintroduce a UTC shift.
- */
-export function groupByDay(hourly: EnvironmentSnapshot[]): DayForecast[] {
-  const byDate = new Map<string, EnvironmentSnapshot[]>();
-  for (const h of hourly) {
-    const key = h.time.slice(0, 10);
-    const bucket = byDate.get(key);
-    if (bucket) bucket.push(h);
-    else byDate.set(key, [h]);
-  }
-
-  const days: DayForecast[] = [];
-  for (const [date, hours] of byDate) {
-    let peak = hours[0]!;
-    let total = 0;
-    for (const h of hours) {
-      total += h.fishActivity;
-      if (h.fishActivity > peak.fishActivity) peak = h;
-    }
-    days.push({ date, hours, peak, avgActivity: total / hours.length });
-  }
-  // Map iteration order follows insertion, which follows the provider's
-  // chronological series — but sort explicitly rather than rely on that.
-  return days.sort((a, b) => a.date.localeCompare(b.date));
-}
+export type { DayForecast } from './grouping';
+export { groupByDay } from './grouping';
 
 export interface UseEnvironmentResult {
+  /** False when no location is known yet — render a prompt, not a forecast. */
+  hasLocation: boolean;
   /** Today's hours only — drives the current conditions + hourly strip. */
   hourly: EnvironmentSnapshot[];
   /** FORECAST_DAYS of grouped days, today first. */
@@ -77,32 +31,45 @@ export interface UseEnvironmentResult {
 }
 
 /**
- * Loads a multi-day hourly forecast on mount and every 30 minutes, exposing
- * both the snapshot nearest to "now" and a per-day grouping for the outlook.
+ * Loads a multi-day hourly forecast for the ACTIVE FISHING LOCATION on mount and
+ * every 30 minutes, exposing both the snapshot nearest to "now" and a per-day
+ * grouping for the outlook.
+ *
+ * There is deliberately NO default coordinate. When the location is unknown the
+ * hook fetches nothing and reports `hasLocation: false`, so callers prompt the
+ * user. Falling back to a hardcoded coordinate is what previously showed
+ * Californian tides to anglers on other continents without saying so.
  */
-export function useEnvironment(coords: GeoCoords = DEFAULT_COORDS): UseEnvironmentResult {
+export function useEnvironment(): UseEnvironmentResult {
+  const coords = useLocationStore((st) => resolveCoords(st.mode, st.device, st.manual));
   const [series, setSeries] = useState<EnvironmentSnapshot[]>([]);
   const [current, setCurrent] = useState<EnvironmentSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!coords) {
+      setSeries([]);
+      setCurrent(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const data = await openMeteoProvider.fetchRange(coords, new Date(), FORECAST_DAYS);
       setSeries(data);
-      const idx = nearestIndex(data);
+      const idx = nearestHourIndex(data);
       setCurrent(idx >= 0 ? (data[idx] ?? null) : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load conditions.');
     } finally {
       setLoading(false);
     }
-    // Key on the coordinate values, not the object identity, so passing an
-    // equivalent inline `{ latitude, longitude }` does not trigger a refetch.
+    // Key on the coordinate values, not the object identity, so an equivalent
+    // inline `{ latitude, longitude }` does not trigger a refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coords.latitude, coords.longitude]);
+  }, [coords?.latitude, coords?.longitude]);
 
   useEffect(() => {
     let active = true;
@@ -125,7 +92,15 @@ export function useEnvironment(coords: GeoCoords = DEFAULT_COORDS): UseEnvironme
     return (daily.find((d) => d.date === todayKey) ?? daily[0]!).hours;
   }, [daily, current]);
 
-  return { hourly, daily, current, loading, error, refresh: () => void load() };
+  return {
+    hasLocation: coords !== null,
+    hourly,
+    daily,
+    current,
+    loading,
+    error,
+    refresh: () => void load(),
+  };
 }
 
 /**
@@ -133,12 +108,16 @@ export function useEnvironment(coords: GeoCoords = DEFAULT_COORDS): UseEnvironme
  * returns null on any failure so bite persistence is never blocked.
  */
 export async function getCurrentConditions(
-  coords: GeoCoords = DEFAULT_COORDS,
+  coords: GeoCoords | null = useLocationStore.getState().coords(),
 ): Promise<EnvironmentSnapshot | null> {
+  // No location → no conditions. Tagging a bite with a guessed coordinate would
+  // poison the catch-insights analysis with data from somewhere the user never
+  // fished.
+  if (!coords) return null;
   try {
     const data = await openMeteoProvider.fetchDay(coords);
     if (data.length === 0) return null;
-    const idx = nearestIndex(data);
+    const idx = nearestHourIndex(data);
     return idx >= 0 ? (data[idx] ?? null) : null;
   } catch {
     return null;

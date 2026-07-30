@@ -66,7 +66,17 @@ export interface AppSettings {
 
 /** Environmental conditions for a location at a point in time. */
 export interface EnvironmentSnapshot {
-  time: string; // ISO-8601
+  /**
+   * NAIVE local time for the FISHING LOCATION, no offset ("2026-07-30T14:00").
+   * Pair it with `utcOffsetSeconds` to get a real instant — see snapshotTime.ts.
+   */
+  time: string;
+  /**
+   * The location's UTC offset in seconds. Optional only because snapshots
+   * persisted before this field existed lack it; treat `undefined` as "assume
+   * the device's zone", which is what the old code did implicitly.
+   */
+  utcOffsetSeconds?: number;
   /** hPa */
   pressure: number;
   /**

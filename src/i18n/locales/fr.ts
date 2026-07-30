@@ -145,6 +145,29 @@ const fr: Translation = {
     bestTimesSub: 'Tendance solunaire du mois — préparez votre prochaine sortie',
   },
 
+  location: {
+    title: 'Lieu',
+    intro:
+      'Les conditions, les marées et la tendance sont toutes récupérées pour ce lieu. Utilisez votre position actuelle, ou choisissez une ville pour consulter ailleurs.',
+    useMyLocation: 'Utiliser ma position',
+    useMyLocationSub: 'Suivre votre position actuelle',
+    usePinned: 'Utiliser',
+    permissionDenied: 'Autorisation de localisation refusée',
+    permissionHint:
+      'Autorisez la localisation pour Castmate dans les Réglages de votre appareil, ou recherchez une ville ci-dessous.',
+    searchTitle: 'Rechercher une ville',
+    searchPlaceholder: 'ex. Bizerte, Valence, Nantes',
+    searchFailed: 'La recherche de lieu a échoué.',
+    noResults: 'Aucun résultat pour « {{query}} ».',
+    marineNote:
+      'Les données de marée et de vagues n’existent qu’à proximité des côtes — les lieux à l’intérieur des terres s’affichent sans elles.',
+    notSet: 'Aucun lieu défini',
+    change: 'Modifier',
+    neededTitle: 'Définissez votre lieu de pêche',
+    neededSub:
+      'Les conditions sont locales : rien ne peut s’afficher avant de savoir où vous êtes.',
+  },
+
   bestTimes: {
     title: 'Meilleurs moments',
     subtitle:
