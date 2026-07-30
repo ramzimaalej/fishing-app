@@ -1,6 +1,6 @@
 import type { EnvironmentSnapshot } from '@/types';
 
-import { groupByDay } from '../useEnvironment';
+import { groupByDay } from '../grouping';
 
 /** Minimal snapshot — only `time` and `fishActivity` matter to the grouping. */
 function snap(time: string, fishActivity: number): EnvironmentSnapshot {

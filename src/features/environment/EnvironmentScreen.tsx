@@ -1,7 +1,7 @@
 import { useNavigation } from '@react-navigation/native';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -14,6 +14,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FREE_FORECAST_DAYS } from '@/config/constants';
+import { formatCoords, formatPlace } from '@/features/location/location';
+import { useLocationStore } from '@/features/location/locationStore';
 import { intlTag } from '@/i18n/formatting';
 import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -159,7 +161,26 @@ function DayRow({
 export default function EnvironmentScreen() {
   const { t } = useTranslation();
   const navigation = useNavigation<{ navigate: (route: string) => void }>();
-  const { hourly, daily, current, loading, error, refresh } = useEnvironment();
+  const { hasLocation, hourly, daily, current, loading, error, refresh } = useEnvironment();
+
+  // Which location these numbers describe. Shown always, not tucked away: a
+  // forecast without a visible place is how the old build served Californian
+  // tides to everyone without anyone noticing.
+  const mode = useLocationStore((st) => st.mode);
+  const device = useLocationStore((st) => st.device);
+  const manual = useLocationStore((st) => st.manual);
+  const refreshIfStale = useLocationStore((st) => st.refreshIfStale);
+  const locationLabel =
+    mode === 'manual' && manual
+      ? formatPlace(manual)
+      : device
+        ? formatCoords(device.coords)
+        : null;
+
+  // Silent: only refreshes an already-granted fix, never prompts.
+  useEffect(() => {
+    void refreshIfStale();
+  }, [refreshIfStale]);
   const { has } = useEntitlements();
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -184,7 +205,25 @@ export default function EnvironmentScreen() {
       >
         <Text style={styles.title}>{t('conditions.title')}</Text>
 
-        {loading && hourly.length === 0 && (
+        <Pressable style={styles.locationRow} onPress={() => navigation.navigate('Location')}>
+          <Text style={styles.locationPin}>📍</Text>
+          <Text style={styles.locationLabel} numberOfLines={1}>
+            {locationLabel ?? t('location.notSet')}
+          </Text>
+          <Text style={styles.locationChange}>{t('location.change')}</Text>
+        </Pressable>
+
+        {!hasLocation && (
+          <Pressable
+            style={styles.noLocationCard}
+            onPress={() => navigation.navigate('Location')}
+          >
+            <Text style={styles.noLocationTitle}>{t('location.neededTitle')}</Text>
+            <Text style={styles.noLocationSub}>{t('location.neededSub')}</Text>
+          </Pressable>
+        )}
+
+        {hasLocation && loading && hourly.length === 0 && (
           <View style={styles.centerBox}>
             <ActivityIndicator color={colors.primary} />
             <Text style={styles.muted}>{t('conditions.loading')}</Text>
@@ -264,6 +303,20 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.md, paddingBottom: spacing.xl, gap: spacing.md },
   title: { ...typography.h1, color: colors.text },
+  locationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  locationPin: { fontSize: 13 },
+  locationLabel: { ...typography.caption, color: colors.text, flex: 1 },
+  locationChange: { ...typography.caption, color: colors.primary, fontWeight: '700' },
+  noLocationCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  noLocationTitle: { ...typography.h3, color: colors.text },
+  noLocationSub: { ...typography.caption, color: colors.textMuted },
   sectionTitle: { ...typography.h3, color: colors.text, marginTop: spacing.sm },
   card: {
     backgroundColor: colors.surface,

@@ -145,7 +145,7 @@ async function fetchWindow(
   // Marine data is unavailable inland — treat its failure as "no marine data"
   // rather than failing the whole request.
   const [weather, marine] = await Promise.all([
-    fetchJson<{ hourly: HourlyWeather }>(weatherUrl),
+    fetchJson<{ hourly: HourlyWeather; utc_offset_seconds?: number }>(weatherUrl),
     fetchJson<{ hourly: HourlyMarine }>(marineUrl).catch(
       () => ({ hourly: { time: [] } }) as { hourly: HourlyMarine },
     ),
@@ -153,6 +153,9 @@ async function fetchWindow(
 
   const w = weather.hourly;
   const m = marine.hourly;
+  // Needed to turn the naive local times above back into real instants once the
+  // location may be in a different timezone than the phone.
+  const utcOffsetSeconds = weather.utc_offset_seconds;
   const marineIndex = new Map(m.time.map((t, i) => [t, i]));
   const tides = deriveTides(m.time, m.sea_level_height_msl);
 
@@ -160,8 +163,16 @@ async function fetchWindow(
     const mi = marineIndex.get(time);
     const waveHeight = mi != null ? (m.wave_height?.[mi] ?? 0) : 0;
     const tide = mi != null ? (tides[mi] ?? null) : null;
+    // Local-clock Date, for the hour-of-day the activity model wants (dawn/dusk
+    // are local concepts). `.getHours()` on a naive string yields the location's
+    // local hour, which is exactly right.
     const when = new Date(time);
-    const moon = getMoonPhase(when);
+    // Moon phase depends on the true instant, not the local clock.
+    const instant =
+      utcOffsetSeconds === undefined
+        ? when
+        : new Date(Date.parse(`${time}Z`) - utcOffsetSeconds * 1000);
+    const moon = getMoonPhase(instant);
     const pressure = w.surface_pressure[i] ?? 1013;
     const windSpeed = w.wind_speed_10m[i] ?? 0;
     const trend = pressureTrend(w.surface_pressure, i);
@@ -179,6 +190,7 @@ async function fetchWindow(
 
     return {
       time,
+      utcOffsetSeconds,
       pressure,
       pressureTrend: trend,
       temperature: w.temperature_2m[i] ?? 0,

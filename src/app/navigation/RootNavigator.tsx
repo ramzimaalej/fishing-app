@@ -15,6 +15,7 @@ import BestTimesScreen from '@/features/environment/BestTimesScreen';
 import EnvironmentScreen from '@/features/environment/EnvironmentScreen';
 import FishingScreen from '@/features/fishing/FishingScreen';
 import CatchInsightsScreen from '@/features/insights/CatchInsightsScreen';
+import LocationScreen from '@/features/location/LocationScreen';
 import PairSensorScreen from '@/features/rods/PairSensorScreen';
 import RodsScreen from '@/features/rods/RodsScreen';
 import { useRodRuntimeBridge } from '@/features/rods/useRodRuntime';
@@ -31,6 +32,7 @@ export type RootStackParamList = {
   SessionReport: undefined;
   BestTimes: undefined;
   CatchInsights: undefined;
+  Location: undefined;
   Rods: undefined;
   PairSensor: { rodId: string };
 };
@@ -176,6 +178,12 @@ export default function RootNavigator() {
               title: t('insights.title'),
               headerTintColor: colors.text,
             }}
+          />
+          {/* Fishing location: device GPS or a searched city. */}
+          <RootStack.Screen
+            name="Location"
+            component={LocationScreen}
+            options={{ headerShown: true, title: t('location.title'), headerTintColor: colors.text }}
           />
           {/* Rod setup + per-rod sensor pairing, pushed from Fishing. */}
           <RootStack.Screen
