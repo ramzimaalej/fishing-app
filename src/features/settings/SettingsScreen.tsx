@@ -20,6 +20,8 @@ import { useLanguagePreference, useLanguageStore } from '@/i18n/languageStore';
 
 import { FREE_SOUND_COUNT, NOTIFICATION_SOUNDS } from '@/config/constants';
 import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
+import { useAdminStore } from '@/features/admin/adminStore';
+import { appVersion } from '@/features/admin/storage';
 import { useAuthStore } from '@/features/auth/authStore';
 import { playSoundPreview, requestNotificationPermissions } from '@/features/notifications/feedback';
 import { useSubscriptionStore } from '@/features/subscription/subscriptionStore';
@@ -53,6 +55,32 @@ export default function SettingsScreen() {
 
   const allSounds = has('sound-pack');
   const [requesting, setRequesting] = useState(false);
+
+  /**
+   * Hidden entry to the developer console: tap the version row seven times.
+   *
+   * The same gesture Android uses for its own developer options — familiar to
+   * anyone who would want this, and effectively invisible to everyone else. A
+   * plain visible row would put a data recorder one stray tap away for users who
+   * have no use for it. Once unlocked the row becomes a normal link, since
+   * re-tapping seven times every session is pure friction.
+   */
+  const adminUnlocked = useAdminStore((s) => s.unlocked);
+  const [versionTaps, setVersionTaps] = useState(0);
+
+  const onVersionPress = () => {
+    if (adminUnlocked) {
+      navigation.navigate('Admin');
+      return;
+    }
+    const next = versionTaps + 1;
+    if (next >= 7) {
+      setVersionTaps(0);
+      navigation.navigate('Admin');
+      return;
+    }
+    setVersionTaps(next);
+  };
 
   const onTogglePush = async (next: boolean) => {
     if (!next) {
@@ -282,6 +310,18 @@ export default function SettingsScreen() {
       <TouchableOpacity style={styles.resetBtn} onPress={confirmReset}>
         <Text style={styles.resetText}>{t('settings.resetToDefaults')}</Text>
       </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.versionRow}
+        onPress={onVersionPress}
+        activeOpacity={1}
+        accessibilityRole="button"
+      >
+        <Text style={styles.versionText}>
+          Castmate {appVersion()}
+          {adminUnlocked ? ' · Admin' : ''}
+        </Text>
+      </TouchableOpacity>
       </ScrollView>
 
     </View>
@@ -359,4 +399,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   resetText: { ...typography.body, color: colors.danger, fontWeight: '600' },
+  versionRow: { marginTop: spacing.lg, paddingVertical: spacing.md, alignItems: 'center' },
+  versionText: { ...typography.caption, color: colors.border },
 });

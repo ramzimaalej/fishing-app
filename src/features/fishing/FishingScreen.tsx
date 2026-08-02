@@ -9,6 +9,7 @@ import {
   SESSION_EXTENSION_HOURS,
 } from '@/config/constants';
 import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
+import BiteMarkButton from '@/features/admin/BiteMarkButton';
 import {
   cancelSessionNotifications,
   scheduleSessionNotifications,
@@ -358,6 +359,13 @@ export default function FishingScreen() {
           <SensitivitySlider value={settings.sensitivity} onChange={setSensitivity} />
         </View>
       </ScrollView>
+
+      {/* Pinned outside the ScrollView, so the mark button stays under the thumb
+          wherever the user has scrolled to. It renders nothing unless an admin
+          capture is running. */}
+      <View style={styles.markDock} pointerEvents="box-none">
+        <BiteMarkButton rodId={selected} rodName={selectedRod?.name ?? ''} />
+      </View>
     </SafeAreaView>
   );
 }
@@ -574,6 +582,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.sm,
+  },
+  markDock: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    bottom: spacing.md,
   },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   switchTitle: { ...typography.h3, color: colors.text },

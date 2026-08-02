@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
+import AdminScreen from '@/features/admin/AdminScreen';
 import { useAuth } from '@/features/auth/useAuth';
 import { useAuthStore } from '@/features/auth/authStore';
 import SignInScreen from '@/features/auth/screens/SignInScreen';
@@ -35,6 +36,7 @@ export type RootStackParamList = {
   Location: undefined;
   Rods: undefined;
   PairSensor: { rodId: string };
+  Admin: undefined;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -199,6 +201,14 @@ export default function RootNavigator() {
               title: t('rods.pairedSensor'),
               headerTintColor: colors.text,
             }}
+          />
+          {/* Developer data-capture console, reached from Settings. Registered
+              unconditionally — the code gate lives in the screen, so a locked
+              admin still renders its own prompt rather than a missing route. */}
+          <RootStack.Screen
+            name="Admin"
+            component={AdminScreen}
+            options={{ headerShown: true, title: 'Admin', headerTintColor: colors.text }}
           />
         </>
       ) : (

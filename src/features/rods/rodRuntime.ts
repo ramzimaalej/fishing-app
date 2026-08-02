@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { SENSOR_SAMPLE_RATE_HZ } from '@/config/constants';
+import { captureDetection, captureSample } from '@/features/admin/recorder';
 import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
 import { batteryState, type BatteryState } from '@/features/ble/battery';
 import { getSensorDevice } from '@/features/ble/deviceRegistry';
@@ -189,9 +190,15 @@ function handleSample(rt: Runtime, sample: AccelSample): void {
   const tick = rt.detector.process(sample);
   rt.buffer.push({ t: tick.sample.t, dynamic: tick.dynamic, threshold: tick.threshold });
 
+  // Ground-truth capture (admin mode). A no-op unless a recording is running,
+  // and placed here rather than at the sensor so what is written is exactly what
+  // the detector saw, derived series included.
+  captureSample(rt.rod.id, tick);
+
   const bite = tick.bite;
   if (bite) {
     rt.buffer.pushBite(bite);
+    captureDetection(rt.rod.id, rt.rod.name, bite, tick.threshold);
     rt.biteCount += 1;
     rt.lastBite = bite;
     sessionBites.push({ event: bite, at: Date.now(), rodId: rt.rod.id, rodName: rt.rod.name });
