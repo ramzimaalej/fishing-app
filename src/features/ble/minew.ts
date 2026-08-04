@@ -24,7 +24,11 @@ import { base64ToBytes, bytesToBase64 } from './bytes';
  *   battery 100%, X=+0.840 g, Y=+0.527 g, Z=-0.008 g → |a|≈0.99 g (at rest). ✓
  *
  * The frame carries no timestamp (the tag has no real clock), so the phone
- * stamps arrival time when it builds an AccelSample (see MinewSensorClient).
+ * stamps arrival time when it builds an AccelSample (see BroadcastSensorClient).
+ *
+ * This file is the WIRE FORMAT, not a product. It is retained because the
+ * Castmate G CP27 currently emits this frame and because MockSensor round-trips
+ * through it — see CastmateGSensorClient for the device that consumes it.
  */
 
 /** Minew service that carries the accelerometer frame (16-bit + full 128-bit). */
