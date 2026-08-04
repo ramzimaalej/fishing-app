@@ -6,6 +6,7 @@
  * pushing thirty diagnostic strings into fr.ts and es.ts would bury the
  * translations that do matter under copy no user will ever read.
  */
+import { useNavigation } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -211,6 +212,7 @@ function RecordingCard({
 export default function AdminScreen() {
   const unlocked = useAdminStore((s) => s.unlocked);
   const lock = useAdminStore((s) => s.lock);
+  const navigation = useNavigation<{ navigate: (route: string) => void }>();
 
   const capture = useCaptureStore();
   const armable = useArmableRods();
@@ -316,6 +318,17 @@ export default function AdminScreen() {
             )}
           </>
         )}
+      </View>
+
+      {/* Hardware ---------------------------------------------------------- */}
+      <Text style={styles.sectionTitle}>Hardware</Text>
+      <View style={styles.card}>
+        <Text style={styles.hint}>
+          Inspect raw BLE advertisements to work out an unknown sensor&apos;s frame layout.
+        </Text>
+        <Pressable style={styles.primaryBtn} onPress={() => navigation.navigate('Sniffer')}>
+          <Text style={styles.primaryBtnText}>Open BLE sniffer</Text>
+        </Pressable>
       </View>
 
       {/* Scoring ----------------------------------------------------------- */}

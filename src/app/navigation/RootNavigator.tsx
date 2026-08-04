@@ -6,6 +6,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
 import AdminScreen from '@/features/admin/AdminScreen';
+import SnifferScreen from '@/features/admin/SnifferScreen';
 import { useAuth } from '@/features/auth/useAuth';
 import { useAuthStore } from '@/features/auth/authStore';
 import SignInScreen from '@/features/auth/screens/SignInScreen';
@@ -37,6 +38,7 @@ export type RootStackParamList = {
   Rods: undefined;
   PairSensor: { rodId: string };
   Admin: undefined;
+  Sniffer: undefined;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -209,6 +211,11 @@ export default function RootNavigator() {
             name="Admin"
             component={AdminScreen}
             options={{ headerShown: true, title: 'Admin', headerTintColor: colors.text }}
+          />
+          <RootStack.Screen
+            name="Sniffer"
+            component={SnifferScreen}
+            options={{ headerShown: true, title: 'BLE sniffer', headerTintColor: colors.text }}
           />
         </>
       ) : (
