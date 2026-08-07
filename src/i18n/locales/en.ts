@@ -60,6 +60,7 @@ const en = {
       reconnecting: 'Reconnecting…',
       error: 'Error',
       calibrating: 'Calibrating',
+      armFailed: 'Arming failed — not watching',
       ready: 'Ready',
     },
   },
@@ -334,6 +335,13 @@ const en = {
     warnBody: '{{rod}} is at {{percent}}% — change the battery before it stops watching.',
     label: 'Battery',
     unknown: 'Battery unknown',
+  },
+
+
+  signal: {
+    lostTitle: '⚠️ Sensor signal lost',
+    lostBody: '{{rod}} has gone silent — it is NOT being watched. Check the tag is in range and has battery.',
+    lostBanner: 'Signal lost — this rod is not being watched',
   },
 
   chart: {

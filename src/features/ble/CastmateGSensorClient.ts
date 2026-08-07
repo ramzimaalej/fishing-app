@@ -1,3 +1,5 @@
+import { monotonicNowMs } from '@/features/detection/monotonicClock';
+
 import {
   type BroadcastAdvertisement,
   type BroadcastReading,
@@ -63,9 +65,10 @@ const decodeServiceDataFfe1: FrameDecoder = (adv) => {
     }
     if (!reading) continue;
     return {
-      x: reading.x,
-      y: reading.y,
-      z: reading.z,
+      // The frame codec reports g; the detector works in milli-g throughout.
+      xMg: Math.round(reading.x * 1000),
+      yMg: Math.round(reading.y * 1000),
+      zMg: Math.round(reading.z * 1000),
       deviceKey: reading.mac,
       batteryPct: reading.batteryPct,
     };
@@ -108,7 +111,7 @@ export const CASTMATE_G_SPEC: BroadcastSensorSpec = {
 };
 
 export class CastmateGSensorClient extends BroadcastSensorClient {
-  constructor(targetKey: string | null = null, clock: () => number = () => Date.now()) {
+  constructor(targetKey: string | null = null, clock: () => number = monotonicNowMs) {
     super(CASTMATE_G_SPEC, targetKey, clock);
   }
 }

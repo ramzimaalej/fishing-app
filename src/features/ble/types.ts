@@ -1,4 +1,4 @@
-import type { AccelSample } from '@/types';
+import type { AccSample } from '@/features/detection/accSample';
 
 export type ConnectionStatus =
   | 'idle'
@@ -43,8 +43,13 @@ export interface SensorConnection {
    * mock) don't need it, hence optional. The store calls it after permissions.
    */
   start?(): void;
-  /** Subscribe to the accelerometer stream. Returns an unsubscribe fn. */
-  onSample(listener: (sample: AccelSample) => void): () => void;
+  /**
+   * Subscribe to the accelerometer stream. Returns an unsubscribe fn.
+   *
+   * Samples are milli-g, stamped with a MONOTONIC arrival time — see
+   * detection/monotonicClock for why wall time is unusable here.
+   */
+  onSample(listener: (sample: AccSample) => void): () => void;
   /** Enable/disable fishing (live-bait) mode on the device (if supported). */
   setFishingMode(enabled: boolean): Promise<void>;
   setSampleRate(hz: number): Promise<void>;

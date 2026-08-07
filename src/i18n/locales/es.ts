@@ -58,6 +58,7 @@ const es: Translation = {
       reconnecting: 'Reconectando…',
       error: 'Error',
       calibrating: 'Calibrando',
+      armFailed: 'Fallo al armar — sin vigilar',
       ready: 'Listo',
     },
   },
@@ -339,6 +340,14 @@ const es: Translation = {
     warnBody: '{{rod}} está al {{percent}} % — cambia la pila antes de que deje de vigilar.',
     label: 'Batería',
     unknown: 'Batería desconocida',
+  },
+
+
+  signal: {
+    lostTitle: '⚠️ Señal del sensor perdida',
+    lostBody:
+      '{{rod}} ha dejado de responder — esta caña NO está siendo vigilada. Comprueba que el sensor esté en alcance y con batería.',
+    lostBanner: 'Señal perdida — esta caña no está siendo vigilada',
   },
 
   chart: {

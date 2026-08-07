@@ -17,7 +17,7 @@
 import { create } from 'zustand';
 
 import { SENSOR_SAMPLE_RATE_HZ } from '@/config/constants';
-import type { DetectorTick } from '@/features/bite-detection/types';
+import type { FeatureFrame } from '@/features/detection/featureExtractor';
 import type { Rod } from '@/features/rods/rod';
 import { useSettingsStore } from '@/features/settings/settingsStore';
 import type { BiteEvent } from '@/types';
@@ -248,13 +248,13 @@ export async function stopRecording(): Promise<string | null> {
  * Record one sample. Called from rodRuntime for every rod on every tick, so the
  * inactive path must stay a single null check.
  */
-export function captureSample(rodId: string, tick: DetectorTick): void {
+export function captureSample(rodId: string, frame: FeatureFrame): void {
   const rec = active;
   if (!rec) return;
 
-  rec.rows.push(sampleRow(rodId, tick));
+  rec.rows.push(sampleRow(rodId, frame));
   rec.meta.sampleCount += 1;
-  rec.lastDeviceT.set(rodId, tick.sample.t);
+  rec.lastDeviceT.set(rodId, frame.sample.tMonotonicMs);
 
   if (rec.rows.length >= CHUNK_ROWS || Date.now() - rec.lastFlush >= FLUSH_INTERVAL_MS) {
     void flush(rec);

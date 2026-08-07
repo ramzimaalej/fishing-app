@@ -59,6 +59,7 @@ const fr: Translation = {
       reconnecting: 'Reconnexion…',
       error: 'Erreur',
       calibrating: 'Calibrage',
+      armFailed: 'Échec de l’armement — non surveillée',
       ready: 'Prêt',
     },
   },
@@ -342,6 +343,14 @@ const fr: Translation = {
       '{{rod}} est à {{percent}} % — changez la pile avant qu’elle ne cesse de surveiller.',
     label: 'Batterie',
     unknown: 'Batterie inconnue',
+  },
+
+
+  signal: {
+    lostTitle: '⚠️ Signal du capteur perdu',
+    lostBody:
+      '{{rod}} ne répond plus — cette canne n’est PAS surveillée. Vérifiez que le capteur est à portée et chargé.',
+    lostBanner: 'Signal perdu — cette canne n’est pas surveillée',
   },
 
   chart: {

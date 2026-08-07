@@ -31,6 +31,9 @@ function idleView(rodId: string): RodRuntimeView {
     points: [],
     bites: [],
     lastBite: null,
+    signalLost: false,
+    arming: false,
+    armFailReason: null,
   };
 }
 

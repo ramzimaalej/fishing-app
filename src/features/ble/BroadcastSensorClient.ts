@@ -1,4 +1,5 @@
-import type { AccelSample } from '@/types';
+import type { AccSample } from '@/features/detection/accSample';
+import { monotonicNowMs } from '@/features/detection/monotonicClock';
 
 import { b64ToHex, BLE_DEBUG, bleLog } from './debug';
 import { subscribeToScan } from './scanBroker';
@@ -42,10 +43,10 @@ export interface BroadcastAdvertisement {
 }
 
 export interface BroadcastReading {
-  /** g */
-  x: number;
-  y: number;
-  z: number;
+  /** milli-g — the unit the detector works in throughout. */
+  xMg: number;
+  yMg: number;
+  zMg: number;
   /**
    * Stable identity of the physical tag.
    *
@@ -86,7 +87,7 @@ export interface DiscoveredBroadcastDevice {
 export class BroadcastSensorClient implements SensorConnection {
   info: BleDeviceInfo;
 
-  private readonly sampleListeners = new Set<(s: AccelSample) => void>();
+  private readonly sampleListeners = new Set<(s: AccSample) => void>();
   private readonly disconnectListeners = new Set<() => void>();
   private readonly discovered = new Map<string, DiscoveredBroadcastDevice>();
   private readonly seenIds = new Set<string>();
@@ -104,12 +105,15 @@ export class BroadcastSensorClient implements SensorConnection {
    *   run at once (multi-rod): without it a client locks onto the first tag it
    *   hears, so two unbound clients would both read one tag and report it as two
    *   rods. Null is only safe for a single-rod setup or for discovery.
-   * @param clock injectable time source, so staleness is testable
+   * @param clock injectable time source, so staleness is testable. Defaults to
+   *   the MONOTONIC clock: this stamps every sample and drives the staleness
+   *   check, both of which are durations, and a wall-clock adjustment mid-session
+   *   would corrupt them.
    */
   constructor(
     protected readonly spec: BroadcastSensorSpec,
     private readonly targetKey: string | null = null,
-    private readonly clock: () => number = () => Date.now(),
+    private readonly clock: () => number = monotonicNowMs,
   ) {
     this.info = { id: '', name: spec.searchingName };
   }
@@ -191,18 +195,20 @@ export class BroadcastSensorClient implements SensorConnection {
     this.lastFrameAt = this.clock();
     if (this.stale) this.stale = false; // recovered
 
-    const sample: AccelSample = {
-      // The tag has no real clock, so arrival time is the only timestamp
-      // available. See the clock-domain note in src/types.
-      t: this.lastFrameAt,
-      x: reading.x,
-      y: reading.y,
-      z: reading.z,
+    const sample: AccSample = {
+      // The tag has no real clock and the payload carries no timestamp, so
+      // arrival time is the only one available — and it must be monotonic,
+      // because every downstream feature is a rate or a duration.
+      tMonotonicMs: this.lastFrameAt,
+      xMg: reading.xMg,
+      yMg: reading.yMg,
+      zMg: reading.zMg,
+      rssi,
     };
     this.sampleCount += 1;
     if (BLE_DEBUG && (this.sampleCount <= 5 || this.sampleCount % 50 === 0)) {
       bleLog(
-        `${this.spec.kind}: sample#${this.sampleCount} x=${reading.x.toFixed(3)} y=${reading.y.toFixed(3)} z=${reading.z.toFixed(3)} batt=${reading.batteryPct ?? '?'}%`,
+        `${this.spec.kind}: sample#${this.sampleCount} x=${reading.xMg} y=${reading.yMg} z=${reading.zMg} mg batt=${reading.batteryPct ?? '?'}%`,
       );
     }
     this.sampleListeners.forEach((l) => l(sample));
@@ -222,7 +228,7 @@ export class BroadcastSensorClient implements SensorConnection {
     return [...this.discovered.values()].sort((a, b) => b.rssi - a.rssi);
   }
 
-  onSample(listener: (sample: AccelSample) => void): () => void {
+  onSample(listener: (sample: AccSample) => void): () => void {
     this.sampleListeners.add(listener);
     return () => this.sampleListeners.delete(listener);
   }

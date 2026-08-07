@@ -1,4 +1,4 @@
-import type { DetectorTick } from '@/features/bite-detection/types';
+import type { FeatureFrame } from '@/features/detection/featureExtractor';
 
 import type { CaptureEvent } from '../captureTypes';
 import {
@@ -9,43 +9,74 @@ import {
   sampleRow,
 } from '../csv';
 
-const tick = (over: Partial<DetectorTick> = {}): DetectorTick => ({
-  sample: { t: 1000, x: 0.1, y: 0.2, z: 0.98 },
-  rawMagnitude: 1.005,
-  baseline: 1.0,
-  dynamic: 0.005,
-  threshold: 0.08,
-  bite: null,
+const tick = (over: Partial<FeatureFrame> = {}): FeatureFrame => ({
+  sample: { tMonotonicMs: 1000, xMg: 100, yMg: 200, zMg: 980, rssi: -60 },
+  dtMs: 100,
+  magnitudeMg: 1005,
+  thetaDeg: 0.5,
+  isImpact: false,
+  baselineFrozen: false,
+  crossedUp: false,
+  crossings: 0,
+  sharpCrossings: 0,
+  meanDeviationDeg: 0.2,
+  crossingIntervalCv: null,
   ...over,
 });
 
 describe('sampleRow', () => {
   it('emits columns in header order', () => {
-    expect(SAMPLE_CSV_HEADER.split(',')).toHaveLength(sampleRow('rod_a', tick()).split(',').length);
-    expect(sampleRow('rod_a', tick())).toBe('1000,rod_a,0.1,0.2,0.98,1.005,1,0.005,0.08');
+    expect(sampleRow('rod_a', tick()).split(',')).toHaveLength(
+      SAMPLE_CSV_HEADER.split(',').length,
+    );
   });
 
-  it('rounds the device timestamp to an integer', () => {
-    const row = sampleRow('rod_a', tick({ sample: { t: 1000.6, x: 0, y: 0, z: 0 } }));
+  it('writes the monotonic arrival time, rounded', () => {
+    const row = sampleRow('rod_a', tick({
+      sample: { tMonotonicMs: 1000.6, xMg: 0, yMg: 0, zMg: 0, rssi: -60 },
+    }));
     expect(row.split(',')[0]).toBe('1001');
   });
 
+  it('writes milli-g integers', () => {
+    const cols = sampleRow('rod_a', tick()).split(',');
+    expect(cols.slice(2, 5)).toEqual(['100', '200', '980']);
+  });
+
   it('trims float noise instead of writing a 17-digit value', () => {
-    const row = sampleRow('rod_a', tick({ dynamic: 0.1 + 0.2 }));
+    const row = sampleRow('rod_a', tick({ thetaDeg: 0.1 + 0.2 }));
     // 0.1 + 0.2 === 0.30000000000000004
-    expect(row.split(',')[7]).toBe('0.3');
+    expect(row.split(',')[6]).toBe('0.3');
+  });
+
+  it('records dt, the only evidence a packet was dropped', () => {
+    // With no sequence numbers, analysis cannot otherwise tell which pairs were
+    // too far apart for their slope to be trusted.
+    expect(sampleRow('rod_a', tick({ dtMs: 487 })).split(',')[7]).toBe('487');
+    expect(sampleRow('rod_a', tick({ dtMs: null })).split(',')[7]).toBe('');
+  });
+
+  it('flags an impact sample', () => {
+    expect(sampleRow('rod_a', tick({ isImpact: true })).split(',')[12]).toBe('1');
+    expect(sampleRow('rod_a', tick({ isImpact: false })).split(',')[12]).toBe('0');
+  });
+
+  it('leaves the CV empty when there were too few crossings to characterise', () => {
+    expect(sampleRow('rod_a', tick({ crossingIntervalCv: null })).split(',')[11]).toBe('');
+    expect(sampleRow('rod_a', tick({ crossingIntervalCv: 0.42 })).split(',')[11]).toBe('0.42');
   });
 
   it('writes an empty field for a non-finite value rather than "NaN"', () => {
-    const row = sampleRow('rod_a', tick({ baseline: NaN, threshold: Infinity }));
-    const cols = row.split(',');
+    const cols = sampleRow('rod_a', tick({ magnitudeMg: NaN, thetaDeg: Infinity })).split(',');
+    expect(cols[5]).toBe('');
     expect(cols[6]).toBe('');
-    expect(cols[8]).toBe('');
   });
 
   it('keeps negative axis values', () => {
-    const row = sampleRow('rod_a', tick({ sample: { t: 5, x: -0.5, y: 0, z: 0 } }));
-    expect(row.split(',')[2]).toBe('-0.5');
+    const row = sampleRow('rod_a', tick({
+      sample: { tMonotonicMs: 5, xMg: -500, yMg: 0, zMg: 0, rssi: -60 },
+    }));
+    expect(row.split(',')[2]).toBe('-500');
   });
 });
 

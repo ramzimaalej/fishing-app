@@ -293,3 +293,44 @@ export async function notifySensorBattery(
     /* notification unavailable — the in-app indicator still shows it */
   }
 }
+
+/**
+ * Alarm that a rod's sensor has gone silent.
+ *
+ * VISIBLE AND AUDIBLE, not a quiet status change. The advertising stream carries
+ * no sequence numbers, so a dropout and a perfectly still rod are identical in
+ * the data — which means silence can never be allowed to read as "no fish". A
+ * user who believes a rod is being watched when it is not is the worst failure
+ * this app has, worse than a false alarm.
+ *
+ * It therefore borrows the bite alert's sound and vibration rather than being a
+ * silent banner: the whole point is to reach someone who is not looking at the
+ * screen.
+ */
+export async function notifySignalLost(
+  rodName: string,
+  settings: AppSettings,
+): Promise<void> {
+  try {
+    if (settings.vibrationEnabled) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+    if (settings.soundEnabled) await playSoundPreview(settings.soundKey);
+  } catch {
+    /* feedback is best-effort */
+  }
+
+  try {
+    await ensureNotificationSetup();
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: i18n.t('signal.lostTitle'),
+        body: i18n.t('signal.lostBody', { rod: rodName }),
+        ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
+      },
+      trigger: null,
+    });
+  } catch {
+    /* the in-app banner still shows it */
+  }
+}

@@ -1,5 +1,6 @@
-import type { AccelSample } from '@/types';
 import { SENSOR_SAMPLE_RATE_HZ } from '@/config/constants';
+import type { AccSample } from '@/features/detection/accSample';
+import { monotonicNowMs } from '@/features/detection/monotonicClock';
 
 import { decodeMinewAccFrame, encodeMinewAccFrame } from './minew';
 import type { BleDeviceInfo, SensorConnection } from './types';
@@ -34,7 +35,7 @@ const MOCK_DRAIN_SAMPLES_PER_PCT = 50;
 export class MockSensor implements SensorConnection {
   info: BleDeviceInfo;
 
-  private sampleListeners = new Set<(s: AccelSample) => void>();
+  private sampleListeners = new Set<(s: AccSample) => void>();
   private disconnectListeners = new Set<() => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private sampleRate = SENSOR_SAMPLE_RATE_HZ;
@@ -71,7 +72,15 @@ export class MockSensor implements SensorConnection {
       const decoded = decodeMinewAccFrame(frame);
       if (!decoded) return;
       this.drainBattery();
-      const sample: AccelSample = { t: Date.now(), x: decoded.x, y: decoded.y, z: decoded.z };
+      // Monotonic and milli-g, exactly as the live client emits — a simulator
+      // that differed in either would hide unit and clock bugs until hardware.
+      const sample: AccSample = {
+        tMonotonicMs: monotonicNowMs(),
+        xMg: Math.round(decoded.x * 1000),
+        yMg: Math.round(decoded.y * 1000),
+        zMg: Math.round(decoded.z * 1000),
+        rssi: -55,
+      };
       this.sampleListeners.forEach((l) => l(sample));
     }, intervalMs);
   }
@@ -130,7 +139,7 @@ export class MockSensor implements SensorConnection {
     };
   }
 
-  onSample(listener: (sample: AccelSample) => void): () => void {
+  onSample(listener: (sample: AccSample) => void): () => void {
     this.sampleListeners.add(listener);
     return () => this.sampleListeners.delete(listener);
   }

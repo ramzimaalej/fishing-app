@@ -32,9 +32,10 @@ describe('extractCastmateGReading', () => {
     );
 
     expect(reading).not.toBeNull();
-    expect(reading!.x).toBeCloseTo(0.84, 2);
-    expect(reading!.y).toBeCloseTo(0.527, 2);
-    expect(reading!.z).toBeCloseTo(-0.008, 2);
+    // Milli-g: the unit the detector works in throughout.
+    expect(reading!.xMg).toBeCloseTo(840, -1);
+    expect(reading!.yMg).toBeCloseTo(527, -1);
+    expect(reading!.zMg).toBeCloseTo(-8, 0);
     expect(reading!.batteryPct).toBe(88);
   });
 
@@ -42,7 +43,7 @@ describe('extractCastmateGReading', () => {
     const reading = extractCastmateGReading(
       adv({ serviceData: { '0000ffe1-0000-1000-8000-00805f9b34fb': accFrame(0, 0, 1) } }),
     );
-    expect(reading!.z).toBeCloseTo(1, 3);
+    expect(reading!.zMg).toBeCloseTo(1000, -1);
   });
 
   it('is case-insensitive about the UUID', () => {
@@ -55,9 +56,9 @@ describe('extractCastmateGReading', () => {
     const reading = extractCastmateGReading(
       adv({ serviceData: { ffe1: accFrame(0.84, 0.527, -0.008) } }),
     );
-    const magnitude = Math.hypot(reading!.x, reading!.y, reading!.z);
-    expect(magnitude).toBeGreaterThan(0.9);
-    expect(magnitude).toBeLessThan(1.1);
+    const magnitudeMg = Math.hypot(reading!.xMg, reading!.yMg, reading!.zMg);
+    expect(magnitudeMg).toBeGreaterThan(900);
+    expect(magnitudeMg).toBeLessThan(1100);
   });
 
   it('keys the device on the MAC inside the frame, not the advertisement id', () => {

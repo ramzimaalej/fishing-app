@@ -10,7 +10,7 @@
  * is the whole point of capturing this data.
  */
 
-import type { DetectorTick } from '@/features/bite-detection/types';
+import type { FeatureFrame } from '@/features/detection/featureExtractor';
 
 import type { CaptureEvent } from './captureTypes';
 
@@ -39,24 +39,35 @@ export function csvField(value: string): string {
 }
 
 export const SAMPLE_CSV_HEADER =
-  't,rodId,x,y,z,raw,baseline,dynamic,threshold';
+  't,rodId,xMg,yMg,zMg,magMg,thetaDeg,dtMs,crossings,sharpCrossings,meanDevDeg,cv,impact';
 
 /**
- * One sample row. `t` is the DEVICE clock — see the clock-domain note in
- * captureTypes.ts before comparing it with anything from events.csv.
+ * One sample row.
+ *
+ * `t` is the MONOTONIC arrival clock, not wall time and not a device clock — see
+ * detection/monotonicClock. It is comparable with events.csv, which uses the
+ * same source, and with nothing else.
+ *
+ * `dtMs` is included deliberately: with no sequence numbers it is the only
+ * evidence of a dropped packet, and any analysis of onset rates has to know
+ * which pairs were too far apart to trust.
  */
-export function sampleRow(rodId: string, tick: DetectorTick): string {
-  const { sample } = tick;
+export function sampleRow(rodId: string, frame: FeatureFrame): string {
+  const { sample } = frame;
   return [
-    String(Math.round(sample.t)),
+    String(Math.round(sample.tMonotonicMs)),
     csvField(rodId),
-    num(sample.x),
-    num(sample.y),
-    num(sample.z),
-    num(tick.rawMagnitude),
-    num(tick.baseline),
-    num(tick.dynamic),
-    num(tick.threshold),
+    String(Math.round(sample.xMg)),
+    String(Math.round(sample.yMg)),
+    String(Math.round(sample.zMg)),
+    num(frame.magnitudeMg),
+    num(frame.thetaDeg),
+    frame.dtMs === null ? '' : String(Math.round(frame.dtMs)),
+    String(frame.crossings),
+    String(frame.sharpCrossings),
+    num(frame.meanDeviationDeg),
+    frame.crossingIntervalCv === null ? '' : num(frame.crossingIntervalCv),
+    frame.isImpact ? '1' : '0',
   ].join(',');
 }
 
