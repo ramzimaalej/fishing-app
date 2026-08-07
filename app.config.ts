@@ -85,6 +85,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     // react-native-iap needs an Android store flavor selected (Play).
     './plugins/withIapAndroidFlavor',
+    // Manifest-only: declares intent for long-running BLE scanning. Does NOT
+    // create a foreground service — see features/detection/platformLimits.ts.
+    './plugins/withScanningPermissions',
     // No ads → no advertising identifier, on either platform.
     './plugins/withoutAnalyticsAdId',
   ],

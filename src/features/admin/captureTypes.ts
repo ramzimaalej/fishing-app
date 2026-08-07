@@ -18,16 +18,24 @@
 
 import type { BiteSize } from '@/types';
 
-export const CAPTURE_SCHEMA_VERSION = 1;
+export const CAPTURE_SCHEMA_VERSION = 2;
 
 /**
  * `detection` — the algorithm fired.
- * `human`     — the angler pressed the button because they saw a bite.
+ * `fish`      — the angler saw a real fish.
+ * `wave`      — the angler saw the rod move because of swell.
+ * `crossing`  — a threshold crossing with its FINAL onset rate.
  *
- * Comparing the two is the entire point: detection∧human = true positive,
- * detection alone = false positive, human alone = a miss.
+ * Comparing detections against `fish` gives true positives, false positives and
+ * misses. The `wave` label is what makes the onset-rate threshold settable at
+ * all: without negatives to compare against you can only see the distribution of
+ * fish onsets, not whether it SEPARATES from the thing it has to be told apart
+ * from. Schema 1 files used a single `human` kind; those are read as `fish`.
  */
-export type CaptureEventKind = 'detection' | 'human';
+export type CaptureEventKind = 'detection' | 'fish' | 'wave' | 'crossing';
+
+/** Schema-1 kind, still found in recordings on disk. */
+export const LEGACY_HUMAN_KIND = 'human';
 
 export interface CaptureEvent {
   kind: CaptureEventKind;
@@ -41,6 +49,14 @@ export interface CaptureEvent {
   rodId: string;
   /** Denormalised: renaming a rod later must not rewrite what was recorded. */
   rodName: string;
+
+  // --- crossing only --------------------------------------------------------
+  /**
+   * Final max Δθ/Δt over the rising edge, deg/s. Null when the rise contained no
+   * sample pair close enough together to be trusted — which is NOT zero, and
+   * must not be averaged in as though it were a slow ramp.
+   */
+  onsetRateDegPerS?: number | null;
 
   // --- detection only -------------------------------------------------------
   size?: BiteSize;

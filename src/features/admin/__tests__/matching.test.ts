@@ -14,7 +14,7 @@ const detection = (at: number, rodId = 'rod_a'): CaptureEvent => ({
 });
 
 const mark = (at: number, rodId = 'rod_a'): CaptureEvent => ({
-  kind: 'human',
+  kind: 'fish',
   at,
   deviceT: at,
   rodId,

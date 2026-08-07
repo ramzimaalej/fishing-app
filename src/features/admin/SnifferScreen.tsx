@@ -29,6 +29,7 @@ import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManage
 import { colors, radius, spacing, typography } from '@/theme';
 
 import {
+  setIdFilter,
   type SniffedDeviceView,
   type SniffedSourceView,
   startCapture,
@@ -119,6 +120,24 @@ function DeviceCard({ device }: { device: SniffedDeviceView }) {
         </View>
       </Pressable>
 
+      {device.selfTest && (
+        <View
+          style={[
+            styles.selfTest,
+            device.selfTest.pass ? styles.selfTestPass : styles.selfTestFail,
+          ]}
+        >
+          <Text style={styles.selfTestTitle}>
+            {device.selfTest.pass ? '✓ Parser self-test PASSED' : '✗ Parser self-test FAILED'}
+          </Text>
+          <Text style={styles.selfTestDetail}>{device.selfTest.detail}</Text>
+          <Text style={styles.selfTestDetail}>
+            n={device.selfTest.sampleCount} · range {Math.round(device.selfTest.minMagnitudeMg)}–
+            {Math.round(device.selfTest.maxMagnitudeMg)} mg
+          </Text>
+        </View>
+      )}
+
       {open && device.sources.map((s) => <SourceBlock key={s.key} source={s} />)}
     </View>
   );
@@ -133,6 +152,7 @@ export default function SnifferScreen() {
 
   const [sensorsOnly, setSensorsOnly] = useState(true);
   const [label, setLabel] = useState('');
+  const [filter, setFilter] = useState('');
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
   // Stop the scan on unmount: an abandoned sniff would hold the shared scan open
@@ -154,9 +174,9 @@ export default function SnifferScreen() {
     startSniffing();
   }, [scanning]);
 
-  const onToggleCapture = useCallback(async () => {
+  const onToggleCapture = useCallback(async (seconds: number | null = null) => {
     if (!capturing) {
-      startCapture();
+      startCapture(seconds);
       return;
     }
     const path = await stopCapture(label);
@@ -184,6 +204,23 @@ export default function SnifferScreen() {
         </Pressable>
         {permissionError && <Text style={styles.error}>{permissionError}</Text>}
         {error && <Text style={styles.error}>{error}</Text>}
+
+        <TextInput
+          style={styles.input}
+          value={filter}
+          onChangeText={(v) => {
+            setFilter(v);
+            setIdFilter(v);
+          }}
+          placeholder="Filter by MAC or name (e.g. 23AC)"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+        <Text style={styles.hint}>
+          Substring match, not exact: on iOS the device id is an opaque per-install UUID
+          rather than a MAC, so an exact-MAC filter would match nothing there.
+        </Text>
 
         <View style={styles.switchRow}>
           <Text style={styles.rowLabel}>Moving payloads only</Text>
@@ -216,15 +253,35 @@ export default function SnifferScreen() {
           />
         )}
         {capturing && <Text style={styles.capturing}>● {capturedFrames} frames captured</Text>}
-        <Pressable
-          style={[styles.primaryBtn, capturing && styles.stopBtn, !scanning && styles.btnDisabled]}
-          onPress={() => void onToggleCapture()}
-          disabled={!scanning}
-        >
-          <Text style={styles.primaryBtnText}>
-            {capturing ? 'Stop and save' : 'Start capture'}
-          </Text>
-        </Pressable>
+        <View style={styles.captureRow}>
+          <Pressable
+            style={[
+              styles.primaryBtn,
+              styles.grow,
+              capturing && styles.stopBtn,
+              !scanning && styles.btnDisabled,
+            ]}
+            onPress={() => void onToggleCapture(null)}
+            disabled={!scanning}
+          >
+            <Text style={styles.primaryBtnText}>
+              {capturing ? 'Stop and save' : 'Start capture'}
+            </Text>
+          </Pressable>
+          {!capturing && (
+            <Pressable
+              style={[styles.primaryBtn, styles.grow, !scanning && styles.btnDisabled]}
+              onPress={() => void onToggleCapture(30)}
+              disabled={!scanning}
+            >
+              <Text style={styles.primaryBtnText}>Record 30 s</Text>
+            </Pressable>
+          )}
+        </View>
+        <Text style={styles.hint}>
+          A timed capture frees both hands: rotating the tag through six orientations — each
+          axis up and down — is what reveals which byte offsets carry which axis.
+        </Text>
         {!scanning && <Text style={styles.hint}>Start scanning first.</Text>}
       </View>
 
@@ -332,6 +389,19 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.4 },
   primaryBtnText: { ...typography.body, color: colors.bg, fontWeight: '800' },
   capturing: { ...typography.body, color: colors.danger, fontWeight: '700' },
+  captureRow: { flexDirection: 'row', gap: spacing.sm },
+  grow: { flex: 1 },
+  selfTest: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 2,
+  },
+  selfTestPass: { borderColor: colors.success },
+  selfTestFail: { borderColor: colors.danger },
+  selfTestTitle: { ...typography.caption, color: colors.text, fontWeight: '800' },
+  selfTestDetail: { ...typography.caption, color: colors.textMuted },
   hint: { ...typography.caption, color: colors.textMuted },
   error: { ...typography.caption, color: colors.danger },
 });

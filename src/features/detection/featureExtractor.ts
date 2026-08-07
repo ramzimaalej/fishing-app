@@ -56,6 +56,15 @@ export interface FeatureFrame {
   baselineFrozen: boolean;
   /** This sample crossed the threshold upward. */
   crossedUp: boolean;
+  /**
+   * A crossing whose RISING EDGE ended on this sample, with its final onset
+   * rate — the max over the whole rise, which is not known at the moment of the
+   * crossing itself because the rod is still climbing.
+   *
+   * This is what calibration consumes: an onset rate is only comparable against
+   * a labelled fish or wave once it is final.
+   */
+  completedCrossing: Crossing | null;
   /** Crossings inside the sliding window. */
   crossings: number;
   /** Crossings in the window whose onset rate is known to be fish-like. */
@@ -121,7 +130,11 @@ export class FeatureExtractor {
       this.updateBaseline(v, dtMs);
     }
 
-    const crossedUp = this.trackCrossings(sample.tMonotonicMs, thetaDeg, dtMs);
+    const { crossedUp, completedCrossing } = this.trackCrossings(
+      sample.tMonotonicMs,
+      thetaDeg,
+      dtMs,
+    );
 
     this.window.push({ tMs: sample.tMonotonicMs, v });
     this.pruneWindow(sample.tMonotonicMs);
@@ -145,6 +158,7 @@ export class FeatureExtractor {
       isImpact,
       baselineFrozen,
       crossedUp,
+      completedCrossing,
       crossings: windowCrossings.length,
       sharpCrossings: windowCrossings.filter(
         (c) => c.onsetRateDegPerS !== null &&
@@ -184,7 +198,11 @@ export class FeatureExtractor {
    * Recovery speed is a property of the rod, not of the cause — so there is
    * deliberately no falling-edge feature anywhere in this class.
    */
-  private trackCrossings(tMs: number, thetaDeg: number, dtMs: number | null): boolean {
+  private trackCrossings(
+    tMs: number,
+    thetaDeg: number,
+    dtMs: number | null,
+  ): { crossedUp: boolean; completedCrossing: Crossing | null } {
     const prev = this.prev;
     const threshold = this.params.thetaDeg;
 
@@ -200,8 +218,13 @@ export class FeatureExtractor {
 
     const rising = prev !== null && thetaDeg > prev.thetaDeg;
 
-    // A rise that has ended closes off its crossing's measurement.
-    if (!rising) this.activeRise = null;
+    // A rise that has ended closes off its crossing's measurement, and that is
+    // the moment its onset rate becomes final.
+    let completedCrossing: Crossing | null = null;
+    if (!rising && this.activeRise) {
+      completedCrossing = this.activeRise;
+      this.activeRise = null;
+    }
 
     const crossedUp = prev !== null && prev.thetaDeg <= threshold && thetaDeg > threshold;
     if (crossedUp) {
@@ -215,7 +238,7 @@ export class FeatureExtractor {
       if (current === null || slope > current) this.activeRise.onsetRateDegPerS = slope;
     }
 
-    return crossedUp;
+    return { crossedUp, completedCrossing };
   }
 
   private pruneWindow(nowMs: number): void {

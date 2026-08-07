@@ -7,7 +7,12 @@
  */
 import { Platform, Share } from 'react-native';
 
-import type { CaptureMeta, RecordingSummary } from './captureTypes';
+import {
+  type CaptureEvent,
+  type CaptureMeta,
+  LEGACY_HUMAN_KIND,
+  type RecordingSummary,
+} from './captureTypes';
 import { SAMPLE_CSV_HEADER } from './csv';
 import { captureRoot, fs, fsAvailable, recordingDir } from './storage';
 
@@ -17,10 +22,29 @@ async function readMeta(id: string): Promise<CaptureMeta | null> {
   try {
     const raw = await fs().readAsStringAsync(`${recordingDir(id)}meta.json`);
     const parsed = JSON.parse(raw) as CaptureMeta;
-    return parsed?.id ? parsed : null;
+    if (!parsed?.id) return null;
+    return { ...parsed, events: migrateEvents(parsed.events ?? []) };
   } catch {
     return null;
   }
+}
+
+/**
+ * Bring a stored recording onto the current event vocabulary.
+ *
+ * Schema 1 had a single `human` kind meaning "the angler saw a bite"; schema 2
+ * splits that into `fish` and `wave`. Without this, an old recording's marks
+ * match NEITHER kind and silently disappear from scoring — the session would
+ * still list, still show a sample count, and report zero hits and zero misses,
+ * which reads as "the detector found nothing" rather than "this file is old".
+ *
+ * `human` becomes `fish`: schema 1 had no way to record a wave, so every mark in
+ * such a file was a claimed bite.
+ */
+export function migrateEvents(events: readonly CaptureEvent[]): CaptureEvent[] {
+  return events.map((e) =>
+    (e.kind as string) === LEGACY_HUMAN_KIND ? { ...e, kind: 'fish' as const } : e,
+  );
 }
 
 export { readMeta as loadMeta };

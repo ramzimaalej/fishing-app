@@ -1,5 +1,5 @@
 /**
- * The angler's "I saw a bite" button.
+ * The angler's observation buttons: "I saw a fish" and "that was a wave".
  *
  * Renders only while a capture is running, and lives on the Fishing screen
  * rather than inside admin: the whole value of the mark is that it is pressed at
@@ -7,8 +7,14 @@
  * two screens deep first. Every hundred milliseconds of delay widens the gap
  * this label is supposed to pin down.
  *
- * Deliberately oversized and high-contrast — it gets pressed one-handed, in the
- * dark, by someone whose attention is on the water.
+ * Deliberately oversized and high-contrast — pressed one-handed, in the dark, by
+ * someone whose attention is on the water.
+ *
+ * WHY TWO BUTTONS. Labelling only fish gives the distribution of fish onset
+ * rates, which on its own says nothing about whether a threshold WORKS — that
+ * depends entirely on whether it separates from the waves. Without labelled
+ * negatives the calibration view can report a number, but not whether the number
+ * means anything.
  */
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,6 +36,7 @@ export default function BiteMarkButton({
 }) {
   const recording = useCaptureStore((s) => s.recording);
   const humanMarks = useCaptureStore((s) => s.humanMarks);
+  const waveMarks = useCaptureStore((s) => s.waveMarks);
   const [justMarked, setJustMarked] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -43,14 +50,21 @@ export default function BiteMarkButton({
     timer.current = setTimeout(() => setJustMarked(false), CONFIRM_MS);
   }, []);
 
-  const onMark = useCallback(() => {
-    if (!rodId) return;
-    const event = markHumanBite(rodId, rodName);
-    if (!event) return;
-    // Confirms the press landed without the angler having to look at the screen.
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    arm();
-  }, [rodId, rodName, arm]);
+  const onMark = useCallback(
+    (kind: 'fish' | 'wave') => {
+      if (!rodId) return;
+      const event = markHumanBite(rodId, rodName, kind);
+      if (!event) return;
+      // Distinct feedback per label, so a mis-tap is noticeable without looking.
+      void Haptics.notificationAsync(
+        kind === 'fish'
+          ? Haptics.NotificationFeedbackType.Success
+          : Haptics.NotificationFeedbackType.Warning,
+      );
+      arm();
+    },
+    [rodId, rodName, arm],
+  );
 
   const onUndo = useCallback(() => {
     if (!undoLastHumanMark()) return;
@@ -63,21 +77,35 @@ export default function BiteMarkButton({
 
   return (
     <View style={styles.wrap}>
-      <Pressable
-        style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-        onPress={onMark}
-        disabled={!rodId}
-        accessibilityRole="button"
-        accessibilityLabel="Mark a bite you observed"
-      >
-        <Text style={styles.emoji}>🐟</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>I SAW A BITE</Text>
-          <Text style={styles.sub}>
-            {rodId ? `Marks ${rodName} · ${humanMarks} so far` : 'Select a rod first'}
-          </Text>
-        </View>
-      </Pressable>
+      <View style={styles.row}>
+        <Pressable
+          style={({ pressed }) => [styles.button, styles.fish, pressed && styles.pressed]}
+          onPress={() => onMark('fish')}
+          disabled={!rodId}
+          accessibilityRole="button"
+          accessibilityLabel="Mark a fish you observed"
+        >
+          <Text style={styles.emoji}>🐟</Text>
+          <Text style={styles.title}>FISH</Text>
+          <Text style={styles.sub}>{humanMarks}</Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [styles.button, styles.wave, pressed && styles.pressed]}
+          onPress={() => onMark('wave')}
+          disabled={!rodId}
+          accessibilityRole="button"
+          accessibilityLabel="Mark a wave you observed"
+        >
+          <Text style={styles.emoji}>🌊</Text>
+          <Text style={styles.title}>WAVE</Text>
+          <Text style={styles.sub}>{waveMarks}</Text>
+        </Pressable>
+      </View>
+
+      <Text style={styles.hint}>
+        {rodId ? `Labelling ${rodName}` : 'Select a rod first'}
+      </Text>
 
       {/* A mis-tap poisons the ground truth, so undo is offered inline rather
           than buried in the admin screen. */}
@@ -92,19 +120,24 @@ export default function BiteMarkButton({
 
 const styles = StyleSheet.create({
   wrap: { gap: spacing.xs },
+  row: { flexDirection: 'row', gap: spacing.sm },
   button: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.accent,
+    justifyContent: 'center',
+    gap: spacing.sm,
     borderRadius: radius.lg,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
   },
-  buttonPressed: { opacity: 0.7 },
-  emoji: { fontSize: 34 },
-  title: { ...typography.h2, color: colors.bg, fontWeight: '800', letterSpacing: 1 },
-  sub: { ...typography.caption, color: colors.bg, opacity: 0.8 },
+  fish: { backgroundColor: colors.accent },
+  wave: { backgroundColor: colors.surfaceAlt },
+  pressed: { opacity: 0.7 },
+  emoji: { fontSize: 26 },
+  title: { ...typography.h3, color: colors.text, fontWeight: '800', letterSpacing: 1 },
+  sub: { ...typography.caption, color: colors.text, opacity: 0.7 },
+  hint: { ...typography.caption, color: colors.textMuted, textAlign: 'center' },
   undo: { alignSelf: 'center', paddingVertical: spacing.xs },
   undoText: { ...typography.caption, color: colors.accent, fontWeight: '700' },
 });

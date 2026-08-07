@@ -17,6 +17,7 @@ const tick = (over: Partial<FeatureFrame> = {}): FeatureFrame => ({
   isImpact: false,
   baselineFrozen: false,
   crossedUp: false,
+  completedCrossing: null,
   crossings: 0,
   sharpCrossings: 0,
   meanDeviationDeg: 0.2,
@@ -112,7 +113,7 @@ describe('eventsCsv', () => {
   };
 
   const human: CaptureEvent = {
-    kind: 'human',
+    kind: 'fish',
     at: 1_700_000_001_500,
     deviceT: 5742,
     rodId: 'rod_a',
@@ -130,7 +131,7 @@ describe('eventsCsv', () => {
   it('writes detection-only columns as empty for a human mark', () => {
     const lines = eventsCsv([human]).trim().split('\n');
     const cols = lines[1]!.split(',');
-    expect(cols[0]).toBe('human');
+    expect(cols[0]).toBe('fish');
     // size, peakMagnitude, confidence, threshold
     expect(cols.slice(5)).toEqual(['', '', '', '']);
   });

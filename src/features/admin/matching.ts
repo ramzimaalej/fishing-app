@@ -74,7 +74,12 @@ export interface MatchResult {
 }
 
 const isDetection = (e: CaptureEvent): boolean => e.kind === 'detection';
-const isHuman = (e: CaptureEvent): boolean => e.kind === 'human';
+/**
+ * Only `fish` marks are targets. A `wave` label is a deliberate NEGATIVE — it
+ * records that the rod moved and no fish caused it — so scoring recall against
+ * it would count every correctly-ignored wave as a miss.
+ */
+const isHuman = (e: CaptureEvent): boolean => e.kind === 'fish';
 
 /** Whether a detection may be paired with a mark under the window. */
 function withinWindow(

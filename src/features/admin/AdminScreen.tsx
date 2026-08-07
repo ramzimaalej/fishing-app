@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +20,7 @@ import {
   View,
 } from 'react-native';
 
+import { PLATFORM_LIMIT_BODY, PLATFORM_LIMIT_TITLE } from '@/features/detection/platformLimits';
 import { useAnyArmed, useArmableRods } from '@/features/rods/useRodRuntime';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -328,6 +330,31 @@ export default function AdminScreen() {
         </Text>
         <Pressable style={styles.primaryBtn} onPress={() => navigation.navigate('Sniffer')}>
           <Text style={styles.primaryBtnText}>Open BLE sniffer</Text>
+        </Pressable>
+      </View>
+
+      {/* Tuning ----------------------------------------------------------- */}
+      <Text style={styles.sectionTitle}>Tuning</Text>
+      <View style={styles.card}>
+        <Text style={styles.hint}>
+          The shipped thresholds are a guess. Label fish and waves during a session, then set
+          the onset rate from the separation between them rather than by feel.
+        </Text>
+        <Pressable style={styles.primaryBtn} onPress={() => navigation.navigate('Calibration')}>
+          <Text style={styles.primaryBtnText}>Calibration</Text>
+        </Pressable>
+        <Pressable style={styles.primaryBtn} onPress={() => navigation.navigate('DetectionSettings')}>
+          <Text style={styles.primaryBtnText}>Detection parameters</Text>
+        </Pressable>
+      </View>
+
+      {/* Platform limits --------------------------------------------------- */}
+      <Text style={styles.sectionTitle}>Platform limits</Text>
+      <View style={styles.card}>
+        <Text style={styles.warn}>{PLATFORM_LIMIT_TITLE}</Text>
+        <Text style={styles.hint}>{PLATFORM_LIMIT_BODY}</Text>
+        <Pressable style={styles.smallBtn} onPress={() => void Linking.openSettings()}>
+          <Text style={styles.smallBtnText}>Open app settings</Text>
         </Pressable>
       </View>
 

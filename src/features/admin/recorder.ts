@@ -66,6 +66,8 @@ export interface CaptureView {
   sampleCount: number;
   detections: number;
   humanMarks: number;
+  /** Waves the angler labelled — the negatives calibration needs. */
+  waveMarks: number;
   /** Set when a write failed; capture keeps running so a disk hiccup is survivable. */
   error: string | null;
 }
@@ -78,6 +80,7 @@ const IDLE: CaptureView = {
   sampleCount: 0,
   detections: 0,
   humanMarks: 0,
+  waveMarks: 0,
   error: null,
 };
 
@@ -96,7 +99,8 @@ function publish(): void {
     startedAt: active.meta.startedAt,
     sampleCount: active.meta.sampleCount,
     detections: events.reduce((n, e) => n + (e.kind === 'detection' ? 1 : 0), 0),
-    humanMarks: events.reduce((n, e) => n + (e.kind === 'human' ? 1 : 0), 0),
+    humanMarks: events.reduce((n, e) => n + (e.kind === 'fish' ? 1 : 0), 0),
+    waveMarks: events.reduce((n, e) => n + (e.kind === 'wave' ? 1 : 0), 0),
   });
 }
 
@@ -105,6 +109,11 @@ function setError(message: string): void {
 }
 
 // ---------------------------------------------------------------------------
+
+/** Rod name as recorded at arming time; falls back to the id. */
+function rodNameOf(rec: ActiveRecording, rodId: string): string {
+  return rec.meta.rods.find((r) => r.id === rodId)?.name ?? rodId;
+}
 
 function newRecordingId(): string {
   seq += 1;
@@ -256,6 +265,19 @@ export function captureSample(rodId: string, frame: FeatureFrame): void {
   rec.meta.sampleCount += 1;
   rec.lastDeviceT.set(rodId, frame.sample.tMonotonicMs);
 
+  // A crossing is logged when its rising edge ENDS, because only then is its
+  // onset rate final. This is the quantity the calibration view plots.
+  if (frame.completedCrossing) {
+    rec.meta.events.push({
+      kind: 'crossing',
+      at: Date.now(),
+      deviceT: frame.completedCrossing.atMs,
+      rodId,
+      rodName: rodNameOf(rec, rodId),
+      onsetRateDegPerS: frame.completedCrossing.onsetRateDegPerS,
+    });
+  }
+
   if (rec.rows.length >= CHUNK_ROWS || Date.now() - rec.lastFlush >= FLUSH_INTERVAL_MS) {
     void flush(rec);
   }
@@ -290,11 +312,15 @@ export function captureDetection(
  * the rod's most recent sample, which is the closest row in the CSV — it cannot
  * be derived from the press itself, since the two clocks are unrelated.
  */
-export function markHumanBite(rodId: string, rodName: string): CaptureEvent | null {
+export function markHumanBite(
+  rodId: string,
+  rodName: string,
+  kind: 'fish' | 'wave' = 'fish',
+): CaptureEvent | null {
   const rec = active;
   if (!rec) return null;
   const event: CaptureEvent = {
-    kind: 'human',
+    kind,
     at: Date.now(),
     deviceT: rec.lastDeviceT.get(rodId) ?? null,
     rodId,
@@ -305,12 +331,13 @@ export function markHumanBite(rodId: string, rodName: string): CaptureEvent | nu
   return event;
 }
 
-/** Drop the most recent human mark — for a mis-tap, which is otherwise poison. */
+/** Drop the most recent operator mark — for a mis-tap, which is otherwise poison. */
 export function undoLastHumanMark(): boolean {
   const rec = active;
   if (!rec) return false;
   for (let i = rec.meta.events.length - 1; i >= 0; i -= 1) {
-    if (rec.meta.events[i]!.kind === 'human') {
+    const kind = rec.meta.events[i]!.kind;
+    if (kind === 'fish' || kind === 'wave') {
       rec.meta.events.splice(i, 1);
       publish();
       return true;

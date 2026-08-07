@@ -6,7 +6,11 @@ import { batteryState, type BatteryState } from '@/features/ble/battery';
 import { getSensorDevice } from '@/features/ble/deviceRegistry';
 import type { BleDeviceInfo, ConnectionStatus, SensorConnection } from '@/features/ble/types';
 import type { DetectionEvent } from '@/features/detection/detectionEngine';
-import { DEFAULT_DETECTION_PARAMS, type DetectionParams } from '@/features/detection/detectionParams';
+import type { DetectionParams } from '@/features/detection/detectionParams';
+import {
+  currentDetectionParams,
+  setDetectionParamsListener,
+} from '@/features/detection/detectionParamsStore';
 import { monotonicNowMs } from '@/features/detection/monotonicClock';
 import { alertToBiteEvent, RodDetector } from '@/features/detection/rodDetector';
 import { biteRepository } from '@/features/bite-history/biteRepository';
@@ -288,7 +292,7 @@ function handleDetectionEvent(rt: Runtime, event: DetectionEvent): void {
 
   if (event.type !== 'ALERT_HOOKED') return;
 
-  const bite = alertToBiteEvent(event, DEFAULT_DETECTION_PARAMS);
+  const bite = alertToBiteEvent(event, currentDetectionParams());
   rt.buffer.pushBite(bite);
   captureDetection(rt.rod.id, rt.rod.name, bite, rt.detector.thresholdDeg);
   rt.biteCount += 1;
@@ -337,7 +341,7 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
   const rt: Runtime = {
     rod,
     connection: null,
-    detector: new RodDetector(DEFAULT_DETECTION_PARAMS),
+    detector: new RodDetector(currentDetectionParams()),
     buffer: new AccelRingBuffer(),
     offSample: null,
     offDisconnect: null,
@@ -451,11 +455,20 @@ export function retuneAll(config: { sensitivity: number; liveBaitMode: boolean }
   scheduleFlush();
 }
 
-/** Push new detection parameters to every live rod (debug settings screen). */
+/**
+ * Push new detection parameters to every live rod.
+ *
+ * Registered with the params store so tuning takes effect on rods that are
+ * ALREADY armed — otherwise a change would only apply to the next session, and
+ * tuning in the field would mean disarming and re-arming (and so re-baselining)
+ * after every adjustment.
+ */
 export function setDetectionParams(params: DetectionParams): void {
   for (const rt of runtimes.values()) rt.detector.setParams(params);
   scheduleFlush();
 }
+
+setDetectionParamsListener(setDetectionParams);
 
 /**
  * Advance every rod's signal-loss timer.

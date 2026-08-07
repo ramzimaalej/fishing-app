@@ -14,7 +14,11 @@
  */
 import { create } from 'zustand';
 
+import type { AccSample } from '@/features/detection/accSample';
+import { runParserSelfTest, type SelfTestResult } from '@/features/detection/accSample';
+import type { BroadcastAdvertisement } from '@/features/ble/BroadcastSensorClient';
 import { base64ToBytes } from '@/features/ble/bytes';
+import { CASTMATE_G_SPEC } from '@/features/ble/CastmateGSensorClient';
 import { subscribeToScan } from '@/features/ble/scanBroker';
 
 import {
@@ -35,6 +39,8 @@ const PUBLISH_MS = 500;
 const MAX_DEVICES = 80;
 /** Hard cap on a raw capture, so a forgotten recording cannot fill the disk. */
 const MAX_CAPTURE_FRAMES = 20_000;
+/** Decoded samples retained per advertiser for the parser self-test. */
+const SELF_TEST_WINDOW = 200;
 
 interface Source {
   key: string;
@@ -48,6 +54,12 @@ interface Sniffed {
   frames: number;
   lastSeen: number;
   sources: Map<string, Source>;
+  /**
+   * Samples the SHIPPING parser managed to decode from this advertiser, for the
+   * self-test. Bounded — only the recent window matters, and the operator is
+   * rotating the tag while it fills.
+   */
+  decoded: AccSample[];
 }
 
 const devices = new Map<string, Sniffed>();
@@ -56,6 +68,18 @@ let publishTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Raw frames held for the current capture, or null when not capturing. */
 let captureLines: string[] | null = null;
+/** Auto-stop timer for a fixed-length capture. */
+let captureTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Only advertisers whose id contains this are tracked (case-insensitive).
+ *
+ * A filter rather than a hard MAC equality: on iOS `device.id` is an opaque
+ * per-install UUID rather than a MAC, so an exact-MAC filter would match nothing
+ * there. A substring also lets the operator narrow by the last few hex digits,
+ * which is what is printed on the tag.
+ */
+let idFilter: string | null = null;
 
 // ---------------------------------------------------------------------------
 
@@ -76,6 +100,12 @@ export interface SniffedDeviceView {
   sources: SniffedSourceView[];
   /** True when any payload on this device carries moving bytes. */
   isSensor: boolean;
+  /**
+   * Verdict from running the shipping parser over this advertiser, or null when
+   * it decoded nothing. A tag at rest must read one gravity in ANY orientation —
+   * the only ground truth available for an unknown format.
+   */
+  selfTest: SelfTestResult | null;
 }
 
 interface SnifferState {
@@ -83,6 +113,9 @@ interface SnifferState {
   devices: SniffedDeviceView[];
   capturing: boolean;
   capturedFrames: number;
+  /** Seconds left on a fixed-length capture; null for an open-ended one. */
+  captureSecondsLeft: number | null;
+  idFilter: string | null;
   error: string | null;
 }
 
@@ -91,6 +124,8 @@ export const useSnifferStore = create<SnifferState>(() => ({
   devices: [],
   capturing: false,
   capturedFrames: 0,
+  captureSecondsLeft: null,
+  idFilter: null,
   error: null,
 }));
 
@@ -110,6 +145,7 @@ function toView(d: Sniffed): SniffedDeviceView {
     frames: d.frames,
     sources,
     isSensor: sources.some((s) => s.isSensor),
+    selfTest: d.decoded.length > 0 ? runParserSelfTest(d.decoded) : null,
   };
 }
 
@@ -157,6 +193,22 @@ function payloadsOf(device: {
   return out;
 }
 
+function matchesFilter(id: string, name: string): boolean {
+  if (!idFilter) return true;
+  const needle = idFilter.toLowerCase().replace(/[^0-9a-z]/g, '');
+  if (needle.length === 0) return true;
+  return (
+    id.toLowerCase().replace(/[^0-9a-z]/g, '').includes(needle) ||
+    name.toLowerCase().includes(idFilter.toLowerCase())
+  );
+}
+
+export function setIdFilter(value: string | null): void {
+  idFilter = value && value.trim().length > 0 ? value.trim() : null;
+  devices.clear();
+  useSnifferStore.setState({ idFilter, devices: [] });
+}
+
 function onAdvertisement(device: {
   id: string;
   name?: string | null;
@@ -169,6 +221,7 @@ function onAdvertisement(device: {
   // Advertisers with no payload at all tell us nothing and would crowd out the
   // ones that do.
   if (payloads.length === 0) return;
+  if (!matchesFilter(device.id, device.name ?? device.localName ?? '')) return;
 
   let entry = devices.get(device.id);
   if (!entry) {
@@ -180,6 +233,7 @@ function onAdvertisement(device: {
       frames: 0,
       lastSeen: 0,
       sources: new Map(),
+      decoded: [],
     };
     devices.set(device.id, entry);
   }
@@ -188,6 +242,25 @@ function onAdvertisement(device: {
   entry.rssi = device.rssi ?? entry.rssi;
   entry.frames += 1;
   entry.lastSeen = Date.now();
+
+  // Run the shipping parser over every advertisement. This is what makes the
+  // self-test meaningful: it exercises the decoder the app will actually use,
+  // not a reimplementation of it.
+  try {
+    const reading = CASTMATE_G_SPEC.extract(device as BroadcastAdvertisement);
+    if (reading) {
+      entry.decoded.push({
+        tMonotonicMs: entry.lastSeen,
+        xMg: reading.xMg,
+        yMg: reading.yMg,
+        zMg: reading.zMg,
+        rssi: entry.rssi,
+      });
+      if (entry.decoded.length > SELF_TEST_WINDOW) entry.decoded.shift();
+    }
+  } catch {
+    /* a decoder that throws is a decoder that did not match */
+  }
 
   const captureSources: Record<string, string> = {};
   for (const [key, base64] of payloads) {
@@ -238,8 +311,26 @@ export function stopSniffing(): void {
   useSnifferStore.setState({ scanning: false });
 }
 
-export function startCapture(): void {
+/**
+ * Begin a raw capture.
+ *
+ * @param seconds fixed length, or null for open-ended. A timed capture exists
+ *   because the operator's hands are on the tag, not the phone: rotating it
+ *   through six orientations is a two-handed job, and having to reach back for
+ *   a stop button is how captures end up truncated.
+ */
+export function startCapture(seconds: number | null = null): void {
   captureLines = [];
+  if (captureTimer) clearTimeout(captureTimer);
+  captureTimer = null;
+
+  if (seconds !== null) {
+    captureTimer = setTimeout(() => {
+      captureTimer = null;
+      void stopCapture('timed');
+    }, seconds * 1000);
+  }
+  useSnifferStore.setState({ captureSecondsLeft: seconds });
   publish();
 }
 
@@ -251,8 +342,13 @@ export function startCapture(): void {
  * or losing one.
  */
 export async function stopCapture(label: string): Promise<string | null> {
+  if (captureTimer) {
+    clearTimeout(captureTimer);
+    captureTimer = null;
+  }
   const lines = captureLines;
   captureLines = null;
+  useSnifferStore.setState({ captureSecondsLeft: null });
   publish();
   if (!lines || lines.length === 0) return null;
 
@@ -265,6 +361,9 @@ export async function stopCapture(label: string): Promise<string | null> {
     // sitting in the same root cannot be mistaken for a detector recording.
     await fs().makeDirectoryAsync(captureRoot(), { intermediates: true });
     await fs().writeAsStringAsync(path, lines.join('\n') + '\n');
+    // CSV alongside, because a spreadsheet is where byte layouts actually get
+    // worked out: one row per payload, columns per byte offset.
+    await fs().writeAsStringAsync(path.replace(/\.ndjson$/, '.csv'), sniffCsv(lines));
     return path;
   } catch (e) {
     useSnifferStore.setState({
@@ -272,6 +371,39 @@ export async function stopCapture(label: string): Promise<string | null> {
     });
     return null;
   }
+}
+
+/**
+ * NDJSON capture → CSV with one column per byte offset.
+ *
+ * Fixed-width columns rather than a hex blob: the whole task is spotting WHICH
+ * offsets move when the tag is rotated, and that is a column-wise comparison.
+ */
+export function sniffCsv(lines: readonly string[]): string {
+  const rows: string[][] = [];
+  let widest = 0;
+
+  for (const line of lines) {
+    let parsed: { at: number; id: string; rssi: number; sources: Record<string, string> };
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    for (const [source, hex] of Object.entries(parsed.sources ?? {})) {
+      const bytes = hex.match(/../g) ?? [];
+      widest = Math.max(widest, bytes.length);
+      rows.push([String(parsed.at), parsed.id, String(parsed.rssi), source, ...bytes]);
+    }
+  }
+
+  const header = ['at', 'id', 'rssi', 'source', ...Array.from({ length: widest }, (_, i) => `b${i}`)];
+  const body = rows.map((r) => {
+    const padded = [...r];
+    while (padded.length < header.length) padded.push('');
+    return padded.join(',');
+  });
+  return [header.join(','), ...body].join('\n') + '\n';
 }
 
 export function isCapturing(): boolean {
