@@ -20,7 +20,13 @@ import {
   View,
 } from 'react-native';
 
-import { PLATFORM_LIMIT_BODY, PLATFORM_LIMIT_TITLE } from '@/features/detection/platformLimits';
+import {
+  BACKGROUND_WATCH_SUPPORTED,
+  isBatteryExempt,
+  openBatteryOptimisationSettings,
+  PLATFORM_LIMIT_BODY,
+  PLATFORM_LIMIT_TITLE,
+} from '@/features/detection/platformLimits';
 import { useAnyArmed, useArmableRods } from '@/features/rods/useRodRuntime';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -353,8 +359,24 @@ export default function AdminScreen() {
       <View style={styles.card}>
         <Text style={styles.warn}>{PLATFORM_LIMIT_TITLE}</Text>
         <Text style={styles.hint}>{PLATFORM_LIMIT_BODY}</Text>
-        <Pressable style={styles.smallBtn} onPress={() => void Linking.openSettings()}>
-          <Text style={styles.smallBtnText}>Open app settings</Text>
+        {BACKGROUND_WATCH_SUPPORTED && (
+          <Text style={isBatteryExempt() ? styles.hint : styles.warn}>
+            {isBatteryExempt()
+              ? '✓ Exempt from battery optimisation.'
+              : '⚠ Not exempt from battery optimisation — long sessions may be killed.'}
+          </Text>
+        )}
+        <Pressable
+          style={styles.smallBtn}
+          onPress={() =>
+            void (BACKGROUND_WATCH_SUPPORTED
+              ? openBatteryOptimisationSettings()
+              : Linking.openSettings())
+          }
+        >
+          <Text style={styles.smallBtnText}>
+            {BACKGROUND_WATCH_SUPPORTED ? 'Battery optimisation settings' : 'Open app settings'}
+          </Text>
         </Pressable>
       </View>
 

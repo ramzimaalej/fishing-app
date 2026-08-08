@@ -342,6 +342,9 @@ const en = {
     lostTitle: '⚠️ Sensor signal lost',
     lostBody: '{{rod}} has gone silent — it is NOT being watched. Check the tag is in range and has battery.',
     lostBanner: 'Signal lost — this rod is not being watched',
+    watchingTitle: 'Castmate is watching your rods',
+    watchingBody: 'Keep this running so bites are detected.',
+    backgroundUnsafe: 'Background watching is not active — keep Castmate open',
   },
 
   chart: {
