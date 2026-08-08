@@ -21,6 +21,11 @@
  */
 import type { Device } from 'react-native-ble-plx';
 
+import {
+  BATTERY_LEVEL_CHAR_UUID,
+  BATTERY_SERVICE_UUID,
+  decodeBatteryLevel,
+} from '@/features/ble/battery';
 import { getBleManager, ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
 import { asciiToBase64 } from '@/features/ble/bytes';
 import { bleLog } from '@/features/ble/debug';
@@ -101,28 +106,96 @@ async function withConnection<T>(
   }
 }
 
+/**
+ * Read the standard GATT Battery Service, if the tag implements it.
+ *
+ * WHY OVER A CONNECTION. The CP27 advertises no battery — three frame types were
+ * captured off real tags (the accel frame, a short 0x61/0x62 identity frame, and
+ * a 0x56 device-info frame) and none carries an identifiable level. The 0x56
+ * frame has bytes that COULD be a percentage or a temperature, and guessing
+ * would put an authoritative-looking number in front of someone deciding whether
+ * a tag will last the session. 0x180F is the only trustworthy source.
+ *
+ * @returns null when the tag does not implement the service, which is a
+ *   legitimate outcome and must be reported as "not supported" rather than 0%.
+ */
+async function readBatteryOnDevice(device: Device): Promise<number | null> {
+  try {
+    const characteristic = await device.readCharacteristicForService(
+      BATTERY_SERVICE_UUID,
+      BATTERY_LEVEL_CHAR_UUID,
+    );
+    return decodeBatteryLevel(characteristic.value);
+  } catch {
+    // Missing service or characteristic. Not an error worth surfacing on its
+    // own — plenty of beacons simply do not implement 0x180F.
+    return null;
+  }
+}
+
+export interface BatteryResult {
+  ok: boolean;
+  /** 0..100, or null when the tag does not report it. */
+  percent: number | null;
+  detail: string;
+}
+
+/** Connect, unlock and read the battery level. */
+export async function readBattery(
+  deviceId: string,
+  options: CommandOptions = {},
+): Promise<BatteryResult> {
+  const password = options.password ?? CP27_DEFAULT_PASSWORD;
+  try {
+    const percent = await withConnection(deviceId, password, readBatteryOnDevice);
+    return {
+      ok: true,
+      percent,
+      detail:
+        percent === null
+          ? 'Connected, but this tag does not report a battery level (no 0x180F service).'
+          : `Battery ${percent}%.`,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      percent: null,
+      detail: e instanceof Error ? e.message : 'Could not reach the tag.',
+    };
+  }
+}
+
 /** Connect and unlock, to prove a tag is reachable and the password is right. */
 export async function verifyDevice(
   deviceId: string,
   options: CommandOptions = {},
-): Promise<CommandResult> {
+): Promise<CommandResult & { battery: number | null }> {
   const password = options.password ?? CP27_DEFAULT_PASSWORD;
   try {
-    const services = await withConnection(deviceId, password, async (device) => {
+    // Battery is read on the SAME connection. Opening a second one purely to
+    // read it would spend the tag's cell to measure the tag's cell.
+    const { services, battery } = await withConnection(deviceId, password, async (device) => {
       const svcs = await device.services();
-      return svcs.map((s) => s.uuid.toLowerCase());
+      return {
+        services: svcs.map((s) => s.uuid.toLowerCase()),
+        battery: await readBatteryOnDevice(device),
+      };
     });
 
     const hasVendorService = services.some((u) => u.includes('ffe0'));
+    const batteryNote =
+      battery === null ? ' Battery not reported.' : ` Battery ${battery}%.`;
     return {
       ok: hasVendorService,
+      battery,
       detail: hasVendorService
-        ? 'Connected and unlocked. Vendor service 0xFFE0 present.'
+        ? `Connected and unlocked. Vendor service 0xFFE0 present.${batteryNote}`
         : `Connected, but no 0xFFE0 service. Found: ${services.join(', ') || 'none'}.`,
     };
   } catch (e) {
     return {
       ok: false,
+      battery: null,
       detail: e instanceof Error ? e.message : 'Could not connect to the tag.',
     };
   }

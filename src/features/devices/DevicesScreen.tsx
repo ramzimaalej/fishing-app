@@ -17,12 +17,13 @@ import {
   View,
 } from 'react-native';
 
+import { isBatteryReadingStale } from '@/features/ble/battery';
 import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
 import { useRodStore } from '@/features/rods/rodStore';
 import { colors, radius, spacing, typography } from '@/theme';
 
-import { powerOff, verifyDevice } from './cp27Commands';
+import { powerOff, readBattery, verifyDevice } from './cp27Commands';
 import { currentOpcodes } from './cp27Opcodes';
 import {
   canBindDevice,
@@ -65,6 +66,7 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
   const rename = useDeviceStore((s) => s.rename);
   const unpair = useDeviceStore((s) => s.unpair);
   const markPoweredOff = useDeviceStore((s) => s.markPoweredOff);
+  const setBattery = useDeviceStore((s) => s.setBattery);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -78,8 +80,22 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
     const result = await verifyDevice(device.id, {
       password: currentOpcodes().password ?? undefined,
     });
+    // Recorded whenever the connection succeeded, including the null that means
+    // "answered, but does not report one" — that is a settled fact, not a
+    // failure, and remembering it stops the UI offering a pointless refresh.
+    if (result.ok) setBattery(device.id, result.battery);
     setBusy(null);
     Alert.alert(result.ok ? 'Tag reachable' : 'Could not reach the tag', result.detail);
+  };
+
+  const onReadBattery = async () => {
+    setBusy('Reading battery…');
+    const result = await readBattery(device.id, {
+      password: currentOpcodes().password ?? undefined,
+    });
+    if (result.ok) setBattery(device.id, result.percent);
+    setBusy(null);
+    if (!result.ok) Alert.alert('Could not read the battery', result.detail);
   };
 
   const onPowerOff = () => {
@@ -173,7 +189,16 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
           </Text>
         </View>
         {device.battery != null && (
-          <Text style={[styles.battery, { color: batteryColor(device.battery) }]}>
+          <Text
+            style={[
+              styles.battery,
+              {
+                color: isBatteryReadingStale(device.batteryReadAt, now)
+                  ? colors.textMuted
+                  : batteryColor(device.battery),
+              },
+            ]}
+          >
             {batteryGlyph(device.battery)} {device.battery}%
           </Text>
         )}
@@ -184,6 +209,28 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
         {status !== 'live' && ` · last heard ${relativeTime(device.lastSeenAt, now)}`}
         {device.rssi !== null && status === 'live' && ` · ${device.rssi} dBm`}
       </Text>
+
+      {/* Battery -------------------------------------------------------- */}
+      <View style={styles.batteryRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.fieldLabel}>Battery</Text>
+          <Text style={styles.hint}>
+            {device.batteryUnsupported
+              ? 'Not reported by this tag.'
+              : device.battery == null
+                ? 'Not read yet — it comes from a connection, not the broadcast.'
+                : `${device.battery}% · read ${relativeTime(device.batteryReadAt, now)}` +
+                  (isBatteryReadingStale(device.batteryReadAt, now) ? ' · may be out of date' : '')}
+          </Text>
+        </View>
+        {!device.batteryUnsupported && (
+          <Pressable style={styles.smallBtn} onPress={() => void onReadBattery()} disabled={!!busy}>
+            <Text style={styles.smallBtnText}>
+              {device.battery == null ? 'Read' : 'Refresh'}
+            </Text>
+          </Pressable>
+        )}
+      </View>
 
       {/* Association ---------------------------------------------------- */}
       <Text style={styles.fieldLabel}>Rod</Text>
@@ -389,6 +436,7 @@ const styles = StyleSheet.create({
   cardTitle: { ...typography.h3, color: colors.text },
   cardMeta: { ...typography.caption, color: colors.textMuted },
   battery: { ...typography.caption, fontWeight: '700' },
+  batteryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   status: { ...typography.caption, fontWeight: '600' },
   nameInput: {
     ...typography.h3,

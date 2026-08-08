@@ -34,8 +34,19 @@ export interface PairedDevice {
   lastSeenAt: number | null;
   /** Last RSSI, for a signal indicator. */
   rssi: number | null;
-  /** 0..100 when the frame carries it; the 0xFEAB accel frame does not. */
+  /**
+   * 0..100, or null when unknown.
+   *
+   * NOT from the advertisement — the CP27 broadcasts no battery level in any of
+   * its frames. This comes from a GATT read of 0x180F, so it is a SNAPSHOT taken
+   * at `batteryReadAt`, not a live value. Presenting it without that timestamp
+   * would imply a freshness it does not have.
+   */
   battery: number | null;
+  /** When the battery was last read over a connection. */
+  batteryReadAt: number | null;
+  /** True when the tag answered but does not implement 0x180F. */
+  batteryUnsupported: boolean;
   /**
    * When we last sent a power-down command. Cleared the moment the tag is heard
    * again — a tag that is advertising is manifestly not off, whatever we asked.

@@ -41,6 +41,12 @@ interface DeviceState {
   unpair: (id: string) => void;
   rename: (id: string, label: string | null) => void;
   markPoweredOff: (id: string) => void;
+  /**
+   * Record a battery reading. `percent` null with ok=true means the tag answered
+   * but does not implement 0x180F — a settled fact worth remembering, so the UI
+   * can stop offering a refresh that will never return a number.
+   */
+  setBattery: (id: string, percent: number | null) => void;
   clearDiscovered: () => void;
 }
 
@@ -63,6 +69,8 @@ export const useDeviceStore = create<DeviceState>()(
               lastSeenAt: device.lastSeenAt,
               rssi: device.rssi,
               battery: device.battery,
+              batteryReadAt: null,
+              batteryUnsupported: false,
               poweredOffAt: null,
             },
           },
@@ -84,6 +92,8 @@ export const useDeviceStore = create<DeviceState>()(
           lastSeenAt: null,
           rssi: null,
           battery: null,
+          batteryReadAt: null,
+          batteryUnsupported: false,
           poweredOffAt: null,
         };
         set((s) => ({ paired: { ...s.paired, [id]: device } }));
@@ -110,6 +120,23 @@ export const useDeviceStore = create<DeviceState>()(
           if (!device) return s;
           return {
             paired: { ...s.paired, [id]: { ...device, poweredOffAt: Date.now() } },
+          };
+        }),
+
+      setBattery: (id, percent) =>
+        set((s) => {
+          const device = s.paired[id];
+          if (!device) return s;
+          return {
+            paired: {
+              ...s.paired,
+              [id]: {
+                ...device,
+                battery: percent,
+                batteryReadAt: Date.now(),
+                batteryUnsupported: percent === null,
+              },
+            },
           };
         }),
 
@@ -197,6 +224,10 @@ function publish(): void {
         ...device,
         lastSeenAt: seen.lastSeenAt,
         rssi: seen.rssi,
+        // Advertisements never carry a battery level on this hardware, so a
+        // GATT reading must survive them. `?? device.battery` alone would be
+        // enough today; being explicit stops a future frame with a battery field
+        // silently overwriting a fresher connected reading.
         battery: seen.battery ?? device.battery,
         // Hearing from a tag settles the question: it is not off. Clearing this
         // is what stops "powered off" persisting after the user switches it back

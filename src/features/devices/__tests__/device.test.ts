@@ -20,6 +20,8 @@ const device = (over: Partial<PairedDevice> = {}): PairedDevice => ({
   lastSeenAt: NOW - 1_000,
   rssi: -45,
   battery: null,
+  batteryReadAt: null,
+  batteryUnsupported: false,
   poweredOffAt: null,
   ...over,
 });
