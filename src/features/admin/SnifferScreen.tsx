@@ -231,7 +231,7 @@ export default function SnifferScreen() {
         </Text>
 
         <View style={styles.switchRow}>
-          <Text style={styles.rowLabel}>Moving payloads only</Text>
+          <Text style={styles.rowLabel}>Sensors only</Text>
           <Switch
             value={sensorsOnly}
             onValueChange={setSensorsOnly}
@@ -240,7 +240,9 @@ export default function SnifferScreen() {
           />
         </View>
         <Text style={styles.hint}>
-          Hides identity beacons whose bytes never change. An accelerometer cannot sit still.
+          Hides beacons that neither move nor decode as a known sensor. A resting tag is
+          quantised to 16 mg and can repeat identical bytes, so decodable tags are kept
+          however still they are.
         </Text>
       </View>
 
@@ -302,7 +304,7 @@ export default function SnifferScreen() {
           <Text style={styles.hint}>
             {scanning
               ? sensorsOnly
-                ? 'Nothing with moving bytes yet. Shake the tag, or switch the filter off to see everything.'
+                ? 'No sensors recognised yet. Shake the tag, or switch the filter off to see everything.'
                 : 'No advertisements yet.'
               : 'Not scanning.'}
           </Text>

@@ -172,3 +172,23 @@ export function decodeCandidate(
     { label: '÷1024', value: raw / 1024 },
   ];
 }
+
+/**
+ * Whether an advertiser should be treated as a sensor candidate.
+ *
+ * Moving bytes are strong evidence, but NOT necessary. A resting Castmate G
+ * quantises to 16 mg and therefore repeats byte-identical frames — so variance
+ * alone hides exactly the tag you are trying to inspect, at exactly the moment
+ * you want it still (the parser self-test needs it at rest to check gravity).
+ *
+ * A payload the shipping parser decodes is a sensor by definition, however
+ * still it is. That second condition is what makes the filter usable rather
+ * than merely defensible.
+ */
+export function isSensorCandidate(
+  profiles: readonly PayloadProfile[],
+  decodedSampleCount: number,
+): boolean {
+  if (decodedSampleCount > 0) return true;
+  return profiles.some(looksLikeSensor);
+}

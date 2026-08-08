@@ -342,7 +342,7 @@ export default function FishingScreen() {
               <Stat label={t('fishing.bites')} value={String(selectedView.biteCount)} />
               <Stat
                 label={t('fishing.threshold')}
-                value={`${selectedView.threshold.toFixed(2)} g`}
+                value={`${selectedView.threshold.toFixed(1)}°`}
               />
               <Stat
                 label={t('fishing.sensor')}

@@ -46,7 +46,7 @@ const fr: Translation = {
     sensor: 'Capteur',
     bigFish: 'Gros poisson !',
     nibble: 'Petite touche',
-    bitePeak: 'Pic {{peak}} g · {{confidence}} % de confiance',
+    bitePeak: 'Pic {{peak}}° · {{confidence}} % de confiance',
     liveBait: 'Mode vif',
     liveBaitHelp: "Filtre l'agitation constante du vif — s'applique à toutes les cannes",
     status: {
@@ -188,7 +188,7 @@ const fr: Translation = {
     emptyTitle: 'Aucune touche enregistrée',
     emptySub:
       'Connectez votre capteur et commencez à pêcher — les touches détectées apparaîtront ici.',
-    metrics: 'pic {{peak}} g · {{confidence}} % de confiance',
+    metrics: 'pic {{peak}}° · {{confidence}} % de confiance',
     addNote: 'Ajouter une note…',
     noteTitle: 'Note',
     notePlaceholder: 'ex. truite arc-en-ciel, cuillère tournante',
@@ -218,8 +218,8 @@ const fr: Translation = {
       'Les sorties bredouilles arrivent. Consultez l’onglet Conditions pour trouver le prochain bon créneau.',
     timeline: 'Chronologie des touches',
     byRod: 'Par canne',
-    rodTally_one: '{{count}} touche · pic {{peak}} g',
-    rodTally_other: '{{count}} touches · pic {{peak}} g',
+    rodTally_one: '{{count}} touche · pic {{peak}}°',
+    rodTally_other: '{{count}} touches · pic {{peak}}°',
     breakdown: 'Détail des touches',
     bigFish: 'Gros poissons',
     nibbles: 'Petites touches',
@@ -355,7 +355,7 @@ const fr: Translation = {
 
   chart: {
     waiting: 'En attente des données du capteur…',
-    acceleration: 'Accélération (g)',
+    acceleration: 'Déviation (°)',
     threshold: 'Seuil',
     smallBite: 'Petite touche',
     bigBite: 'Grosse touche',

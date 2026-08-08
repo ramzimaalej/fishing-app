@@ -26,6 +26,7 @@ import {
   hexBytes,
   int16Candidates,
   type Int16Candidate,
+  isSensorCandidate,
   looksLikeSensor,
   observe,
   type PayloadProfile,
@@ -144,7 +145,9 @@ function toView(d: Sniffed): SniffedDeviceView {
     rssi: d.rssi,
     frames: d.frames,
     sources,
-    isSensor: sources.some((s) => s.isSensor),
+    // A tag the parser can decode counts even when perfectly still — see
+    // isSensorCandidate.
+    isSensor: isSensorCandidate([...d.sources.values()].map((s) => s.profile), d.decoded.length),
     selfTest: d.decoded.length > 0 ? runParserSelfTest(d.decoded) : null,
   };
 }

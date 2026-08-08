@@ -1,6 +1,7 @@
 import {
   decodeCandidate,
   emptyProfile,
+  isSensorCandidate,
   hexBytes,
   int16Candidates,
   looksLikeSensor,
@@ -166,5 +167,41 @@ describe('decodeCandidate', () => {
 describe('hexBytes', () => {
   it('zero-pads each byte', () => {
     expect(hexBytes(frame(0x00, 0x0a, 0xff))).toEqual(['00', '0a', 'ff']);
+  });
+});
+
+describe('isSensorCandidate', () => {
+  const still = () => {
+    const p = emptyProfile();
+    for (let i = 0; i < 10; i += 1) observe(p, frame(0x3d, 0x03, 0x12, 0x6f));
+    return p;
+  };
+  const moving = () => {
+    const p = emptyProfile();
+    observe(p, frame(0xa1, 0x00, 0x10, 0x20));
+    observe(p, frame(0xa1, 0x00, 0x40, 0x50));
+    observe(p, frame(0xa1, 0x00, 0x70, 0x80));
+    return p;
+  };
+
+  it('keeps a tag the parser decoded even when perfectly still', () => {
+    // The case that mattered on hardware: a resting Castmate G quantises to
+    // 16 mg and repeats byte-identical frames, so variance alone hid the very
+    // tag being inspected — at exactly the moment it must be still, since the
+    // self-test checks a resting tag against gravity.
+    expect(isSensorCandidate([still()], 25)).toBe(true);
+  });
+
+  it('keeps an undecodable payload whose bytes move', () => {
+    // How an unknown sensor is found in the first place.
+    expect(isSensorCandidate([moving()], 0)).toBe(true);
+  });
+
+  it('hides a static beacon that decodes as nothing', () => {
+    expect(isSensorCandidate([still()], 0)).toBe(false);
+  });
+
+  it('hides an advertiser with no payloads at all', () => {
+    expect(isSensorCandidate([], 0)).toBe(false);
   });
 });
