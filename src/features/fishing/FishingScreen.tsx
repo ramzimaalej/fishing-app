@@ -34,12 +34,18 @@ import {
   type RodRuntimeView,
 } from '@/features/rods/rodRuntime';
 import { useRodStore } from '@/features/rods/rodStore';
-import { useAnyArmed, useArmableRods, useRodView } from '@/features/rods/useRodRuntime';
+import {
+  useAnyArmed,
+  useArmableRods,
+  useRodActivities,
+  useRodView,
+} from '@/features/rods/useRodRuntime';
 import { useSessionStore } from '@/features/session-report/sessionStore';
 import { buildSessionSummary } from '@/features/session-report/sessionSummary';
 import SensitivitySlider from '@/features/settings/components/SensitivitySlider';
 import { useSettings, useSettingsStore } from '@/features/settings/settingsStore';
 import { colors, radius, spacing, typography } from '@/theme';
+import type { RodActivity } from '@/features/devices/device';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
 /**
@@ -93,14 +99,25 @@ function BiteBanner({ bite, rodName }: { bite: BiteEvent; rodName: string }) {
 }
 
 /** Compact per-rod status card. Tapping it selects that rod's chart. */
+/** Why a rod cannot fish, in words. Null when it can. */
+const ACTIVITY_TEXT: Record<RodActivity, string | null> = {
+  active: null,
+  disabled: 'Switched off',
+  unpaired: 'No tag paired',
+  'device-silent': 'Tag not responding',
+  'device-off': 'Tag powered off',
+};
+
 function RodCard({
   name,
   view,
+  activity,
   selected,
   onPress,
 }: {
   name: string;
   view: RodRuntimeView;
+  activity: RodActivity;
   selected: boolean;
   onPress: () => void;
 }) {
@@ -127,12 +144,16 @@ function RodCard({
         style={[
           styles.rodCardLabel,
           (view.signalLost || view.armFailReason) && styles.rodCardLabelAlarm,
+          activity !== 'active' && view.status === 'idle' && styles.rodCardLabelMuted,
         ]}
       >
         {/* Signal loss outranks every other label: a rod that is not being
-            watched must not read as "connected". */}
+            watched must not read as "connected". An inactive tag outranks the
+            idle status for the same reason — "idle" reads as ready. */}
         {view.signalLost
           ? t('signal.lostBanner')
+          : ACTIVITY_TEXT[activity] && view.status === 'idle'
+          ? ACTIVITY_TEXT[activity]
           : view.armFailReason
             ? t('fishing.status.armFailed')
             : view.arming
@@ -161,6 +182,7 @@ export default function FishingScreen() {
   const selectedRodId = useRodStore((s) => s.selectedRodId);
   const selectRod = useRodStore((s) => s.selectRod);
   const armable = useArmableRods();
+  const activities = useRodActivities();
   const anyArmed = useAnyArmed();
 
   const settings = useSettings();
@@ -324,11 +346,12 @@ export default function FishingScreen() {
               key={rod.id}
               rodId={rod.id}
               name={rod.name}
+              activity={activities[rod.id] ?? 'unpaired'}
               selected={rod.id === selected}
               onPress={() => selectRod(rod.id)}
             />
           ))}
-          <Pressable style={styles.addRodCard} onPress={() => navigation.navigate('Rods')}>
+          <Pressable style={styles.addRodCard} onPress={() => navigation.navigate('Devices')}>
             <Text style={styles.addRodPlus}>＋</Text>
             <Text style={styles.rodCardLabel}>{t('fishing.manage')}</Text>
           </Pressable>
@@ -483,16 +506,26 @@ function SessionBanner({
 function RodCardBinding({
   rodId,
   name,
+  activity,
   selected,
   onPress,
 }: {
   rodId: string;
   name: string;
+  activity: RodActivity;
   selected: boolean;
   onPress: () => void;
 }) {
   const view = useRodView(rodId);
-  return <RodCard name={name} view={view} selected={selected} onPress={onPress} />;
+  return (
+    <RodCard
+      name={name}
+      view={view}
+      activity={activity}
+      selected={selected}
+      onPress={onPress}
+    />
+  );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -558,6 +591,7 @@ const styles = StyleSheet.create({
   rodCardCount: { ...typography.h2, color: colors.primary },
   rodCardLabel: { ...typography.caption, color: colors.textMuted },
   rodCardLabelAlarm: { color: colors.danger, fontWeight: '700' },
+  rodCardLabelMuted: { color: colors.accent },
   rodCardBattery: { ...typography.caption, color: colors.textMuted },
   addRodCard: {
     width: 104,

@@ -9,6 +9,9 @@
     "paths": {
       "@/*": [
         "src/*"
+      ],
+      "@scan-foreground-service": [
+        "modules/scan-foreground-service"
       ]
     }
   },

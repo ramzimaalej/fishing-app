@@ -13,6 +13,7 @@ import {
 } from '@/features/detection/detectionParamsStore';
 import { monotonicNowMs } from '@/features/detection/monotonicClock';
 import { alertToBiteEvent, RodDetector } from '@/features/detection/rodDetector';
+import * as scanService from '@scan-foreground-service';
 import { biteRepository } from '@/features/bite-history/biteRepository';
 import { getCurrentConditions } from '@/features/environment/useEnvironment';
 import { AccelRingBuffer } from '@/features/graph/AccelRingBuffer';
@@ -20,9 +21,13 @@ import type { AccelPoint } from '@/features/graph/types';
 import { notifyBite, notifySensorBattery, notifySignalLost } from '@/features/notifications/feedback';
 import type { SessionBite } from '@/features/session-report/sessionSummary';
 import { useSettingsStore } from '@/features/settings/settingsStore';
+import i18n from '@/i18n';
 import { trackBite } from '@/services/firebase/analytics';
 import type { AccSample } from '@/features/detection/accSample';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
+
+import { rodActivity } from '@/features/devices/device';
+import { deviceFor } from '@/features/devices/deviceStore';
 
 import { isRodArmable, type Rod } from './rod';
 
@@ -98,6 +103,9 @@ let conditionsTimer: ReturnType<typeof setInterval> | null = null;
 /** Signal-loss polling. See ensureSignalWatch. */
 const SIGNAL_CHECK_MS = 2500;
 let signalTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Whether the foreground service is confirmed running. See ensureForegroundService. */
+let foregroundServiceRunning = false;
 
 /**
  * Session bite log across ALL rods, stamped with wall-clock time at the moment
@@ -214,6 +222,37 @@ function stopConditionsPolling(): void {
   if (!conditionsTimer) return;
   clearInterval(conditionsTimer);
   conditionsTimer = null;
+}
+
+/**
+ * Keep the process alive while rods are armed.
+ *
+ * Android throttles and then kills background execution, which would stop
+ * advertisements arriving. Because the stream carries no sequence numbers, a
+ * stopped scan is indistinguishable from a motionless rod — the user would
+ * believe a rod was being watched when it was not.
+ *
+ * Failure is RECORDED, not thrown. Android refuses to start a foreground service
+ * from the background on API 31+, and a monitoring aid that crashed the session
+ * it exists to protect would be worse than one that did not start. The UI reads
+ * `foregroundServiceRunning` to say whether background operation is safe.
+ */
+async function ensureForegroundService(): Promise<void> {
+  if (foregroundServiceRunning || !scanService.isAvailable()) return;
+  foregroundServiceRunning = await scanService.start(
+    i18n.t('signal.watchingTitle'),
+    i18n.t('signal.watchingBody'),
+  );
+}
+
+/** True when the service is confirmed running — not merely requested. */
+export function isBackgroundWatchActive(): boolean {
+  return foregroundServiceRunning;
+}
+
+/** True when this build can keep watching in the background at all. */
+export function isBackgroundWatchSupported(): boolean {
+  return scanService.isAvailable();
 }
 
 /**
@@ -337,6 +376,26 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     return { ok: false, error: `${rod.name}: pair a sensor first.` };
   }
 
+  // Refuse a rod whose tag is not currently advertising. Arming it would show
+  // the rod as watched while nothing was listening — and because the stream has
+  // no sequence numbers, that is indistinguishable from a rod that simply has
+  // not moved. SIGNAL_LOST would eventually fire, but only after the fish.
+  if (dev.requiresDeviceBinding) {
+    const activity = rodActivity(
+      { enabled: rod.enabled, device: deviceFor(rod.deviceId) },
+      Date.now(),
+    );
+    if (activity === 'device-off') {
+      return { ok: false, error: `${rod.name}: its tag is powered off.` };
+    }
+    if (activity === 'device-silent' || activity === 'unpaired') {
+      return {
+        ok: false,
+        error: `${rod.name}: its tag is not responding. Check it is switched on and in range.`,
+      };
+    }
+  }
+
   const settings = useSettingsStore.getState().settings;
   const rt: Runtime = {
     rod,
@@ -407,6 +466,7 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     conn.start?.();
     ensureConditionsPolling();
     ensureSignalWatch();
+    void ensureForegroundService();
     scheduleFlush();
     return { ok: true };
   } catch (e) {
@@ -431,6 +491,10 @@ export async function disarmRod(rodId: string): Promise<void> {
   if (runtimes.size === 0) {
     stopConditionsPolling();
     stopSignalWatch();
+    // Released with the last rod: an ongoing notification claiming rods are
+    // watched, when none are, is exactly the lie the service exists to prevent.
+    void scanService.stop();
+    foregroundServiceRunning = false;
   }
   flush();
 }
@@ -525,6 +589,7 @@ export function resetRodRuntime(): void {
   runtimes.clear();
   stopConditionsPolling();
   stopSignalWatch();
+  foregroundServiceRunning = false;
   conditions = null;
   currentUid = null;
   useRodRuntimeStore.setState({ views: {}, anyArmed: false, lastBiteRodId: null });

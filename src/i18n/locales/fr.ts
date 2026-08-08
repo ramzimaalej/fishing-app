@@ -351,6 +351,9 @@ const fr: Translation = {
     lostBody:
       '{{rod}} ne répond plus — cette canne n’est PAS surveillée. Vérifiez que le capteur est à portée et chargé.',
     lostBanner: 'Signal perdu — cette canne n’est pas surveillée',
+    watchingTitle: 'Castmate surveille vos cannes',
+    watchingBody: 'Laissez l’application active pour détecter les touches.',
+    backgroundUnsafe: 'Surveillance en arrière-plan inactive — gardez Castmate ouvert',
   },
 
   chart: {

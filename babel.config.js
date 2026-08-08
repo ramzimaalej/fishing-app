@@ -7,7 +7,11 @@ module.exports = function (api) {
         'module-resolver',
         {
           root: ['./'],
-          alias: { '@': './src' },
+          alias: {
+            '@': './src',
+            // Local Expo module — autolinked natively, aliased for JS.
+            '@scan-foreground-service': './modules/scan-foreground-service',
+          },
           extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
         },
       ],
