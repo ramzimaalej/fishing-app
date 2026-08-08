@@ -27,6 +27,7 @@ import {
   PLATFORM_LIMIT_BODY,
   PLATFORM_LIMIT_TITLE,
 } from '@/features/detection/platformLimits';
+import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
 import { useAnyArmed, useArmableRods } from '@/features/rods/useRodRuntime';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -227,6 +228,11 @@ export default function AdminScreen() {
   const anyArmed = useAnyArmed();
 
   const [label, setLabel] = useState('');
+  const opcodes = useCp27OpcodeStore((s) => s.opcodes);
+  const setPowerOff = useCp27OpcodeStore((s) => s.setPowerOff);
+  const setPassword = useCp27OpcodeStore((s) => s.setPassword);
+  const [powerOffDraft, setPowerOffDraft] = useState(opcodes.powerOff ?? '');
+  const [passwordDraft, setPasswordDraft] = useState(opcodes.password ?? '');
   const [recordings, setRecordings] = useState<RecordingSummary[] | null>(null);
   const [preset, setPreset] = useState('normal');
   const [elapsed, setElapsed] = useState(0);
@@ -337,6 +343,48 @@ export default function AdminScreen() {
         <Pressable style={styles.primaryBtn} onPress={() => navigation.navigate('Sniffer')}>
           <Text style={styles.primaryBtnText}>Open BLE sniffer</Text>
         </Pressable>
+      </View>
+
+      {/* Device commands --------------------------------------------------- */}
+      <Text style={styles.sectionTitle}>Device commands</Text>
+      <View style={styles.card}>
+        <Text style={styles.hint}>
+          Commands are ASCII, prefixed “NO”, written to 0xFFE2 after unlocking 0xFFE3 with the
+          password. That framing is confirmed from HCI captures. No individual opcode is —
+          INCLUDING power-off — so nothing here guesses one: the same channel sets advertising
+          interval, transmit power and the password itself, a bad write looks exactly like a
+          flat battery, and there is no factory reset outside the vendor app.
+        </Text>
+        <Text style={styles.hint}>
+          To capture it: Developer options → enable Bluetooth HCI snoop log, cycle Bluetooth,
+          power the tag off from the VENDOR app, then pull btsnoop_hci.log and filter
+          btatt.opcode == 0x12 for the write to 0xFFE2. Its ASCII value minus “NO” goes below.
+        </Text>
+        <TextInput
+          style={styles.input}
+          value={powerOffDraft}
+          onChangeText={setPowerOffDraft}
+          onBlur={() => setPowerOff(powerOffDraft)}
+          placeholder="Power-off opcode (without NO)"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+        <TextInput
+          style={styles.input}
+          value={passwordDraft}
+          onChangeText={setPasswordDraft}
+          onBlur={() => setPassword(passwordDraft)}
+          placeholder="Password (default dx1234)"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Text style={styles.hint}>
+          {opcodes.powerOff
+            ? `Power-off will send "NO${opcodes.powerOff}".`
+            : 'Power-off is disabled until an opcode is set.'}
+        </Text>
       </View>
 
       {/* Tuning ----------------------------------------------------------- */}

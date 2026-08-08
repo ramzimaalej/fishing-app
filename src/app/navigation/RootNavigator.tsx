@@ -7,6 +7,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
 import AdminScreen from '@/features/admin/AdminScreen';
 import CalibrationScreen from '@/features/admin/CalibrationScreen';
+import DevicesScreen from '@/features/devices/DevicesScreen';
 import DetectionSettingsScreen from '@/features/admin/DetectionSettingsScreen';
 import SnifferScreen from '@/features/admin/SnifferScreen';
 import { useAuth } from '@/features/auth/useAuth';
@@ -41,6 +42,7 @@ export type RootStackParamList = {
   PairSensor: { rodId: string };
   Admin: undefined;
   Sniffer: undefined;
+  Devices: undefined;
   Calibration: undefined;
   DetectionSettings: undefined;
 };
@@ -220,6 +222,12 @@ export default function RootNavigator() {
             name="Sniffer"
             component={SnifferScreen}
             options={{ headerShown: true, title: 'BLE sniffer', headerTintColor: colors.text }}
+          />
+          {/* Tag management: pair, associate to a rod, power down. */}
+          <RootStack.Screen
+            name="Devices"
+            component={DevicesScreen}
+            options={{ headerShown: true, title: 'My tags', headerTintColor: colors.text }}
           />
           <RootStack.Screen
             name="Calibration"

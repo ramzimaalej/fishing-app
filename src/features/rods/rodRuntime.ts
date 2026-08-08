@@ -26,6 +26,9 @@ import { trackBite } from '@/services/firebase/analytics';
 import type { AccSample } from '@/features/detection/accSample';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
+import { rodActivity } from '@/features/devices/device';
+import { deviceFor } from '@/features/devices/deviceStore';
+
 import { isRodArmable, type Rod } from './rod';
 
 /**
@@ -371,6 +374,26 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
   // one physical sensor as two rods. Refuse rather than mislead.
   if (!isRodArmable(rod, dev.requiresDeviceBinding)) {
     return { ok: false, error: `${rod.name}: pair a sensor first.` };
+  }
+
+  // Refuse a rod whose tag is not currently advertising. Arming it would show
+  // the rod as watched while nothing was listening — and because the stream has
+  // no sequence numbers, that is indistinguishable from a rod that simply has
+  // not moved. SIGNAL_LOST would eventually fire, but only after the fish.
+  if (dev.requiresDeviceBinding) {
+    const activity = rodActivity(
+      { enabled: rod.enabled, device: deviceFor(rod.deviceId) },
+      Date.now(),
+    );
+    if (activity === 'device-off') {
+      return { ok: false, error: `${rod.name}: its tag is powered off.` };
+    }
+    if (activity === 'device-silent' || activity === 'unpaired') {
+      return {
+        ok: false,
+        error: `${rod.name}: its tag is not responding. Check it is switched on and in range.`,
+      };
+    }
   }
 
   const settings = useSettingsStore.getState().settings;

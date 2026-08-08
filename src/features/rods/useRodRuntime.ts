@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { useAuthStore } from '@/features/auth/authStore';
+import { rodActivity, type RodActivity } from '@/features/devices/device';
+import { startDeviceWatch, useDeviceStore } from '@/features/devices/deviceStore';
 import { cancelSessionNotifications } from '@/features/notifications/feedback';
 import { useFishingSessionStore } from '@/features/session/fishingSessionStore';
 import { isExpired } from '@/features/session/sessionLimit';
@@ -61,6 +63,42 @@ export function useArmableRods(): Rod[] {
 }
 
 /**
+ * Per-rod activity, derived from the bound tag rather than stored.
+ *
+ * Recomputed on a timer as well as on store changes: a tag going quiet is the
+ * ABSENCE of an event, so nothing would otherwise trigger a re-render and a rod
+ * would keep claiming to be ready long after its tag stopped answering.
+ */
+export function useRodActivities(): Record<string, RodActivity> {
+  const rods = useRodStore((s) => s.rods);
+  const paired = useDeviceStore((s) => s.paired);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return useMemo(() => {
+    const out: Record<string, RodActivity> = {};
+    for (const rod of rods) {
+      out[rod.id] = rodActivity(
+        { enabled: rod.enabled, device: rod.deviceId ? (paired[rod.deviceId] ?? null) : null },
+        now,
+      );
+    }
+    return out;
+  }, [rods, paired, now]);
+}
+
+/** Rods whose bound tag is live — the ones that can actually be armed. */
+export function useActiveRods(): Rod[] {
+  const rods = useArmableRods();
+  const activities = useRodActivities();
+  return useMemo(() => rods.filter((r) => activities[r.id] === 'active'), [rods, activities]);
+}
+
+/**
  * Wires the non-React runtime to app state. Mounted ONCE, high in the tree:
  *  - keeps the runtime's uid current so bites persist to the right user;
  *  - retunes every live detector when the sensitivity/live-bait settings move;
@@ -75,6 +113,13 @@ export function useRodRuntimeBridge(): void {
   useEffect(() => {
     setRuntimeUid(uid);
   }, [uid]);
+
+  // Device liveness feeds rod activity everywhere, not only on the tags screen,
+  // so the watch starts here — mounted once, above the tabs. Without it a rod
+  // would keep reading as ready until the user happened to open that screen.
+  useEffect(() => {
+    startDeviceWatch();
+  }, []);
 
   useEffect(() => {
     retuneAll({ sensitivity: settings.sensitivity, liveBaitMode: settings.liveBaitMode });
