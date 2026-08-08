@@ -1,12 +1,14 @@
 /**
  * Sample and parser contract for the bite-detection service.
  *
- * THE PARSER SEAM. The DX-CP27-G's advertising payload layout is not known: the
- * vendor app displays ~1e-38 mg, which is raw bytes reinterpreted as IEEE-754
- * float32, so its parser cannot be copied. The true layout must be determined
- * empirically (see the BLE sniffer in admin). Everything downstream therefore
- * depends only on AccFrameParser — when the format is finally identified, one
- * implementation of one method changes and nothing else moves.
+ * THE PARSER SEAM. The DX-CP27-G's layout was NOT documented — the vendor app
+ * shows ~1e-38 mg because it reads the frame little-endian — so it was worked
+ * out empirically with the BLE sniffer and confirmed against gravity. See
+ * ble/castmateGFrame.ts for the byte table and the captures behind it.
+ *
+ * The seam stays because sourced hardware ships firmware revisions: everything
+ * downstream depends only on a decoder returning AccSample, so a new layout is
+ * one function and one golden test, and nothing else moves.
  */
 
 /** Milli-g. Integer because the sensor reports counts, not physical reals. */
@@ -53,7 +55,21 @@ export function magnitudeMg(s: AccSample): number {
 export const GRAVITY_MG = 1000;
 export const SELF_TEST_TOLERANCE_MG = 150;
 
+/**
+ * `pass`    — magnitude is one gravity; the parser is reading the frame right.
+ * `fail`    — magnitude is wrong; the layout, scale, width or byte order is off.
+ * `pending` — not enough samples yet to say either way.
+ *
+ * `pending` is a distinct state rather than a flavour of failure because they
+ * demand opposite responses: pending means wait, failed means go and change the
+ * decoder. Rendering "not enough data yet" as a red FAILED sends someone
+ * debugging a parser that is actually fine.
+ */
+export type SelfTestVerdict = 'pass' | 'fail' | 'pending';
+
 export interface SelfTestResult {
+  verdict: SelfTestVerdict;
+  /** True only for a definite pass. */
   pass: boolean;
   sampleCount: number;
   /** Mean magnitude observed, mg. NaN when no samples were supplied. */
@@ -83,12 +99,13 @@ const MIN_SELF_TEST_SAMPLES = 20;
 export function runParserSelfTest(samples: readonly AccSample[]): SelfTestResult {
   if (samples.length === 0) {
     return {
+      verdict: 'pending',
       pass: false,
       sampleCount: 0,
       meanMagnitudeMg: NaN,
       minMagnitudeMg: NaN,
       maxMagnitudeMg: NaN,
-      detail: 'No samples. Is the tag advertising, and is the MAC filter right?',
+      detail: 'No samples decoded yet. Is the tag advertising, and in range?',
     };
   }
 
@@ -105,12 +122,15 @@ export function runParserSelfTest(samples: readonly AccSample[]): SelfTestResult
 
   if (samples.length < MIN_SELF_TEST_SAMPLES) {
     return {
+      verdict: 'pending',
       pass: false,
       sampleCount: samples.length,
       meanMagnitudeMg: mean,
       minMagnitudeMg: min,
       maxMagnitudeMg: max,
-      detail: `Only ${samples.length} samples; need ${MIN_SELF_TEST_SAMPLES} for a verdict.`,
+      detail:
+        `Collecting — ${samples.length}/${MIN_SELF_TEST_SAMPLES} samples. ` +
+        `Hold the tag STILL: the check is that a resting tag reads one gravity.`,
     };
   }
 
@@ -119,6 +139,7 @@ export function runParserSelfTest(samples: readonly AccSample[]): SelfTestResult
   const pass = mean >= low && mean <= high;
 
   return {
+    verdict: pass ? 'pass' : 'fail',
     pass,
     sampleCount: samples.length,
     meanMagnitudeMg: mean,

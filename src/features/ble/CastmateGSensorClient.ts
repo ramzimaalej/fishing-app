@@ -6,6 +6,7 @@ import {
   BroadcastSensorClient,
   type BroadcastSensorSpec,
 } from './BroadcastSensorClient';
+import { CASTMATE_G_SERVICE_UUID_SHORT, decodeCastmateGFrame } from './castmateGFrame';
 import { decodeMinewAccFrame, MINEW_SERVICE_UUID_SHORT } from './minew';
 
 /**
@@ -16,13 +17,12 @@ import { decodeMinewAccFrame, MINEW_SERVICE_UUID_SHORT } from './minew';
  * BroadcastSensorClient and this file contains only what is product-specific.
  *
  * WHY THIS ACCEPTS MORE THAN ONE FRAME FORMAT
- * The hardware is sourced, and sourced hardware ships firmware revisions. The
- * unit currently in hand emits the Minew "Acc Sensor" frame under service
- * 0xFFE1, which is the only broadcast layout verified against a real capture in
- * this codebase (see minew.ts). Newer stock may differ. Rather than pin the
- * product to one vendor's layout — which would mean a firmware change silently
- * turning the app into a device that finds nothing — the spec tries each known
- * decoder and takes the first that yields a well-formed reading.
+ * The hardware is sourced, and sourced hardware ships firmware revisions. Two
+ * layouts are known, both verified against real captures: the DX-CP27-G's own
+ * 0xFEAB frame (castmateGFrame.ts) and the Minew "Acc Sensor" 0xFFE1 frame
+ * (minew.ts). Rather than pin the product to one — which would mean a stock
+ * change silently turning the app into a device that finds nothing — the spec
+ * tries each decoder and takes the first that yields a well-formed reading.
  *
  * Formats are a list, not an if/else, so adding one is one entry and one decoder.
  * Users never see any of this: the product is one device with one name.
@@ -39,6 +39,38 @@ export const CASTMATE_G_KIND = 'castmate-g';
  * decoder that signals "not mine" by throwing makes the ordering below useless).
  */
 type FrameDecoder = (adv: BroadcastAdvertisement) => BroadcastReading | null;
+
+/**
+ * The DX-CP27-G's own frame: three big-endian float32 axes in g under service
+ * 0xFEAB. Determined empirically from live captures — see castmateGFrame.ts for
+ * the byte table and why the vendor app misreads it.
+ *
+ * Listed FIRST because it is what the shipping hardware actually emits.
+ */
+const decodeServiceDataFeab: FrameDecoder = (adv) => {
+  const sd = adv.serviceData;
+  if (!sd) return null;
+  for (const [uuid, value] of Object.entries(sd)) {
+    if (!uuid.toLowerCase().includes(CASTMATE_G_SERVICE_UUID_SHORT)) continue;
+    if (typeof value !== 'string') continue;
+    const reading = decodeCastmateGFrame(value);
+    if (!reading) continue;
+    return {
+      // The frame reports g; the detector works in milli-g throughout.
+      xMg: Math.round(reading.x * 1000),
+      yMg: Math.round(reading.y * 1000),
+      zMg: Math.round(reading.z * 1000),
+      // Identity from INSIDE the payload, so a rod binding survives an iOS
+      // reinstall where adv.id is an opaque per-install UUID. The frame carries
+      // only the last five MAC octets; that is still unique among tags in range.
+      deviceKey: reading.macTail || adv.id,
+      // This frame carries no battery field — unlike the Minew one. Left
+      // undefined rather than faked, so the UI shows "unknown" instead of a
+      // number that never changes.
+    };
+  }
+  return null;
+};
 
 /**
  * Minew "Acc Sensor" frame in 0xFFE1 service data.
@@ -85,7 +117,10 @@ const decodeServiceDataFfe1: FrameDecoder = (adv) => {
  * CP27 GATT path ended up permanently marked PROVISIONAL. A resting frame
  * reading ≈ 1 g is what proves a scale factor is right.
  */
-const FRAME_DECODERS: readonly FrameDecoder[] = [decodeServiceDataFfe1];
+const FRAME_DECODERS: readonly FrameDecoder[] = [
+  decodeServiceDataFeab,
+  decodeServiceDataFfe1,
+];
 
 /** Decode an advertisement using whichever known format matches. */
 export function extractCastmateGReading(

@@ -124,11 +124,19 @@ function DeviceCard({ device }: { device: SniffedDeviceView }) {
         <View
           style={[
             styles.selfTest,
-            device.selfTest.pass ? styles.selfTestPass : styles.selfTestFail,
+            device.selfTest.verdict === 'pass'
+              ? styles.selfTestPass
+              : device.selfTest.verdict === 'fail'
+                ? styles.selfTestFail
+                : styles.selfTestPending,
           ]}
         >
           <Text style={styles.selfTestTitle}>
-            {device.selfTest.pass ? '✓ Parser self-test PASSED' : '✗ Parser self-test FAILED'}
+            {device.selfTest.verdict === 'pass'
+              ? '✓ Parser self-test PASSED'
+              : device.selfTest.verdict === 'fail'
+                ? '✗ Parser self-test FAILED'
+                : '… Parser self-test — collecting'}
           </Text>
           <Text style={styles.selfTestDetail}>{device.selfTest.detail}</Text>
           <Text style={styles.selfTestDetail}>
@@ -400,6 +408,7 @@ const styles = StyleSheet.create({
   },
   selfTestPass: { borderColor: colors.success },
   selfTestFail: { borderColor: colors.danger },
+  selfTestPending: { borderColor: colors.border },
   selfTestTitle: { ...typography.caption, color: colors.text, fontWeight: '800' },
   selfTestDetail: { ...typography.caption, color: colors.textMuted },
   hint: { ...typography.caption, color: colors.textMuted },
