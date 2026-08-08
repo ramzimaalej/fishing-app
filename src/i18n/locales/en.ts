@@ -47,7 +47,7 @@ const en = {
     sensor: 'Sensor',
     bigFish: 'Big fish!',
     nibble: 'Nibble',
-    bitePeak: 'Peak {{peak}} g · {{confidence}}% confidence',
+    bitePeak: 'Peak {{peak}}° · {{confidence}}% confidence',
     liveBait: 'Live bait mode',
     liveBaitHelp: 'Filters constant bait motion — applies to every rod',
     status: {
@@ -60,6 +60,7 @@ const en = {
       reconnecting: 'Reconnecting…',
       error: 'Error',
       calibrating: 'Calibrating',
+      armFailed: 'Arming failed — not watching',
       ready: 'Ready',
     },
   },
@@ -183,7 +184,7 @@ const en = {
     insights: '📊 Insights',
     emptyTitle: 'No bites logged yet',
     emptySub: 'Connect your sensor and start fishing — detected bites appear here.',
-    metrics: 'peak {{peak}} g · {{confidence}}% confidence',
+    metrics: 'peak {{peak}}° · {{confidence}}% confidence',
     addNote: 'Add a note…',
     noteTitle: 'Note',
     notePlaceholder: 'e.g. rainbow trout, spinner lure',
@@ -213,8 +214,8 @@ const en = {
       'Blank sessions happen. Check the Conditions tab for the next good window before you head out again.',
     timeline: 'Bite timeline',
     byRod: 'By rod',
-    rodTally_one: '{{count}} bite · peak {{peak}} g',
-    rodTally_other: '{{count}} bites · peak {{peak}} g',
+    rodTally_one: '{{count}} bite · peak {{peak}}°',
+    rodTally_other: '{{count}} bites · peak {{peak}}°',
     breakdown: 'Strike breakdown',
     bigFish: 'Big fish',
     nibbles: 'Nibbles',
@@ -336,9 +337,16 @@ const en = {
     unknown: 'Battery unknown',
   },
 
+
+  signal: {
+    lostTitle: '⚠️ Sensor signal lost',
+    lostBody: '{{rod}} has gone silent — it is NOT being watched. Check the tag is in range and has battery.',
+    lostBanner: 'Signal lost — this rod is not being watched',
+  },
+
   chart: {
     waiting: 'Waiting for sensor data…',
-    acceleration: 'Acceleration (g)',
+    acceleration: 'Deviation (°)',
     threshold: 'Threshold',
     smallBite: 'Small bite',
     bigBite: 'Big bite',

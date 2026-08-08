@@ -1,4 +1,4 @@
-import type { AccelSample } from '@/types';
+import type { AccSample } from '@/features/detection/accSample';
 
 export type ConnectionStatus =
   | 'idle'
@@ -13,7 +13,7 @@ export type ConnectionStatus =
 export interface BleDeviceInfo {
   id: string;
   name: string;
-  /** Battery level 0..100, when the sensor reports it (E8S does). */
+  /** Battery level 0..100 — the Castmate G carries it in its advertisement. */
   battery?: number;
 }
 
@@ -21,15 +21,20 @@ export interface BleDeviceInfo {
  * Transport-agnostic contract for a bite sensor source. Every device kind
  * implements it (see deviceRegistry) so the rest of the app never depends on
  * react-native-ble-plx directly:
- *   - MockSensor        — in-app simulator (no hardware)
- *   - MinewSensorClient — Minew E8S beacon, broadcast/scan-based
- *   - Cp27SensorClient  — DX-CP27MINI, GATT connect + notify
- *   - GenericSensorClient — any BLE peripheral streaming accel on a notify char
+ *   - CastmateGSensorClient — the Castmate G CP27, the shipping sensor. A
+ *     BroadcastSensorClient subclass: the tag advertises its reading rather than
+ *     accepting a connection.
+ *   - MockSensor        — in-app simulator, admin-only (no hardware)
  *
- * NOTE: broadcast beacons (E8S) are not connected peripherals — "samples" are
- * parsed from advertisements. setFishingMode/setSampleRate are no-ops for
- * devices configured on-device (E8S via BeaconSET+); they remain in the
- * contract so connectable sensors can implement them.
+ * The GATT clients (Cp27SensorClient, GenericSensorClient, GattSensorClient) were
+ * removed when the app collapsed to one device; setFishingMode/setSampleRate stay
+ * in the contract because a future connectable revision could implement them,
+ * and because MockSensor honours setSampleRate.
+ *
+ * NOTE: a broadcast tag is not a connected peripheral — "samples" are parsed
+ * from advertisements, and its motion sensitivity and advertising interval are
+ * configured on the device itself, so setFishingMode/setSampleRate are no-ops
+ * for it.
  */
 export interface SensorConnection {
   readonly info: BleDeviceInfo;
@@ -38,8 +43,13 @@ export interface SensorConnection {
    * mock) don't need it, hence optional. The store calls it after permissions.
    */
   start?(): void;
-  /** Subscribe to the accelerometer stream. Returns an unsubscribe fn. */
-  onSample(listener: (sample: AccelSample) => void): () => void;
+  /**
+   * Subscribe to the accelerometer stream. Returns an unsubscribe fn.
+   *
+   * Samples are milli-g, stamped with a MONOTONIC arrival time — see
+   * detection/monotonicClock for why wall time is unusable here.
+   */
+  onSample(listener: (sample: AccSample) => void): () => void;
   /** Enable/disable fishing (live-bait) mode on the device (if supported). */
   setFishingMode(enabled: boolean): Promise<void>;
   setSampleRate(hz: number): Promise<void>;

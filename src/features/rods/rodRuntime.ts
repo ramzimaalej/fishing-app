@@ -1,20 +1,28 @@
 import { create } from 'zustand';
 
-import { SENSOR_SAMPLE_RATE_HZ } from '@/config/constants';
+import { captureDetection, captureSample } from '@/features/admin/recorder';
 import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
 import { batteryState, type BatteryState } from '@/features/ble/battery';
 import { getSensorDevice } from '@/features/ble/deviceRegistry';
 import type { BleDeviceInfo, ConnectionStatus, SensorConnection } from '@/features/ble/types';
-import { BiteDetector } from '@/features/bite-detection/BiteDetector';
+import type { DetectionEvent } from '@/features/detection/detectionEngine';
+import type { DetectionParams } from '@/features/detection/detectionParams';
+import {
+  currentDetectionParams,
+  setDetectionParamsListener,
+} from '@/features/detection/detectionParamsStore';
+import { monotonicNowMs } from '@/features/detection/monotonicClock';
+import { alertToBiteEvent, RodDetector } from '@/features/detection/rodDetector';
 import { biteRepository } from '@/features/bite-history/biteRepository';
 import { getCurrentConditions } from '@/features/environment/useEnvironment';
 import { AccelRingBuffer } from '@/features/graph/AccelRingBuffer';
 import type { AccelPoint } from '@/features/graph/types';
-import { notifyBite, notifySensorBattery } from '@/features/notifications/feedback';
+import { notifyBite, notifySensorBattery, notifySignalLost } from '@/features/notifications/feedback';
 import type { SessionBite } from '@/features/session-report/sessionSummary';
 import { useSettingsStore } from '@/features/settings/settingsStore';
 import { trackBite } from '@/services/firebase/analytics';
-import type { AccelSample, BiteEvent, EnvironmentSnapshot } from '@/types';
+import type { AccSample } from '@/features/detection/accSample';
+import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
 import { isRodArmable, type Rod } from './rod';
 
@@ -49,12 +57,22 @@ export interface RodRuntimeView {
   bites: BiteEvent[];
   /** Most recent bite, for the alert banner. */
   lastBite: BiteEvent | null;
+  /**
+   * Stream has gone silent. Orthogonal to `status`: the link can look connected
+   * while no advertisement has arrived for seconds. Must be shown, not just
+   * sounded — the user has to be able to see WHICH rod stopped being watched.
+   */
+  signalLost: boolean;
+  /** True while collecting the arming window; the rod is not yet watched. */
+  arming: boolean;
+  /** Set when arming failed and the user must retry. */
+  armFailReason: string | null;
 }
 
 interface Runtime {
   rod: Rod;
   connection: SensorConnection | null;
-  detector: BiteDetector;
+  detector: RodDetector;
   buffer: AccelRingBuffer;
   offSample: (() => void) | null
   offDisconnect: (() => void) | null;
@@ -65,6 +83,10 @@ interface Runtime {
   lastBite: BiteEvent | null;
   /** Last battery band we warned about, so each step warns exactly once. */
   warnedBattery: BatteryState;
+  /** True while the stream is silent — orthogonal to connection status. */
+  signalLost: boolean;
+  /** Most recent impact, surfaced separately from bites. */
+  lastImpactReason: string | null;
 }
 
 const runtimes = new Map<string, Runtime>();
@@ -72,6 +94,10 @@ const runtimes = new Map<string, Runtime>();
 /** Conditions are shared across rods — one fetch, not one per rod. */
 let conditions: EnvironmentSnapshot | null = null;
 let conditionsTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Signal-loss polling. See ensureSignalWatch. */
+const SIGNAL_CHECK_MS = 2500;
+let signalTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Session bite log across ALL rods, stamped with wall-clock time at the moment
@@ -122,11 +148,16 @@ function buildView(rt: Runtime): RodRuntimeView {
     device,
     error: rt.error,
     biteCount: rt.biteCount,
-    threshold: rt.detector.threshold,
-    isWarmedUp: rt.detector.isWarmedUp,
+    threshold: rt.detector.thresholdDeg,
+    // "Warmed up" now means a baseline has been established. Until then the rod
+    // is explicitly NOT being watched, which the UI must not present as ready.
+    isWarmedUp: rt.detector.getPhase() === 'WATCHING',
     points: snap.points,
     bites: snap.bites,
     lastBite: rt.lastBite,
+    signalLost: rt.signalLost,
+    arming: rt.detector.getPhase() === 'ARMING',
+    armFailReason: rt.detector.getArmFailReason(),
   };
 }
 
@@ -185,36 +216,104 @@ function stopConditionsPolling(): void {
   conditionsTimer = null;
 }
 
-function handleSample(rt: Runtime, sample: AccelSample): void {
+/**
+ * Poll every armed rod for signal loss.
+ *
+ * Without this the loss alarm could only fire when a packet ARRIVED, which is
+ * precisely the situation it exists to detect the absence of — so a tag that
+ * went flat would leave the rod looking watched forever. Runs at half the loss
+ * timeout so the alarm lands within a couple of seconds of the deadline.
+ */
+function ensureSignalWatch(): void {
+  if (signalTimer) return;
+  signalTimer = setInterval(() => tickDetection(), SIGNAL_CHECK_MS);
+}
+
+function stopSignalWatch(): void {
+  if (!signalTimer) return;
+  clearInterval(signalTimer);
+  signalTimer = null;
+}
+
+function handleSample(rt: Runtime, sample: AccSample): void {
   const tick = rt.detector.process(sample);
-  rt.buffer.push({ t: tick.sample.t, dynamic: tick.dynamic, threshold: tick.threshold });
 
-  const bite = tick.bite;
-  if (bite) {
-    rt.buffer.pushBite(bite);
-    rt.biteCount += 1;
-    rt.lastBite = bite;
-    sessionBites.push({ event: bite, at: Date.now(), rodId: rt.rod.id, rodName: rt.rod.name });
+  if (tick.frame) {
+    // The chart plots angular deviation against the threshold, both in degrees.
+    rt.buffer.push({
+      t: tick.frame.sample.tMonotonicMs,
+      dynamic: tick.frame.thetaDeg,
+      threshold: rt.detector.thresholdDeg,
+    });
 
-    const settings = useSettingsStore.getState().settings;
-    // Feedback names the rod, so the user knows WHICH rod to pick up — the whole
-    // point of multi-rod alerting.
-    void notifyBite(bite, settings, rt.rod.name);
-    trackBite(bite.size, bite.confidence);
-
-    if (currentUid) {
-      void biteRepository
-        .add(currentUid, bite, conditions ?? undefined, {
-          rodId: rt.rod.id,
-          rodName: rt.rod.name,
-        })
-        .catch(() => undefined);
-    }
-
-    useRodRuntimeStore.setState({ lastBiteRodId: rt.rod.id });
+    // Ground-truth capture (admin mode). A no-op unless a recording is running,
+    // and placed here rather than at the sensor so what is written is exactly
+    // what the detector saw, derived features included.
+    captureSample(rt.rod.id, tick.frame);
   }
 
+  for (const event of tick.events) handleDetectionEvent(rt, event);
+
   scheduleFlush();
+}
+
+/**
+ * Act on one detection event.
+ *
+ * SIGNAL_LOST is handled here rather than being folded into the connection
+ * status, because it is not a connection fact: with no sequence numbers a
+ * dropout and a motionless rod are identical in the data, so silence must reach
+ * the user as an alarm. Treating it as "no fish" is the worst failure this app
+ * has — the user believes a rod is watched when it is not.
+ */
+function handleDetectionEvent(rt: Runtime, event: DetectionEvent): void {
+  const settings = useSettingsStore.getState().settings;
+
+  if (event.type === 'SIGNAL_LOST') {
+    rt.signalLost = true;
+    rt.error = event.reason;
+    void notifySignalLost(rt.rod.name, settings);
+    return;
+  }
+
+  if (event.type === 'SIGNAL_RESTORED') {
+    rt.signalLost = false;
+    rt.error = null;
+    return;
+  }
+
+  if (event.type === 'IMPACT') {
+    // Surfaced separately and deliberately NOT as a bite: a fish and somebody
+    // knocking the rod both produce sharp onset and sustained deviation, and the
+    // spec is explicit that the two cannot be told apart. The user judges.
+    rt.lastImpactReason = event.reason;
+    return;
+  }
+
+  if (event.type !== 'ALERT_HOOKED') return;
+
+  const bite = alertToBiteEvent(event, currentDetectionParams());
+  rt.buffer.pushBite(bite);
+  captureDetection(rt.rod.id, rt.rod.name, bite, rt.detector.thresholdDeg);
+  rt.biteCount += 1;
+  rt.lastBite = bite;
+  sessionBites.push({ event: bite, at: Date.now(), rodId: rt.rod.id, rodName: rt.rod.name });
+
+  // Feedback names the rod, so the user knows WHICH rod to pick up — the whole
+  // point of multi-rod alerting.
+  void notifyBite(bite, settings, rt.rod.name);
+  trackBite(bite.size, bite.confidence);
+
+  if (currentUid) {
+    void biteRepository
+      .add(currentUid, bite, conditions ?? undefined, {
+        rodId: rt.rod.id,
+        rodName: rt.rod.name,
+      })
+      .catch(() => undefined);
+  }
+
+  useRodRuntimeStore.setState({ lastBiteRodId: rt.rod.id });
 }
 
 export interface ArmResult {
@@ -242,11 +341,7 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
   const rt: Runtime = {
     rod,
     connection: null,
-    detector: new BiteDetector({
-      sampleRateHz: SENSOR_SAMPLE_RATE_HZ,
-      sensitivity: settings.sensitivity,
-      liveBaitMode: settings.liveBaitMode,
-    }),
+    detector: new RodDetector(currentDetectionParams()),
     buffer: new AccelRingBuffer(),
     offSample: null,
     offDisconnect: null,
@@ -256,6 +351,8 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     biteCount: 0,
     lastBite: null,
     warnedBattery: 'ok',
+    signalLost: false,
+    lastImpactReason: null,
   };
   runtimes.set(rod.id, rt);
   scheduleFlush();
@@ -309,6 +406,7 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     void conn.setFishingMode(settings.liveBaitMode).catch(() => undefined);
     conn.start?.();
     ensureConditionsPolling();
+    ensureSignalWatch();
     scheduleFlush();
     return { ok: true };
   } catch (e) {
@@ -330,7 +428,10 @@ export async function disarmRod(rodId: string): Promise<void> {
   await rt.connection?.disconnect().catch(() => undefined);
   rt.buffer.clear();
 
-  if (runtimes.size === 0) stopConditionsPolling();
+  if (runtimes.size === 0) {
+    stopConditionsPolling();
+    stopSignalWatch();
+  }
   flush();
 }
 
@@ -349,8 +450,36 @@ export async function disarmAll(): Promise<void> {
 /** Retune every live detector when the user moves the sensitivity slider. */
 export function retuneAll(config: { sensitivity: number; liveBaitMode: boolean }): void {
   for (const rt of runtimes.values()) {
-    rt.detector.setConfig(config);
     void rt.connection?.setFishingMode(config.liveBaitMode).catch(() => undefined);
+  }
+  scheduleFlush();
+}
+
+/**
+ * Push new detection parameters to every live rod.
+ *
+ * Registered with the params store so tuning takes effect on rods that are
+ * ALREADY armed — otherwise a change would only apply to the next session, and
+ * tuning in the field would mean disarming and re-arming (and so re-baselining)
+ * after every adjustment.
+ */
+export function setDetectionParams(params: DetectionParams): void {
+  for (const rt of runtimes.values()) rt.detector.setParams(params);
+  scheduleFlush();
+}
+
+setDetectionParamsListener(setDetectionParams);
+
+/**
+ * Advance every rod's signal-loss timer.
+ *
+ * Needed because the only other entry point is a packet arriving, and the whole
+ * point of the check is that no packet is arriving.
+ */
+export function tickDetection(): void {
+  const now = monotonicNowMs();
+  for (const rt of runtimes.values()) {
+    for (const event of rt.detector.tick(now)) handleDetectionEvent(rt, event);
   }
   scheduleFlush();
 }
@@ -395,6 +524,7 @@ export function syncRodMeta(rod: Rod): void {
 export function resetRodRuntime(): void {
   runtimes.clear();
   stopConditionsPolling();
+  stopSignalWatch();
   conditions = null;
   currentUid = null;
   useRodRuntimeStore.setState({ views: {}, anyArmed: false, lastBiteRodId: null });

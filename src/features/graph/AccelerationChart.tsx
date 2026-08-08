@@ -129,7 +129,7 @@ function AccelerationChart({ points, bites = [], height = 220 }: AccelerationCha
         <LegendItem color={colors.textMuted} label={t('chart.threshold')} dashed />
         <LegendItem color={colors.small} label={t('chart.smallBite')} dot />
         <LegendItem color={colors.big} label={t('chart.bigBite')} dot />
-        <Text style={styles.scale}>max {geom.yMax.toFixed(2)}g</Text>
+        <Text style={styles.scale}>max {geom.yMax.toFixed(1)}°</Text>
       </View>
     </View>
   );

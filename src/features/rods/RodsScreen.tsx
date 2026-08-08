@@ -1,6 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 
 import { MAX_RODS } from '@/config/constants';
+import { useAdminStore } from '@/features/admin/adminStore';
 import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import { getSensorDevice, listSensorDevices } from '@/features/ble/deviceRegistry';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -46,6 +47,16 @@ function RodRow({
 
   const dev = getSensorDevice(rod.sensorKind);
   const needsPairing = dev.requiresDeviceBinding && rod.deviceId === null;
+
+  // The simulator is a development kind, so it is only offered once the admin
+  // gate is open — unless this rod is already ON a dev kind, in which case the
+  // picker must stay visible or the rod is a dead end: no way back to the real
+  // sensor, and the app quietly showing invented data forever.
+  const adminUnlocked = useAdminStore((s) => s.unlocked);
+  const sensorChoices = useMemo(
+    () => listSensorDevices(adminUnlocked || Boolean(dev.devOnly)),
+    [adminUnlocked, dev.devOnly],
+  );
 
   const confirmRemove = () =>
     Alert.alert(t('rods.removeTitle'), t('rods.removeBody', { name: rod.name }), [
@@ -80,21 +91,30 @@ function RodRow({
 
       <View style={styles.divider} />
 
-      <Text style={styles.fieldLabel}>{t('rods.sensorLabel')}</Text>
-      <View style={styles.chipRow}>
-        {listSensorDevices().map((d) => {
-          const active = d.kind === rod.sensorKind;
-          return (
-            <Pressable
-              key={d.kind}
-              onPress={() => setSensorKind(rod.id, d.kind)}
-              style={[styles.chip, active && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{d.short}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      {/* The sensor picker only appears when there is a genuine choice, which
+          means admin mode: the product is one device, and a one-option picker
+          asks the customer to decide something that has no alternative. */}
+      {sensorChoices.length > 1 && (
+        <>
+          <Text style={styles.fieldLabel}>{t('rods.sensorLabel')}</Text>
+          <View style={styles.chipRow}>
+            {sensorChoices.map((d) => {
+              const active = d.kind === rod.sensorKind;
+              return (
+                <Pressable
+                  key={d.kind}
+                  onPress={() => setSensorKind(rod.id, d.kind)}
+                  style={[styles.chip, active && styles.chipActive]}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {d.short}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      )}
 
       {dev.requiresDeviceBinding && (
         <>

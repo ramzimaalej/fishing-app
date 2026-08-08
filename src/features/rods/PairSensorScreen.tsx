@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
-import { getSensorDevice } from '@/features/ble/deviceRegistry';
-import { decodeMinewAccFrame } from '@/features/ble/minew';
+import type { BroadcastAdvertisement } from '@/features/ble/BroadcastSensorClient';
+import { DEFAULT_SENSOR_KIND, getSensorDevice } from '@/features/ble/deviceRegistry';
 import { subscribeToScan } from '@/features/ble/scanBroker';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -18,18 +18,6 @@ interface Candidate {
   battery?: number;
   /** True when this device is already bound to a different rod. */
   takenBy?: string;
-}
-
-/** Extract a Minew Acc reading from a scan result, if it carries one. */
-function minewReading(serviceData: Record<string, string> | null | undefined) {
-  if (!serviceData) return null;
-  for (const [uuid, value] of Object.entries(serviceData)) {
-    if (uuid.toLowerCase().includes('ffe1') && typeof value === 'string') {
-      const r = decodeMinewAccFrame(value);
-      if (r) return r;
-    }
-  }
-  return null;
 }
 
 /**
@@ -67,7 +55,7 @@ export default function PairSensorScreen() {
     return map;
   }, [rods, rodId]);
 
-  const kind = rod?.sensorKind ?? 'minew';
+  const kind = rod?.sensorKind ?? DEFAULT_SENSOR_KIND;
   const dev = getSensorDevice(kind);
 
   useEffect(() => {
@@ -91,17 +79,19 @@ export default function PairSensorScreen() {
       setScanning(true);
 
       release = subscribeToScan((device) => {
-        const reading = minewReading(device.serviceData as Record<string, string> | null);
-
-        // Broadcast tags are identified by the MAC inside their frame; GATT
-        // peripherals by their platform id.
-        if (dev.discoverable) {
+        // Broadcast tags are recognised and identified by their own frame spec —
+        // the same one the streaming client uses, so pairing can never disagree
+        // with what will actually connect. GATT peripherals fall through to
+        // being listed by platform id and advertised name.
+        const spec = dev.broadcast;
+        if (spec) {
+          const reading = spec.extract(device as BroadcastAdvertisement);
           if (!reading) return;
           setFound((prev) => ({
             ...prev,
-            [reading.mac]: {
-              id: reading.mac,
-              label: `E8S ${reading.mac.replace(/:/g, '').slice(-4).toUpperCase()}`,
+            [reading.deviceKey]: {
+              id: reading.deviceKey,
+              label: spec.displayName(reading.deviceKey),
               rssi: device.rssi ?? -127,
               battery: reading.batteryPct,
             },
@@ -123,7 +113,7 @@ export default function PairSensorScreen() {
       setScanning(false);
       release?.();
     };
-  }, [rod, dev.requiresBle, dev.discoverable, t]);
+  }, [rod, dev.requiresBle, dev.broadcast, t]);
 
   const candidates = useMemo(
     () =>

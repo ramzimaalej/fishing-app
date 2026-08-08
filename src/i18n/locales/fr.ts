@@ -46,7 +46,7 @@ const fr: Translation = {
     sensor: 'Capteur',
     bigFish: 'Gros poisson !',
     nibble: 'Petite touche',
-    bitePeak: 'Pic {{peak}} g · {{confidence}} % de confiance',
+    bitePeak: 'Pic {{peak}}° · {{confidence}} % de confiance',
     liveBait: 'Mode vif',
     liveBaitHelp: "Filtre l'agitation constante du vif — s'applique à toutes les cannes",
     status: {
@@ -59,6 +59,7 @@ const fr: Translation = {
       reconnecting: 'Reconnexion…',
       error: 'Erreur',
       calibrating: 'Calibrage',
+      armFailed: 'Échec de l’armement — non surveillée',
       ready: 'Prêt',
     },
   },
@@ -187,7 +188,7 @@ const fr: Translation = {
     emptyTitle: 'Aucune touche enregistrée',
     emptySub:
       'Connectez votre capteur et commencez à pêcher — les touches détectées apparaîtront ici.',
-    metrics: 'pic {{peak}} g · {{confidence}} % de confiance',
+    metrics: 'pic {{peak}}° · {{confidence}} % de confiance',
     addNote: 'Ajouter une note…',
     noteTitle: 'Note',
     notePlaceholder: 'ex. truite arc-en-ciel, cuillère tournante',
@@ -217,8 +218,8 @@ const fr: Translation = {
       'Les sorties bredouilles arrivent. Consultez l’onglet Conditions pour trouver le prochain bon créneau.',
     timeline: 'Chronologie des touches',
     byRod: 'Par canne',
-    rodTally_one: '{{count}} touche · pic {{peak}} g',
-    rodTally_other: '{{count}} touches · pic {{peak}} g',
+    rodTally_one: '{{count}} touche · pic {{peak}}°',
+    rodTally_other: '{{count}} touches · pic {{peak}}°',
     breakdown: 'Détail des touches',
     bigFish: 'Gros poissons',
     nibbles: 'Petites touches',
@@ -344,9 +345,17 @@ const fr: Translation = {
     unknown: 'Batterie inconnue',
   },
 
+
+  signal: {
+    lostTitle: '⚠️ Signal du capteur perdu',
+    lostBody:
+      '{{rod}} ne répond plus — cette canne n’est PAS surveillée. Vérifiez que le capteur est à portée et chargé.',
+    lostBanner: 'Signal perdu — cette canne n’est pas surveillée',
+  },
+
   chart: {
     waiting: 'En attente des données du capteur…',
-    acceleration: 'Accélération (g)',
+    acceleration: 'Déviation (°)',
     threshold: 'Seuil',
     smallBite: 'Petite touche',
     bigBite: 'Grosse touche',

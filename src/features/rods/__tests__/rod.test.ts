@@ -6,7 +6,11 @@ import {
   canAddRod,
   defaultRodName,
   isRodArmable,
+  migrateRods,
   normaliseRodName,
+  normaliseRods,
+  normaliseRodSensorKind,
+  retireSimulatorRod,
   type Rod,
 } from '../rod';
 
@@ -117,5 +121,133 @@ describe('isRodArmable', () => {
 
   it('accepts a bound rod', () => {
     expect(isRodArmable(rod({ deviceId: 'AA:BB:CC:DD:EE:FF' }), true)).toBe(true);
+  });
+});
+
+describe('normaliseRodSensorKind', () => {
+  it('leaves a rod on a current kind untouched', () => {
+    const current = rod({ sensorKind: 'castmate-g' as SensorKind, deviceId: 'AA:BB:CC:DD:EE:FF' });
+    // Identity, not just equality: the migration must not churn every rod on
+    // every launch.
+    expect(normaliseRodSensorKind(current)).toBe(current);
+    expect(normaliseRodSensorKind(rod({ sensorKind: 'mock' as SensorKind }))).toEqual(
+      rod({ sensorKind: 'mock' as SensorKind }),
+    );
+  });
+
+  it('moves a legacy broadcast rod over and KEEPS its binding', () => {
+    // A 'minew' rod was bound to the MAC from inside the tag's advertisement,
+    // which is exactly what the Castmate G spec keys on — so the binding still
+    // resolves to the same physical tag and the user need not re-pair.
+    const migrated = normaliseRodSensorKind(
+      rod({ sensorKind: 'minew' as SensorKind, deviceId: '57:05:A0:3F:23:AC' }),
+    );
+    expect(migrated.sensorKind).toBe('castmate-g');
+    expect(migrated.deviceId).toBe('57:05:A0:3F:23:AC');
+  });
+
+  it('clears the binding of a legacy GATT rod', () => {
+    // 'cp27' and 'generic' bound to a platform peripheral id from a GATT
+    // connection. Compared against a MAC that never matches, the rod would look
+    // like a dead sensor rather than an unpaired one.
+    for (const kind of ['cp27', 'generic']) {
+      const migrated = normaliseRodSensorKind(
+        rod({ sensorKind: kind as SensorKind, deviceId: 'A1B2C3D4-0000-1111-2222-333344445555' }),
+      );
+      expect(migrated.sensorKind).toBe('castmate-g');
+      expect(migrated.deviceId).toBeNull();
+    }
+  });
+
+  it('preserves everything else about the rod', () => {
+    const legacy = rod({
+      id: 'r9',
+      name: 'Left rod',
+      sensorKind: 'minew' as SensorKind,
+      deviceId: '11:22:33:44:55:66',
+      enabled: false,
+      createdAt: 1234,
+    });
+    expect(normaliseRodSensorKind(legacy)).toEqual({
+      ...legacy,
+      sensorKind: 'castmate-g',
+    });
+  });
+
+  it('is idempotent', () => {
+    const once = normaliseRodSensorKind(rod({ sensorKind: 'generic' as SensorKind, deviceId: 'x' }));
+    expect(normaliseRodSensorKind(once)).toEqual(once);
+  });
+
+  it('rescues a rod with a nonsense kind rather than leaving it unarmable', () => {
+    const migrated = normaliseRodSensorKind(rod({ sensorKind: 'wat' as SensorKind }));
+    expect(migrated.sensorKind).toBe('castmate-g');
+  });
+});
+
+describe('normaliseRods', () => {
+  it('rescues retired kinds across a persisted list, keeping valid ones', () => {
+    const normalised = normaliseRods([
+      rod({ id: 'a', sensorKind: 'minew' as SensorKind, deviceId: 'AA:BB' }),
+      rod({ id: 'b', sensorKind: 'cp27' as SensorKind, deviceId: 'periph-id' }),
+      rod({ id: 'c', sensorKind: 'mock' as SensorKind }),
+    ]);
+
+    // 'mock' is still a kind this build defines, so the every-launch pass leaves
+    // it be — retiring it belongs to the one-time migration.
+    expect(normalised.map((r) => r.sensorKind)).toEqual(['castmate-g', 'castmate-g', 'mock']);
+    expect(normalised.map((r) => r.deviceId)).toEqual(['AA:BB', null, null]);
+  });
+
+  it('handles an empty list', () => {
+    expect(normaliseRods([])).toEqual([]);
+    expect(migrateRods([])).toEqual([]);
+  });
+});
+
+describe('normaliseRodSensorKind — simulator handling', () => {
+  it('leaves a simulator rod alone', () => {
+    // Retiring the simulator is a ONE-TIME migration. If the every-launch
+    // normaliser did it too, a developer picking the simulator in admin mode
+    // would have the choice reverted on the next cold start.
+    const sim = rod({ sensorKind: 'mock' as SensorKind });
+    expect(normaliseRodSensorKind(sim)).toBe(sim);
+    expect(normaliseRods([sim])[0]!.sensorKind).toBe('mock');
+  });
+});
+
+describe('retireSimulatorRod', () => {
+  it('moves a simulator rod to the shipping sensor', () => {
+    // 'mock' was the default for every rod the old build created, so a stored
+    // simulator rod means "never configured". Leaving it would strand existing
+    // users on invented data with the picker hidden.
+    const migrated = retireSimulatorRod(rod({ sensorKind: 'mock' as SensorKind }));
+    expect(migrated.sensorKind).toBe('castmate-g');
+    expect(migrated.deviceId).toBeNull();
+  });
+
+  it('leaves a rod already on the shipping sensor untouched', () => {
+    const real = rod({ sensorKind: 'castmate-g' as SensorKind, deviceId: 'AA:BB' });
+    expect(retireSimulatorRod(real)).toBe(real);
+  });
+
+  it('is idempotent', () => {
+    const once = retireSimulatorRod(rod({ sensorKind: 'mock' as SensorKind }));
+    expect(retireSimulatorRod(once)).toEqual(once);
+  });
+});
+
+describe('migrateRods — the full one-time upgrade', () => {
+  it('retires simulators and rewrites retired kinds in one pass', () => {
+    const migrated = migrateRods([
+      rod({ id: 'a', sensorKind: 'mock' as SensorKind }),
+      rod({ id: 'b', sensorKind: 'minew' as SensorKind, deviceId: 'AA:BB' }),
+      rod({ id: 'c', sensorKind: 'cp27' as SensorKind, deviceId: 'periph' }),
+    ]);
+
+    // Nothing is left on a kind a customer cannot see or change.
+    expect(migrated.every((r) => r.sensorKind === 'castmate-g')).toBe(true);
+    // Only the binding that still resolves to a physical tag survives.
+    expect(migrated.map((r) => r.deviceId)).toEqual([null, 'AA:BB', null]);
   });
 });

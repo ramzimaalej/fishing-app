@@ -14,7 +14,11 @@
  */
 
 import { MAX_RODS } from '@/config/constants';
-import type { SensorKind } from '@/features/ble/deviceRegistry';
+import {
+  DEFAULT_SENSOR_KIND,
+  isSensorKind,
+  type SensorKind,
+} from '@/features/ble/deviceRegistry';
 
 export interface Rod {
   id: string;
@@ -78,9 +82,69 @@ export function defaultRodName(index: number): string {
 }
 
 /**
- * True when this rod can stream. Broadcast and GATT sensors both need a bound
- * device; the simulator does not, since it generates its own signal.
+ * True when this rod can stream. A broadcast sensor needs a bound device; the
+ * simulator does not, since it generates its own signal.
  */
 export function isRodArmable(rod: Rod, requiresDevice: boolean): boolean {
   return !requiresDevice || rod.deviceId !== null;
+}
+
+/**
+ * Rescue a rod whose sensor kind this build does not define.
+ *
+ * Rods are persisted, so an upgrading user can hold a kind that no longer exists
+ * ('minew', 'cp27', 'generic'). Left alone, `getSensorDevice` has nothing to
+ * return and arming the rod throws on the first property access — a crash on the
+ * Fishing tab, which is why this runs on every rehydrate and not only on a
+ * version bump.
+ *
+ * Bindings are kept ONLY where they still mean something. A 'minew' rod was
+ * bound to the MAC read out of the tag's own advertisement, which is exactly what
+ * the Castmate G spec keys on, so it still resolves to the same physical tag. A
+ * 'cp27' or 'generic' rod was bound to a platform peripheral id from a GATT
+ * connection; compared against a MAC that never matches, the rod would look like
+ * a dead sensor rather than an unpaired one, so those are cleared and the user is
+ * asked to pair again.
+ *
+ * Idempotent, and it leaves any CURRENTLY VALID kind alone — including 'mock'.
+ * Retiring the simulator is a one-time step; see retireSimulatorRod.
+ */
+export function normaliseRodSensorKind(rod: Rod): Rod {
+  if (isSensorKind(rod.sensorKind)) return rod;
+
+  const keepsBinding = (rod.sensorKind as string) === 'minew';
+  return {
+    ...rod,
+    sensorKind: DEFAULT_SENSOR_KIND,
+    deviceId: keepsBinding ? rod.deviceId : null,
+  };
+}
+
+/**
+ * Move a rod off the simulator — ONE TIME ONLY, on the version bump.
+ *
+ * 'mock' used to be the default kind for every rod this app created, so a stored
+ * simulator rod overwhelmingly means "never configured" rather than a deliberate
+ * choice. Now that the simulator is dev-only and the sensor picker is hidden from
+ * customers, leaving those rods alone would strand every existing user on
+ * invented data with no visible way out.
+ *
+ * This must NOT run on every rehydrate: a developer who picks the simulator in
+ * admin mode would have the choice silently reverted on the next launch. That is
+ * why it is separate from normaliseRodSensorKind rather than folded into it.
+ */
+export function retireSimulatorRod(rod: Rod): Rod {
+  if (rod.sensorKind !== 'mock') return rod;
+  // A simulator rod has no binding to preserve — it never had a device.
+  return { ...rod, sensorKind: DEFAULT_SENSOR_KIND, deviceId: null };
+}
+
+/** Every-launch normalisation: rescue unknown kinds, change nothing else. */
+export function normaliseRods(rods: readonly Rod[]): Rod[] {
+  return rods.map(normaliseRodSensorKind);
+}
+
+/** One-time upgrade from the multi-device build. */
+export function migrateRods(rods: readonly Rod[]): Rod[] {
+  return rods.map((r) => retireSimulatorRod(normaliseRodSensorKind(r)));
 }

@@ -45,7 +45,7 @@ const es: Translation = {
     sensor: 'Sensor',
     bigFish: '¡Pez grande!',
     nibble: 'Mordisco',
-    bitePeak: 'Pico {{peak}} g · {{confidence}} % de confianza',
+    bitePeak: 'Pico {{peak}}° · {{confidence}} % de confianza',
     liveBait: 'Modo cebo vivo',
     liveBaitHelp: 'Filtra el movimiento constante del cebo — se aplica a todas las cañas',
     status: {
@@ -58,6 +58,7 @@ const es: Translation = {
       reconnecting: 'Reconectando…',
       error: 'Error',
       calibrating: 'Calibrando',
+      armFailed: 'Fallo al armar — sin vigilar',
       ready: 'Listo',
     },
   },
@@ -185,7 +186,7 @@ const es: Translation = {
     emptyTitle: 'Aún no hay picadas registradas',
     emptySub:
       'Conecta tu sensor y empieza a pescar — las picadas detectadas aparecerán aquí.',
-    metrics: 'pico {{peak}} g · {{confidence}} % de confianza',
+    metrics: 'pico {{peak}}° · {{confidence}} % de confianza',
     addNote: 'Añadir una nota…',
     noteTitle: 'Nota',
     notePlaceholder: 'p. ej. trucha arcoíris, cucharilla',
@@ -215,8 +216,8 @@ const es: Translation = {
       'Las sesiones en blanco pasan. Consulta la pestaña Condiciones para encontrar el próximo buen momento.',
     timeline: 'Cronología de picadas',
     byRod: 'Por caña',
-    rodTally_one: '{{count}} picada · pico {{peak}} g',
-    rodTally_other: '{{count}} picadas · pico {{peak}} g',
+    rodTally_one: '{{count}} picada · pico {{peak}}°',
+    rodTally_other: '{{count}} picadas · pico {{peak}}°',
     breakdown: 'Detalle de las picadas',
     bigFish: 'Peces grandes',
     nibbles: 'Mordiscos',
@@ -341,9 +342,17 @@ const es: Translation = {
     unknown: 'Batería desconocida',
   },
 
+
+  signal: {
+    lostTitle: '⚠️ Señal del sensor perdida',
+    lostBody:
+      '{{rod}} ha dejado de responder — esta caña NO está siendo vigilada. Comprueba que el sensor esté en alcance y con batería.',
+    lostBanner: 'Señal perdida — esta caña no está siendo vigilada',
+  },
+
   chart: {
     waiting: 'Esperando datos del sensor…',
-    acceleration: 'Aceleración (g)',
+    acceleration: 'Desviación (°)',
     threshold: 'Umbral',
     smallBite: 'Picada pequeña',
     bigBite: 'Picada grande',

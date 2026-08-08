@@ -5,6 +5,10 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
+import AdminScreen from '@/features/admin/AdminScreen';
+import CalibrationScreen from '@/features/admin/CalibrationScreen';
+import DetectionSettingsScreen from '@/features/admin/DetectionSettingsScreen';
+import SnifferScreen from '@/features/admin/SnifferScreen';
 import { useAuth } from '@/features/auth/useAuth';
 import { useAuthStore } from '@/features/auth/authStore';
 import SignInScreen from '@/features/auth/screens/SignInScreen';
@@ -35,6 +39,10 @@ export type RootStackParamList = {
   Location: undefined;
   Rods: undefined;
   PairSensor: { rodId: string };
+  Admin: undefined;
+  Sniffer: undefined;
+  Calibration: undefined;
+  DetectionSettings: undefined;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -199,6 +207,29 @@ export default function RootNavigator() {
               title: t('rods.pairedSensor'),
               headerTintColor: colors.text,
             }}
+          />
+          {/* Developer data-capture console, reached from Settings. Registered
+              unconditionally — the code gate lives in the screen, so a locked
+              admin still renders its own prompt rather than a missing route. */}
+          <RootStack.Screen
+            name="Admin"
+            component={AdminScreen}
+            options={{ headerShown: true, title: 'Admin', headerTintColor: colors.text }}
+          />
+          <RootStack.Screen
+            name="Sniffer"
+            component={SnifferScreen}
+            options={{ headerShown: true, title: 'BLE sniffer', headerTintColor: colors.text }}
+          />
+          <RootStack.Screen
+            name="Calibration"
+            component={CalibrationScreen}
+            options={{ headerShown: true, title: 'Calibration', headerTintColor: colors.text }}
+          />
+          <RootStack.Screen
+            name="DetectionSettings"
+            component={DetectionSettingsScreen}
+            options={{ headerShown: true, title: 'Detection', headerTintColor: colors.text }}
           />
         </>
       ) : (

@@ -7,7 +7,7 @@ import { bleLog } from './debug';
  * Refcounted, shared BLE scan.
  *
  * react-native-ble-plx exposes exactly ONE global scan. Before multi-rod that
- * didn't matter — a single MinewSensorClient owned it outright. With several
+ * didn't matter — a single broadcast client owned it outright. With several
  * broadcast rods armed at once, each client calling startDeviceScan/
  * stopDeviceScan directly would break in two ways:
  *

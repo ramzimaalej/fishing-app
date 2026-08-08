@@ -9,6 +9,7 @@ import {
   SESSION_EXTENSION_HOURS,
 } from '@/config/constants';
 import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
+import BiteMarkButton from '@/features/admin/BiteMarkButton';
 import {
   cancelSessionNotifications,
   scheduleSessionNotifications,
@@ -108,17 +109,37 @@ function RodCard({
     <Pressable style={[styles.rodCard, selected && styles.rodCardSelected]} onPress={onPress}>
       <View style={styles.rodCardHeader}>
         <View
-          style={[styles.dot, { backgroundColor: STATUS_COLOR[view.status] ?? colors.textMuted }]}
+          style={[
+            styles.dot,
+            {
+              backgroundColor: view.signalLost
+                ? colors.danger
+                : (STATUS_COLOR[view.status] ?? colors.textMuted),
+            },
+          ]}
         />
         <Text style={styles.rodCardName} numberOfLines={1}>
           {name}
         </Text>
       </View>
       <Text style={styles.rodCardCount}>{view.biteCount}</Text>
-      <Text style={styles.rodCardLabel}>
-        {view.status === 'connected' && !view.isWarmedUp
-          ? t('fishing.status.calibrating')
-          : t(STATUS_KEY[view.status as keyof typeof STATUS_KEY] ?? 'fishing.status.idle')}
+      <Text
+        style={[
+          styles.rodCardLabel,
+          (view.signalLost || view.armFailReason) && styles.rodCardLabelAlarm,
+        ]}
+      >
+        {/* Signal loss outranks every other label: a rod that is not being
+            watched must not read as "connected". */}
+        {view.signalLost
+          ? t('signal.lostBanner')
+          : view.armFailReason
+            ? t('fishing.status.armFailed')
+            : view.arming
+              ? t('fishing.status.calibrating')
+              : view.status === 'connected' && !view.isWarmedUp
+                ? t('fishing.status.calibrating')
+                : t(STATUS_KEY[view.status as keyof typeof STATUS_KEY] ?? 'fishing.status.idle')}
       </Text>
       {view.device?.battery != null && (
         <Text style={[styles.rodCardBattery, { color: batteryColor(view.device.battery) }]}>
@@ -321,7 +342,7 @@ export default function FishingScreen() {
               <Stat label={t('fishing.bites')} value={String(selectedView.biteCount)} />
               <Stat
                 label={t('fishing.threshold')}
-                value={`${selectedView.threshold.toFixed(2)} g`}
+                value={`${selectedView.threshold.toFixed(1)}°`}
               />
               <Stat
                 label={t('fishing.sensor')}
@@ -358,6 +379,13 @@ export default function FishingScreen() {
           <SensitivitySlider value={settings.sensitivity} onChange={setSensitivity} />
         </View>
       </ScrollView>
+
+      {/* Pinned outside the ScrollView, so the mark button stays under the thumb
+          wherever the user has scrolled to. It renders nothing unless an admin
+          capture is running. */}
+      <View style={styles.markDock} pointerEvents="box-none">
+        <BiteMarkButton rodId={selected} rodName={selectedRod?.name ?? ''} />
+      </View>
     </SafeAreaView>
   );
 }
@@ -529,6 +557,7 @@ const styles = StyleSheet.create({
   rodCardName: { ...typography.caption, color: colors.text, flex: 1, fontWeight: '600' },
   rodCardCount: { ...typography.h2, color: colors.primary },
   rodCardLabel: { ...typography.caption, color: colors.textMuted },
+  rodCardLabelAlarm: { color: colors.danger, fontWeight: '700' },
   rodCardBattery: { ...typography.caption, color: colors.textMuted },
   addRodCard: {
     width: 104,
@@ -574,6 +603,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.sm,
+  },
+  markDock: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    bottom: spacing.md,
   },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   switchTitle: { ...typography.h3, color: colors.text },
