@@ -50,7 +50,19 @@ function RodRow({
   const rods = useRodStore((s) => s.rods);
   // Subscribed, not read imperatively: the label must update when the rod is
   // armed or disarmed from the Fishing screen.
-  const armed = useRodRuntimeStore((s) => Boolean(s.views[rod.id]));
+  // Not merely "is there a runtime": a rod is in the runtime from the moment
+  // arming starts and stays there when its tag goes silent, so this read "armed"
+  // for rods nothing was watching.
+  const view = useRodRuntimeStore((s) => s.views[rod.id]);
+  const armState = !view
+    ? null
+    : view.signalLost
+      ? 'signalLost'
+      : view.armFailReason
+        ? 'armFailed'
+        : view.arming || !view.isWarmedUp
+          ? 'arming'
+          : 'armed';
   // Battery only exists while the rod is armed and the sensor has reported it.
   const battery = useRodRuntimeStore((s) => s.views[rod.id]?.device?.battery ?? null);
   const { t } = useTranslation();
@@ -85,7 +97,15 @@ function RodRow({
           </View>
           <Text style={styles.rodSub}>
             {dev.label}
-            {armed ? ` · ${t('rods.armed')}` : ''}
+            {armState === 'armed'
+              ? ` · ${t('rods.armed')}`
+              : armState === 'signalLost'
+                ? ` · ${t('fishing.status.notWatching')}`
+                : armState === 'armFailed'
+                  ? ` · ${t('fishing.status.armFailed')}`
+                  : armState === 'arming'
+                    ? ` · ${t('fishing.status.calibrating')}`
+                    : ''}
           </Text>
           {/* Surfaced here too: this is the screen you check before a session,
               which is the moment a flat battery is still fixable. */}

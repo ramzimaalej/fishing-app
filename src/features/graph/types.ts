@@ -8,6 +8,6 @@ export interface AccelPoint {
    * chart for no behavioural gain, but the unit is degrees.
    */
   dynamic: number;
-  /** The detector's adaptive threshold at this sample. */
+  /** Deflection threshold in DEGREES at this sample. Fixed, not adaptive. */
   threshold: number;
 }

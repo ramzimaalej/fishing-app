@@ -82,7 +82,15 @@ export const useDeviceStore = create<DeviceState>()(
       scanning: false,
 
       pair: (device) =>
-        set((s) => ({
+        set((s) => {
+          // Remove from `discovered` as it moves to `paired`. Leaving it in both
+          // made resolvePending see two matches for one physical tag, declare it
+          // ambiguous, and skip the request on every tick forever — while the UI
+          // claimed "2 tags in range share this code" about a single tag.
+          const discovered = { ...s.discovered };
+          delete discovered[device.id];
+          return {
+          discovered,
           paired: {
             ...s.paired,
             [device.id]: s.paired[device.id] ?? {
@@ -99,7 +107,8 @@ export const useDeviceStore = create<DeviceState>()(
               poweredOffAt: null,
             },
           },
-        })),
+          };
+        }),
 
       requestPair: (code, rodId) => {
         if (!isPlausibleCode(code)) return false;
@@ -278,10 +287,13 @@ function publish(): void {
         rssi: seen.rssi,
         connectionId: seen.connectionId,
         // Advertisements never carry a battery level on this hardware, so a
-        // GATT reading must survive them. `?? device.battery` alone would be
-        // enough today; being explicit stops a future frame with a battery field
-        // silently overwriting a fresher connected reading.
+        // GATT reading must survive them. When a frame DOES carry one (the Minew
+        // layout does), it is accepted but must also restamp batteryReadAt —
+        // otherwise a live percentage kept a null timestamp and rendered as
+        // "read never" while being greyed out as stale.
         battery: seen.battery ?? device.battery,
+        batteryReadAt:
+          seen.battery !== null ? seen.lastSeenAt : device.batteryReadAt,
         // Hearing from a tag settles the question: it is not off. Clearing this
         // is what stops "powered off" persisting after the user switches it back
         // on by hand.
@@ -314,10 +326,7 @@ export function resolvePending(): void {
   const state = useDeviceStore.getState();
   if (state.pending.length === 0) return;
 
-  const seen = [
-    ...Object.values(state.discovered).map((d) => ({ id: d.id, name: d.name })),
-    ...Object.values(state.paired).map((d) => ({ id: d.id, name: d.name })),
-  ];
+  const seen = uniqueById(state);
 
   for (const request of state.pending) {
     const matches = seen.filter((d) => codeMatchesDevice(request.code, d.id, d.name));
@@ -333,12 +342,26 @@ export function resolvePending(): void {
 
 /** Tags in range matching a pending code — for the ambiguous case. */
 export function pendingCandidates(code: string): { id: string; name: string }[] {
-  const state = useDeviceStore.getState();
-  const seen = [
-    ...Object.values(state.discovered).map((d) => ({ id: d.id, name: d.name })),
-    ...Object.values(state.paired).map((d) => ({ id: d.id, name: d.name })),
-  ];
-  return seen.filter((d) => codeMatchesDevice(code, d.id, d.name));
+  return uniqueById(useDeviceStore.getState()).filter((d) =>
+    codeMatchesDevice(code, d.id, d.name),
+  );
+}
+
+/**
+ * Every tag known right now, each appearing ONCE.
+ *
+ * De-duplicated by id because a tag can legitimately be in both maps for a tick,
+ * and counting it twice turns a single tag into a false ambiguity that blocks
+ * pairing permanently.
+ */
+function uniqueById(state: {
+  discovered: Record<string, DiscoveredDevice>;
+  paired: Record<string, PairedDevice>;
+}): { id: string; name: string }[] {
+  const byId = new Map<string, { id: string; name: string }>();
+  for (const d of Object.values(state.discovered)) byId.set(d.id, { id: d.id, name: d.name });
+  for (const d of Object.values(state.paired)) byId.set(d.id, { id: d.id, name: d.name });
+  return [...byId.values()];
 }
 
 export function stopDeviceWatch(): void {

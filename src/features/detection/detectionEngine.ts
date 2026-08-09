@@ -75,8 +75,25 @@ export class DetectionEngine {
     this.params = params;
   }
 
+  /**
+   * Apply new parameters, standing down any alarm raised under the old ones.
+   *
+   * Without the stand-down, raising the threshold mid-alert stranded the rod:
+   * the reset check needs theta below (newThreshold x 0.6), which a load sitting
+   * between the old and new thresholds never satisfies — no reset, no further
+   * alerts, and the baseline (now unfrozen, since the load is under the new
+   * threshold) quietly ate the real deflection over the following minute.
+   *
+   * Dropping to ARMED is honest rather than lossy: an alarm raised under
+   * different rules says nothing about the new ones, and if the load still
+   * qualifies it re-alarms within one dwell.
+   */
   setParams(params: DetectionParams): void {
     this.params = params;
+    if (this.state === 'ALERT_HOOKED') this.state = 'ARMED';
+    this.belowSinceMs = null;
+    this.dwellStartMs = null;
+    this.lastAboveMs = null;
   }
 
   getState(): DetectionState {

@@ -46,7 +46,10 @@ const fr: Translation = {
     sensor: 'Capteur',
     bigFish: 'Gros poisson !',
     nibble: 'Petite touche',
-    bitePeak: 'Pic {{peak}}° · {{confidence}} % de confiance',
+    bitePeak: 'Pic {{peak}}°',
+    watchingCount: '{{watching}} cannes sur {{total}} surveillées',
+    impactTitle: 'Canne heurtée, ou départ',
+    impactBody: 'Mouvement brusque avec accélération réelle. Un poisson qui part et un choc se ressemblent — vérifiez.',
     liveBait: 'Mode vif',
     liveBaitHelp: "Filtre l'agitation constante du vif — s'applique à toutes les cannes",
     status: {
@@ -59,6 +62,7 @@ const fr: Translation = {
       reconnecting: 'Reconnexion…',
       error: 'Erreur',
       calibrating: 'Calibrage',
+      notWatching: 'Non surveillée',
       armFailed: 'Échec de l’armement — non surveillée',
       ready: 'Prêt',
     },
@@ -188,7 +192,7 @@ const fr: Translation = {
     emptyTitle: 'Aucune touche enregistrée',
     emptySub:
       'Connectez votre capteur et commencez à pêcher — les touches détectées apparaîtront ici.',
-    metrics: 'pic {{peak}}° · {{confidence}} % de confiance',
+    metrics: 'pic {{peak}}°',
     addNote: 'Ajouter une note…',
     noteTitle: 'Note',
     notePlaceholder: 'ex. truite arc-en-ciel, cuillère tournante',
@@ -280,6 +284,7 @@ const fr: Translation = {
     alerts: 'Alertes',
     vibration: 'Vibration',
     sound: 'Son',
+    soundUnavailable: 'Aucun son d’alerte dans cette version — les alertes vibrent et notifient.',
     preview: 'Écouter',
     push: 'Notifications',
     pushHelp: 'Recevez une notification dès qu’une touche est détectée.',
@@ -358,6 +363,7 @@ const fr: Translation = {
 
   chart: {
     waiting: 'En attente des données du capteur…',
+    stale: 'Aucune donnée depuis {{seconds}} s — canne non surveillée',
     acceleration: 'Déviation (°)',
     threshold: 'Seuil',
     smallBite: 'Petite touche',

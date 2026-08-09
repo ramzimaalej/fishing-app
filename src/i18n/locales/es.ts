@@ -45,7 +45,10 @@ const es: Translation = {
     sensor: 'Sensor',
     bigFish: '¡Pez grande!',
     nibble: 'Mordisco',
-    bitePeak: 'Pico {{peak}}° · {{confidence}} % de confianza',
+    bitePeak: 'Pico {{peak}}°',
+    watchingCount: '{{watching}} de {{total}} cañas vigiladas',
+    impactTitle: 'Caña golpeada, o carrera',
+    impactBody: 'Movimiento brusco con aceleración real. Un pez corriendo y un golpe se parecen — compruébalo.',
     liveBait: 'Modo cebo vivo',
     liveBaitHelp: 'Filtra el movimiento constante del cebo — se aplica a todas las cañas',
     status: {
@@ -58,6 +61,7 @@ const es: Translation = {
       reconnecting: 'Reconectando…',
       error: 'Error',
       calibrating: 'Calibrando',
+      notWatching: 'Sin vigilar',
       armFailed: 'Fallo al armar — sin vigilar',
       ready: 'Listo',
     },
@@ -186,7 +190,7 @@ const es: Translation = {
     emptyTitle: 'Aún no hay picadas registradas',
     emptySub:
       'Conecta tu sensor y empieza a pescar — las picadas detectadas aparecerán aquí.',
-    metrics: 'pico {{peak}}° · {{confidence}} % de confianza',
+    metrics: 'pico {{peak}}°',
     addNote: 'Añadir una nota…',
     noteTitle: 'Nota',
     notePlaceholder: 'p. ej. trucha arcoíris, cucharilla',
@@ -278,6 +282,7 @@ const es: Translation = {
     alerts: 'Avisos',
     vibration: 'Vibración',
     sound: 'Sonido',
+    soundUnavailable: 'Esta versión no incluye sonidos — las alertas vibran y notifican.',
     preview: 'Escuchar',
     push: 'Notificaciones',
     pushHelp: 'Recibe una notificación en cuanto se detecte una picada.',
@@ -355,6 +360,7 @@ const es: Translation = {
 
   chart: {
     waiting: 'Esperando datos del sensor…',
+    stale: 'Sin datos desde hace {{seconds}} s — caña sin vigilar',
     acceleration: 'Desviación (°)',
     threshold: 'Umbral',
     smallBite: 'Picada pequeña',

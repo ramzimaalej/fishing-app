@@ -18,14 +18,12 @@ import { useNavigation } from '@react-navigation/native';
 import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, type LanguagePreference } from '@/i18n';
 import { useLanguagePreference, useLanguageStore } from '@/i18n/languageStore';
 
-import { FREE_SOUND_COUNT, NOTIFICATION_SOUNDS } from '@/config/constants';
 import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
 import { useAdminStore } from '@/features/admin/adminStore';
 import { appVersion } from '@/features/admin/storage';
 import { useAuthStore } from '@/features/auth/authStore';
-import { playSoundPreview, requestNotificationPermissions } from '@/features/notifications/feedback';
+import { requestNotificationPermissions } from '@/features/notifications/feedback';
 import { useSubscriptionStore } from '@/features/subscription/subscriptionStore';
-import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { colors, radius, spacing, typography } from '@/theme';
 
 import SensitivitySlider from './components/SensitivitySlider';
@@ -40,7 +38,6 @@ export default function SettingsScreen() {
   const setLiveBaitMode = useSettingsStore((s) => s.setLiveBaitMode);
   const setVibration = useSettingsStore((s) => s.setVibration);
   const setSoundEnabled = useSettingsStore((s) => s.setSoundEnabled);
-  const setSoundKey = useSettingsStore((s) => s.setSoundKey);
   const setPushEnabled = useSettingsStore((s) => s.setPushEnabled);
   const reset = useSettingsStore((s) => s.reset);
 
@@ -51,9 +48,7 @@ export default function SettingsScreen() {
   const purchasing = useSubscriptionStore((s) => s.purchasing);
   const user = useAuthStore((s) => s.user);
   const signOut = useAuthStore((s) => s.signOut);
-  const { has } = useEntitlements();
 
-  const allSounds = has('sound-pack');
   const [requesting, setRequesting] = useState(false);
 
   /**
@@ -154,52 +149,22 @@ export default function SettingsScreen() {
         <View style={styles.divider} />
 
         <View style={styles.row}>
-          <Text style={styles.rowLabel}>{t('settings.sound')}</Text>
+          <View style={styles.rowText}>
+            <Text style={styles.rowLabel}>{t('settings.sound')}</Text>
+            {/* No audio ships in this build: SOUND_ASSETS is empty and every
+                request degrades to a haptic tick. Selling a picker, a Preview
+                button and a paywall line for sounds nobody can hear is the
+                worst kind of overstatement in an alarm app. */}
+            <Text style={styles.rowHelp}>{t('settings.soundUnavailable')}</Text>
+          </View>
           <Switch
-            value={settings.soundEnabled}
+            value={false}
+            disabled
             onValueChange={setSoundEnabled}
             trackColor={{ true: colors.primary, false: colors.surfaceAlt }}
             thumbColor={colors.text}
           />
         </View>
-
-        {settings.soundEnabled && (
-          <View style={styles.soundList}>
-            {NOTIFICATION_SOUNDS.map((sound, i) => {
-              const selected = sound.key === settings.soundKey;
-              // The first FREE_SOUND_COUNT sounds are always available; the rest
-              // need premium. Preview stays open for every sound — hearing it
-              // is what sells the upgrade.
-              const locked = !allSounds && i >= FREE_SOUND_COUNT;
-              return (
-                <View key={sound.key} style={styles.soundRow}>
-                  <TouchableOpacity
-                    style={styles.soundSelect}
-                    onPress={() =>
-                      locked && SUBSCRIPTIONS_ENABLED
-                        ? navigation.navigate('Paywall')
-                        : setSoundKey(sound.key)
-                    }
-                  >
-                    <Text style={[styles.check, selected && styles.checkOn]}>
-                      {locked ? '🔒' : selected ? '●' : '○'}
-                    </Text>
-                    <Text style={[styles.soundLabel, locked && styles.soundLabelLocked]}>
-                      {sound.label}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.previewBtn}
-                    onPress={() => playSoundPreview(sound.key)}
-                  >
-                    <Text style={styles.previewText}>{t('settings.preview')}</Text>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
-
-          </View>
-        )}
 
         <View style={styles.divider} />
 

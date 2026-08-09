@@ -7,7 +7,12 @@
  */
 
 import { DetectionEngine } from '../detectionEngine';
-import { DEFAULT_DETECTION_PARAMS, MAX_DT_FOR_RATE_MS } from '../detectionParams';
+import {
+  ARMING_DURATION_MS,
+  DEFAULT_DETECTION_PARAMS,
+  MAX_DT_FOR_RATE_MS,
+} from '../detectionParams';
+import { RodDetector } from '../rodDetector';
 import { alerted, runSession } from '../testkit/runSession';
 import {
   constantAngle,
@@ -334,5 +339,110 @@ describe('signal loss', () => {
   it('does not fire while idle — an unarmed rod is not being watched', () => {
     const engine = new DetectionEngine(DEFAULT_DETECTION_PARAMS);
     expect(engine.tick(200_000)).toHaveLength(0);
+  });
+});
+
+describe('arming', () => {
+  // This path had NO coverage: runSession constructs the extractor with a
+  // perfect baseline and calls engine.arm() directly, so computeArming, the
+  // ARMING→WATCHING transition and every refusal below were never exercised.
+  const stillWindow = (deg = 0) =>
+    generateStream({
+      durationMs: ARMING_DURATION_MS + 5_000,
+      angleAt: constantAngle(deg),
+      seed: 31,
+    });
+
+  it('arms from a still rod and starts watching', () => {
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    let phase = detector.getPhase();
+    for (const s of stillWindow()) phase = detector.process(s).phase;
+
+    expect(phase).toBe('WATCHING');
+    expect(detector.getArmFailReason()).toBeNull();
+  });
+
+  it('refuses a rod that was being swung, rather than baselining the swing', () => {
+    // The old coherence gate passed a ±60° sweep — nearly seven times the
+    // detection threshold — and returned the mean of it as "at rest".
+    const swung = generateStream({
+      durationMs: ARMING_DURATION_MS + 5_000,
+      angleAt: triangleWave({ amplitudeDeg: 60, rampMs: 1500, alternate: true }),
+      seed: 32,
+    });
+
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    let phase = detector.getPhase();
+    for (const s of swung) phase = detector.process(s).phase;
+
+    expect(phase).toBe('ARM_FAILED');
+    expect(detector.getArmFailReason()).toMatch(/moved too much/i);
+  });
+
+  it('still arms through swell, which the window exists to observe', () => {
+    const swell = generateStream({
+      durationMs: ARMING_DURATION_MS + 5_000,
+      angleAt: triangleWave({ amplitudeDeg: 12, rampMs: 2000, alternate: true }),
+      seed: 33,
+    });
+
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    let phase = detector.getPhase();
+    for (const s of swell) phase = detector.process(s).phase;
+
+    expect(phase).toBe('WATCHING');
+  });
+
+  it('discards casts and knocks rather than baselining them', () => {
+    // A 4 s cast inside an otherwise still window tilted the baseline 3.75° —
+    // 42% of the threshold — for the entire session.
+    const withCast = generateStream({
+      durationMs: ARMING_DURATION_MS + 5_000,
+      angleAt: (t) => (t > 20_000 && t < 24_000 ? 70 : 0),
+      magnitudeAt: (t) => (t > 20_000 && t < 24_000 ? 2800 : 1000),
+      seed: 34,
+    });
+
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    for (const s of withCast) detector.process(s);
+    expect(detector.getPhase()).toBe('WATCHING');
+
+    // Baseline must be the rest attitude, so a later real load reads its true size.
+    const t0 = withCast[withCast.length - 1]!.tMonotonicMs;
+    const loaded = generateStream({
+      durationMs: 8_000,
+      angleAt: constantAngle(13),
+      startMs: t0 + 100,
+      seed: 35,
+    });
+    const thetas = loaded.map((s) => detector.process(s).frame?.thetaDeg ?? 0);
+    expect(Math.max(...thetas)).toBeGreaterThan(11);
+  });
+
+  it('reports SIGNAL_LOST if the tag dies mid-arming, not "calibrating" forever', () => {
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    const partial = generateStream({ durationMs: 10_000, angleAt: constantAngle(0), seed: 36 });
+    for (const s of partial) detector.process(s);
+    expect(detector.getPhase()).toBe('ARMING');
+
+    const last = partial[partial.length - 1]!.tMonotonicMs;
+    expect(detector.tick(last + 3_000)).toHaveLength(0);
+    const events = detector.tick(last + 6_000);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.type).toBe('SIGNAL_LOST');
+  });
+});
+
+describe('parameters changing mid-session', () => {
+  it('stands down an alarm raised under the old threshold', () => {
+    // Raising the threshold used to strand the rod in ALERT_HOOKED: the reset
+    // needed theta below newThreshold*0.6, which a load between the old and new
+    // thresholds never reaches, so no reset and no further alerts could occur.
+    const engine = new DetectionEngine(DEFAULT_DETECTION_PARAMS);
+    engine.arm(100_000);
+    expect(engine.getState()).toBe('ARMED');
+
+    engine.setParams({ ...DEFAULT_DETECTION_PARAMS, thetaDeg: 20 });
+    expect(engine.getState()).toBe('ARMED');
   });
 });
