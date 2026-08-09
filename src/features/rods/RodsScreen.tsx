@@ -17,7 +17,17 @@ import { MAX_RODS } from '@/config/constants';
 import { useAdminStore } from '@/features/admin/adminStore';
 import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import { getSensorDevice, listSensorDevices } from '@/features/ble/deviceRegistry';
-import { colors, radius, spacing, typography } from '@/theme';
+import {
+  colors,
+  radius,
+  ROD_COLOUR_KEYS,
+  rodColours,
+  type RodColour,
+  spacing,
+  typography,
+} from '@/theme';
+
+import { printedCode } from '@/features/devices/deviceCode';
 
 import { canAddRod, type Rod } from './rod';
 import { useRodRuntimeStore } from './rodRuntime';
@@ -68,7 +78,11 @@ function RodRow({
     <View style={styles.card}>
       <View style={styles.rowHeader}>
         <Pressable style={{ flex: 1 }} onPress={() => onRename(rod)}>
-          <Text style={styles.rodName}>{rod.name}</Text>
+          <View style={styles.rodNameRow}>
+            <View style={[styles.rodSwatch, { backgroundColor: rodColours[rod.colour] }]} />
+            <Text style={styles.rodName}>{rod.name}</Text>
+            {rod.deviceId && <Text style={styles.rodTag}>{printedCode(rod.deviceId)}</Text>}
+          </View>
           <Text style={styles.rodSub}>
             {dev.label}
             {armed ? ` · ${t('rods.armed')}` : ''}
@@ -158,6 +172,8 @@ export default function RodsScreen() {
 
   const [editing, setEditing] = useState<Rod | null>(null);
   const [draftName, setDraftName] = useState('');
+  const [draftColour, setDraftColour] = useState<RodColour>(ROD_COLOUR_KEYS[0]!);
+  const setColour = useRodStore((s) => s.setColour);
 
   const verdict = canAddRod(rods.length);
 
@@ -179,10 +195,14 @@ export default function RodsScreen() {
   const openRename = (rod: Rod) => {
     setEditing(rod);
     setDraftName(rod.name);
+    setDraftColour(rod.colour);
   };
 
   const saveName = () => {
-    if (editing) renameRod(editing.id, draftName);
+    if (editing) {
+      renameRod(editing.id, draftName);
+      setColour(editing.id, draftColour);
+    }
     setEditing(null);
   };
 
@@ -215,6 +235,10 @@ export default function RodsScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{t('rods.nameTitle')}</Text>
+            <Text style={styles.modalHint}>
+              Name it after the rod, and give it a colour — on the water the question is
+              which rod just went off, and a colour answers faster than reading.
+            </Text>
             <TextInput
               style={styles.input}
               value={draftName}
@@ -224,6 +248,22 @@ export default function RodsScreen() {
               autoFocus
               maxLength={40}
             />
+            <View style={styles.colourRow}>
+              {ROD_COLOUR_KEYS.map((key) => (
+                <Pressable
+                  key={key}
+                  style={[
+                    styles.colourDot,
+                    { backgroundColor: rodColours[key] },
+                    draftColour === key && styles.colourDotOn,
+                  ]}
+                  onPress={() => setDraftColour(key)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Colour ${key}`}
+                />
+              ))}
+            </View>
+
             <View style={styles.modalActions}>
               <Pressable style={styles.modalBtn} onPress={() => setEditing(null)}>
                 <Text style={styles.modalBtnText}>{t('common.cancel')}</Text>
@@ -255,6 +295,13 @@ const styles = StyleSheet.create({
   },
   rowHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   rodName: { ...typography.h3, color: colors.text },
+  rodNameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  rodSwatch: { width: 12, height: 12, borderRadius: 6 },
+  rodTag: { ...typography.caption, color: colors.primary, fontWeight: '800', letterSpacing: 1 },
+  modalHint: { ...typography.caption, color: colors.textMuted, marginBottom: spacing.sm },
+  colourRow: { flexDirection: 'row', gap: spacing.md, marginVertical: spacing.md, justifyContent: 'center' },
+  colourDot: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: 'transparent' },
+  colourDotOn: { borderColor: colors.text },
   rodSub: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
   rodBattery: { ...typography.caption, marginTop: 2, fontWeight: '600' },
   divider: { height: 1, backgroundColor: colors.border },

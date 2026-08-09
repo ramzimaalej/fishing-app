@@ -3,7 +3,11 @@ import { AppState } from 'react-native';
 
 import { useAuthStore } from '@/features/auth/authStore';
 import { rodActivity, type RodActivity } from '@/features/devices/device';
-import { startDeviceWatch, useDeviceStore } from '@/features/devices/deviceStore';
+import {
+  setRodBinder,
+  startDeviceWatch,
+  useDeviceStore,
+} from '@/features/devices/deviceStore';
 import { cancelSessionNotifications } from '@/features/notifications/feedback';
 import { useFishingSessionStore } from '@/features/session/fishingSessionStore';
 import { isExpired } from '@/features/session/sessionLimit';
@@ -119,6 +123,10 @@ export function useRodRuntimeBridge(): void {
   // would keep reading as ready until the user happened to open that screen.
   useEffect(() => {
     startDeviceWatch();
+    // Injected rather than imported by the device store, which would otherwise
+    // depend on rodStore and create a cycle.
+    setRodBinder((rodId, deviceId) => useRodStore.getState().setDeviceId(rodId, deviceId));
+    return () => setRodBinder(null);
   }, []);
 
   useEffect(() => {

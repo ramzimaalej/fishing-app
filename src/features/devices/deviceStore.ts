@@ -15,6 +15,7 @@ import { getSensorDevice } from '@/features/ble/deviceRegistry';
 import type { BroadcastAdvertisement } from '@/features/ble/BroadcastSensorClient';
 
 import { normaliseDeviceId, type PairedDevice } from './device';
+import { codeMatchesDevice, isPlausibleCode, normaliseCode } from './deviceCode';
 
 /** UI publish cadence — never once per advertisement. */
 const PUBLISH_MS = 1000;
@@ -28,14 +29,34 @@ export interface DiscoveredDevice {
   battery: number | null;
 }
 
+/** A code the user typed, waiting for the matching tag to be heard. */
+export interface PendingPair {
+  code: string;
+  /** Rod to bind it to once found, if they started from a rod. */
+  rodId: string | null;
+  requestedAt: number;
+}
+
 interface DeviceState {
   /** Paired tags, keyed by id. Persisted. */
   paired: Record<string, PairedDevice>;
+  /**
+   * Codes awaiting their tag.
+   *
+   * The printed code is the last four digits of a MAC and the tags share no
+   * common prefix, so a code cannot be turned INTO an address — it can only be
+   * matched against something heard on air. Remembering it means the user types
+   * it once at the car and it binds when they reach the rod.
+   */
+  pending: PendingPair[];
   /** Tags seen in the current scan and not paired. Not persisted. */
   discovered: Record<string, DiscoveredDevice>;
   scanning: boolean;
 
   pair: (device: DiscoveredDevice) => void;
+  /** Queue a printed code; binds when a matching tag is heard. */
+  requestPair: (code: string, rodId: string | null) => boolean;
+  cancelPending: (code: string) => void;
   /** Pair a tag by typed id, before it has ever been seen. */
   pairById: (rawId: string, name?: string) => PairedDevice;
   unpair: (id: string) => void;
@@ -54,6 +75,7 @@ export const useDeviceStore = create<DeviceState>()(
   persist(
     (set, get) => ({
       paired: {},
+      pending: [],
       discovered: {},
       scanning: false,
 
@@ -75,6 +97,21 @@ export const useDeviceStore = create<DeviceState>()(
             },
           },
         })),
+
+      requestPair: (code, rodId) => {
+        if (!isPlausibleCode(code)) return false;
+        const normalised = normaliseCode(code);
+        set((s) => ({
+          pending: [
+            ...s.pending.filter((p) => p.code !== normalised),
+            { code: normalised, rodId, requestedAt: Date.now() },
+          ],
+        }));
+        return true;
+      },
+
+      cancelPending: (code) =>
+        set((s) => ({ pending: s.pending.filter((p) => p.code !== normaliseCode(code)) })),
 
       pairById: (rawId, name) => {
         const id = normaliseDeviceId(rawId);
@@ -147,6 +184,9 @@ export const useDeviceStore = create<DeviceState>()(
       storage: createJSONStorage(() => AsyncStorage),
       // Liveness is deliberately excluded — see the module note.
       partialize: (s) => ({
+        // Pending requests persist: typing a code at the car and walking to the
+        // rod is the whole point, and the app may be backgrounded in between.
+        pending: s.pending,
         paired: Object.fromEntries(
           Object.entries(s.paired).map(([id, d]) => [
             id,
@@ -235,8 +275,57 @@ function publish(): void {
         poweredOffAt: null,
       };
     }
-    return { paired: nextPaired, discovered: { ...s.discovered, ...discovered } };
+    const nextDiscovered = { ...s.discovered, ...discovered };
+    return { paired: nextPaired, discovered: nextDiscovered };
   });
+
+  resolvePending();
+}
+
+/** Rod binder, injected so this store stays free of a dependency on rodStore. */
+let bindRodDevice: ((rodId: string, deviceId: string) => void) | null = null;
+
+export function setRodBinder(fn: ((rodId: string, deviceId: string) => void) | null): void {
+  bindRodDevice = fn;
+}
+
+/**
+ * Complete any pending code whose tag has now been heard.
+ *
+ * A code matching MORE THAN ONE tag in range is left pending rather than
+ * resolved: the printed code is only four digits of a MAC, two tags can share
+ * one, and binding whichever arrived first would be the wrong tag with nothing
+ * to indicate it. The UI shows the candidates and asks.
+ */
+export function resolvePending(): void {
+  const state = useDeviceStore.getState();
+  if (state.pending.length === 0) return;
+
+  const seen = [
+    ...Object.values(state.discovered).map((d) => ({ id: d.id, name: d.name })),
+    ...Object.values(state.paired).map((d) => ({ id: d.id, name: d.name })),
+  ];
+
+  for (const request of state.pending) {
+    const matches = seen.filter((d) => codeMatchesDevice(request.code, d.id, d.name));
+    if (matches.length !== 1) continue;
+
+    const match = matches[0]!;
+    const discovered = useDeviceStore.getState().discovered[match.id];
+    if (discovered) useDeviceStore.getState().pair(discovered);
+    if (request.rodId) bindRodDevice?.(request.rodId, match.id);
+    useDeviceStore.getState().cancelPending(request.code);
+  }
+}
+
+/** Tags in range matching a pending code — for the ambiguous case. */
+export function pendingCandidates(code: string): { id: string; name: string }[] {
+  const state = useDeviceStore.getState();
+  const seen = [
+    ...Object.values(state.discovered).map((d) => ({ id: d.id, name: d.name })),
+    ...Object.values(state.paired).map((d) => ({ id: d.id, name: d.name })),
+  ];
+  return seen.filter((d) => codeMatchesDevice(code, d.id, d.name));
 }
 
 export function stopDeviceWatch(): void {

@@ -16,6 +16,24 @@ export const colors = {
   success: '#54C46A',
 } as const;
 
+/**
+ * Per-rod identity colours.
+ *
+ * Chosen to stay distinguishable at a glance on a dark screen in daylight, and
+ * to differ in LIGHTNESS as well as hue so red-green colour blindness does not
+ * collapse two rods into one. Colour is an aid, never the only signal — every
+ * place a rod is coloured also shows its name.
+ */
+export const rodColours = {
+  teal: '#2EC4B6',
+  amber: '#FF9F1C',
+  violet: '#B084F5',
+  rose: '#F45B69',
+} as const;
+
+export type RodColour = keyof typeof rodColours;
+export const ROD_COLOUR_KEYS = Object.keys(rodColours) as RodColour[];
+
 export const spacing = {
   xs: 4,
   sm: 8,

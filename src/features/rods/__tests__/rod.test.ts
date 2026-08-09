@@ -1,4 +1,5 @@
 import { MAX_RODS } from '@/config/constants';
+import { ROD_COLOUR_KEYS, type RodColour } from '@/theme';
 import type { SensorKind } from '@/features/ble/deviceRegistry';
 
 import {
@@ -7,6 +8,7 @@ import {
   defaultRodName,
   isRodArmable,
   migrateRods,
+  nextRodColour,
   normaliseRodName,
   normaliseRods,
   normaliseRodSensorKind,
@@ -21,6 +23,7 @@ function rod(overrides: Partial<Rod> = {}): Rod {
     sensorKind: overrides.sensorKind ?? ('mock' as SensorKind),
     deviceId: overrides.deviceId ?? null,
     enabled: overrides.enabled ?? true,
+    colour: overrides.colour ?? 'teal',
     createdAt: overrides.createdAt ?? 0,
   };
 }
@@ -249,5 +252,52 @@ describe('migrateRods — the full one-time upgrade', () => {
     expect(migrated.every((r) => r.sensorKind === 'castmate-g')).toBe(true);
     // Only the binding that still resolves to a physical tag survives.
     expect(migrated.map((r) => r.deviceId)).toEqual([null, 'AA:BB', null]);
+  });
+});
+
+describe('nextRodColour', () => {
+  it('gives the first colour to the first rod', () => {
+    expect(nextRodColour([])).toBe(ROD_COLOUR_KEYS[0]);
+  });
+
+  it('never repeats while unused colours remain', () => {
+    const chosen: RodColour[] = [];
+    for (let i = 0; i < ROD_COLOUR_KEYS.length; i += 1) {
+      chosen.push(nextRodColour(chosen));
+    }
+    expect(new Set(chosen).size).toBe(ROD_COLOUR_KEYS.length);
+  });
+
+  it('picks the least-used colour once the palette is exhausted', () => {
+    const all = [...ROD_COLOUR_KEYS];
+    // Every colour used once, plus a second of the first: the next rod must not
+    // take that one again.
+    expect(nextRodColour([...all, all[0]!])).not.toBe(all[0]);
+  });
+
+  it('avoids a colour already on screen after a delete and re-add', () => {
+    // Index-based round-robin fails here: delete rod 2 of 3, add a new one, and
+    // an index scheme hands back a colour still in use.
+    const remaining: RodColour[] = [ROD_COLOUR_KEYS[0]!, ROD_COLOUR_KEYS[2]!];
+    expect(remaining).not.toContain(nextRodColour(remaining));
+  });
+});
+
+describe('colour backfill', () => {
+  it('gives a stored rod without a colour one', () => {
+    const legacy = { ...rod(), colour: undefined as unknown as RodColour };
+    expect(ROD_COLOUR_KEYS).toContain(normaliseRodSensorKind(legacy).colour);
+  });
+
+  it('leaves an existing colour alone', () => {
+    // Identity must be stable: a rod whose colour changed between launches is
+    // worse than one that never had a colour.
+    const coloured = rod({ colour: ROD_COLOUR_KEYS[2] });
+    expect(normaliseRodSensorKind(coloured).colour).toBe(ROD_COLOUR_KEYS[2]);
+  });
+
+  it('replaces a colour this build no longer defines', () => {
+    const stale = rod({ colour: 'chartreuse' as unknown as RodColour });
+    expect(ROD_COLOUR_KEYS).toContain(normaliseRodSensorKind(stale).colour);
   });
 });

@@ -3,11 +3,13 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { DEFAULT_SENSOR_KIND, type SensorKind } from '@/features/ble/deviceRegistry';
+import type { RodColour } from '@/theme';
 import i18n from '@/i18n';
 
 import {
   defaultRodName,
   migrateRods,
+  nextRodColour,
   normaliseRodName,
   normaliseRods,
   type Rod,
@@ -53,6 +55,7 @@ interface RodState {
   removeRod: (id: string) => void;
   renameRod: (id: string, name: string) => void;
   setSensorKind: (id: string, kind: SensorKind) => void;
+  setColour: (id: string, colour: RodColour) => void;
   /** Bind (or clear) the physical device this rod reads. */
   setDeviceId: (id: string, deviceId: string | null) => void;
   setEnabled: (id: string, enabled: boolean) => void;
@@ -79,6 +82,7 @@ export const useRodStore = create<RodState>()(
           sensorKind: init?.sensorKind ?? DEFAULT_SENSOR_KIND,
           deviceId: null,
           enabled: true,
+          colour: nextRodColour(rods.map((r) => r.colour)),
           createdAt: Date.now(),
         };
         set({
@@ -125,6 +129,11 @@ export const useRodStore = create<RodState>()(
           rods: s.rods.map((r) => (r.id === id ? { ...r, enabled } : r)),
         })),
 
+      setColour: (id, colour) =>
+        set((s) => ({
+          rods: s.rods.map((r) => (r.id === id ? { ...r, colour } : r)),
+        })),
+
       selectRod: (id) => set({ selectedRodId: id }),
 
       ensureDefaultRod: () => {
@@ -135,6 +144,7 @@ export const useRodStore = create<RodState>()(
           sensorKind: DEFAULT_SENSOR_KIND,
           deviceId: null,
           enabled: true,
+          colour: nextRodColour([]),
           createdAt: Date.now(),
         };
         set({ rods: [rod], selectedRodId: rod.id });

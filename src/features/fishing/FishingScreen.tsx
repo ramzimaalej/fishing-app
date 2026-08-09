@@ -44,8 +44,10 @@ import { useSessionStore } from '@/features/session-report/sessionStore';
 import { buildSessionSummary } from '@/features/session-report/sessionSummary';
 import SensitivitySlider from '@/features/settings/components/SensitivitySlider';
 import { useSettings, useSettingsStore } from '@/features/settings/settingsStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { colors, radius, rodColours, type RodColour, spacing, typography } from '@/theme';
 import type { RodActivity } from '@/features/devices/device';
+import { printedCode } from '@/features/devices/deviceCode';
+import type { Rod } from '@/features/rods/rod';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
 /**
@@ -110,12 +112,17 @@ const ACTIVITY_TEXT: Record<RodActivity, string | null> = {
 
 function RodCard({
   name,
+  colour,
+  tagCode,
   view,
   activity,
   selected,
   onPress,
 }: {
   name: string;
+  colour: RodColour;
+  /** Code printed on the bound tag, so rod and tag can be matched by eye. */
+  tagCode: string | null;
   view: RodRuntimeView;
   activity: RodActivity;
   selected: boolean;
@@ -123,7 +130,14 @@ function RodCard({
 }) {
   const { t } = useTranslation();
   return (
-    <Pressable style={[styles.rodCard, selected && styles.rodCardSelected]} onPress={onPress}>
+    <Pressable
+      style={[
+        styles.rodCard,
+        { borderColor: rodColours[colour] },
+        selected && styles.rodCardSelected,
+      ]}
+      onPress={onPress}
+    >
       <View style={styles.rodCardHeader}>
         <View
           style={[
@@ -139,6 +153,9 @@ function RodCard({
           {name}
         </Text>
       </View>
+      {/* The tag's printed code, so "which rod is this" can be answered by
+          looking at the sticker rather than remembering a binding. */}
+      {tagCode && <Text style={styles.rodCardTag}>{tagCode}</Text>}
       <Text style={styles.rodCardCount}>{view.biteCount}</Text>
       <Text
         style={[
@@ -344,8 +361,7 @@ export default function FishingScreen() {
           {rods.map((rod) => (
             <RodCardBinding
               key={rod.id}
-              rodId={rod.id}
-              name={rod.name}
+              rod={rod}
               activity={activities[rod.id] ?? 'unpaired'}
               selected={rod.id === selected}
               onPress={() => selectRod(rod.id)}
@@ -359,7 +375,15 @@ export default function FishingScreen() {
 
         {selectedRod && (
           <>
-            <Text style={styles.chartTitle}>{selectedRod.name}</Text>
+            <View style={styles.chartTitleRow}>
+              <View
+                style={[styles.chartSwatch, { backgroundColor: rodColours[selectedRod.colour] }]}
+              />
+              <Text style={styles.chartTitle}>{selectedRod.name}</Text>
+              {selectedRod.deviceId && (
+                <Text style={styles.rodCardTag}>{printedCode(selectedRod.deviceId)}</Text>
+              )}
+            </View>
             <AccelerationChart points={selectedView.points} bites={selectedView.bites} />
             <View style={styles.statsRow}>
               <Stat label={t('fishing.bites')} value={String(selectedView.biteCount)} />
@@ -504,22 +528,22 @@ function SessionBanner({
 
 /** Subscribes one rod's view — a component per rod keeps the hook rule intact. */
 function RodCardBinding({
-  rodId,
-  name,
+  rod,
   activity,
   selected,
   onPress,
 }: {
-  rodId: string;
-  name: string;
+  rod: Rod;
   activity: RodActivity;
   selected: boolean;
   onPress: () => void;
 }) {
-  const view = useRodView(rodId);
+  const view = useRodView(rod.id);
   return (
     <RodCard
-      name={name}
+      name={rod.name}
+      colour={rod.colour}
+      tagCode={rod.deviceId ? printedCode(rod.deviceId) : null}
       view={view}
       activity={activity}
       selected={selected}
@@ -592,6 +616,7 @@ const styles = StyleSheet.create({
   rodCardLabel: { ...typography.caption, color: colors.textMuted },
   rodCardLabelAlarm: { color: colors.danger, fontWeight: '700' },
   rodCardLabelMuted: { color: colors.accent },
+  rodCardTag: { ...typography.caption, color: colors.textMuted, letterSpacing: 1 },
   rodCardBattery: { ...typography.caption, color: colors.textMuted },
   addRodCard: {
     width: 104,
@@ -606,6 +631,8 @@ const styles = StyleSheet.create({
   },
   addRodPlus: { fontSize: 24, color: colors.primary },
   chartTitle: { ...typography.h3, color: colors.text },
+  chartTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  chartSwatch: { width: 12, height: 12, borderRadius: 6 },
   statsRow: { flexDirection: 'row', gap: spacing.sm },
   stat: {
     flex: 1,
