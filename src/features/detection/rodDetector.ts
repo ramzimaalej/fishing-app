@@ -15,6 +15,7 @@ import {
   ARMING_DURATION_MS,
   ARMING_MIN_SAMPLES,
   type DetectionParams,
+  SIGNAL_LOST_MS,
 } from './detectionParams';
 import { computeArming, FeatureExtractor, type FeatureFrame } from './featureExtractor';
 
@@ -57,6 +58,10 @@ export class RodDetector {
   /** Swell period observed during arming; logged, see computeArming. */
   private swellPeriodMs: number | null = null;
 
+  /** Last sample seen in ANY phase, so loss is detectable before arming ends. */
+  private lastSampleMs: number | null = null;
+  private armingSignalLost = false;
+
   constructor(params: DetectionParams) {
     this.params = params;
     this.engine = new DetectionEngine(params);
@@ -92,6 +97,7 @@ export class RodDetector {
   /** Restart arming — after a failure, or when the rod is repositioned. */
   rearm(): void {
     this.phase = 'ARMING';
+    this.armingSignalLost = false;
     this.armingSamples = [];
     this.armingStartMs = null;
     this.armFailReason = null;
@@ -99,12 +105,41 @@ export class RodDetector {
     this.engine.disarm();
   }
 
-  /** Advance time with no sample, so signal loss surfaces during silence. */
+  /**
+   * Advance time with no sample, so signal loss surfaces during silence.
+   *
+   * The engine is IDLE until arming completes, and an IDLE engine reports
+   * nothing — which left a 60 s window, and a permanent ARM_FAILED state, in
+   * which a dead tag was rendered as "Calibrating" forever. Loss during those
+   * phases is detected here instead.
+   */
   tick(nowMonotonicMs: number): DetectionEvent[] {
-    return this.engine.tick(nowMonotonicMs);
+    if (this.phase === 'WATCHING') return this.engine.tick(nowMonotonicMs);
+
+    if (this.lastSampleMs === null || this.armingSignalLost) return [];
+    if (nowMonotonicMs - this.lastSampleMs < SIGNAL_LOST_MS) return [];
+
+    this.armingSignalLost = true;
+    return [
+      {
+        type: 'SIGNAL_LOST',
+        atMs: nowMonotonicMs,
+        reason:
+          `No packet for ${((nowMonotonicMs - this.lastSampleMs) / 1000).toFixed(1)} s ` +
+          `while ${this.phase === 'ARMING' ? 'arming' : 'stopped'}. The rod is NOT being watched.`,
+      },
+    ];
+  }
+
+  /** True while signal was lost before watching began. */
+  isArmingSignalLost(): boolean {
+    return this.armingSignalLost;
   }
 
   process(sample: AccSample): RodDetectorTick {
+    this.lastSampleMs = sample.tMonotonicMs;
+    this.armingSignalLost = false;
+
     if (this.phase === 'ARM_FAILED') {
       return { phase: this.phase, frame: null, events: [], armingProgress: 1 };
     }

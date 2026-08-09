@@ -19,6 +19,7 @@
 import type { FeatureFrame } from './featureExtractor';
 import {
   type DetectionParams,
+  DWELL_DEADBAND_DEG,
   DWELL_GAP_TOLERANCE_MS,
   RESET_HOLD_MS,
   RESET_THETA_FACTOR,
@@ -140,10 +141,13 @@ export class DetectionEngine {
         atMs: nowMs,
         reason: 'Packets resumed.',
       });
-      // The gap is not evidence about the rod, so dwell state from before it is
-      // no longer trustworthy.
+      // The gap is not evidence about the rod, so state from before it is no
+      // longer trustworthy — in BOTH directions. Clearing only the dwell let
+      // silence count toward the 5 s reset hysteresis, so a 40 s dropout plus
+      // one slack packet cancelled a live alarm on a fish that was still on.
       this.dwellStartMs = null;
       this.lastAboveMs = null;
+      this.belowSinceMs = null;
     }
     this.lastSampleMs = nowMs;
 
@@ -193,7 +197,16 @@ export class DetectionEngine {
    */
   private trackDwell(frame: FeatureFrame): void {
     const nowMs = frame.sample.tMonotonicMs;
-    const above = frame.thetaDeg > this.params.thetaDeg;
+    // A deadband on the way IN: without it a load sitting at the threshold never
+    // accumulates dwell, because any single sample below zeroes it and the theta
+    // grid steps ~0.9° near 9° at 16 mg quantisation. Deliberately asymmetric
+    // with the reset hysteresis — entering an alarm should be easier than
+    // leaving one.
+    const floor =
+      this.dwellStartMs === null
+        ? this.params.thetaDeg
+        : this.params.thetaDeg - DWELL_DEADBAND_DEG;
+    const above = frame.thetaDeg > floor;
 
     if (!above) {
       this.dwellStartMs = null;

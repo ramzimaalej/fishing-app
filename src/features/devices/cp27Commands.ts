@@ -14,6 +14,13 @@
  *     0xFFE2  WRITE   commands, ASCII "NO" prefix
  *     0xFFE3  WRITE   password, default "dx1234"
  *
+ * CONNECT BY HANDLE, NOT IDENTITY. Every function here takes a `connectionId`
+ * (the platform's own device id), never the PairedDevice.id. The CP27 frame
+ * carries only five of the six MAC octets, so its identity is not a connectable
+ * address: passing it to connectToDevice fails on Android as a malformed BDADDR
+ * and on iOS, which needs its own opaque peripheral UUID. Conflating the two
+ * made every command in this module fail on both platforms.
+ *
  * WHAT IS NOT CONFIRMED: any individual command opcode, INCLUDING power-off.
  * The framing was captured; the vocabulary was not. That distinction is the
  * whole reason this module refuses to send a command it has not been given —
@@ -67,7 +74,7 @@ export interface CommandOptions {
  * block is not tidiness.
  */
 async function withConnection<T>(
-  deviceId: string,
+  connectionId: string,
   password: string,
   fn: (device: Device) => Promise<T>,
 ): Promise<T> {
@@ -78,7 +85,7 @@ async function withConnection<T>(
   const manager = getBleManager();
   let device: Device | null = null;
   try {
-    device = await manager.connectToDevice(deviceId, { timeout: CONNECT_TIMEOUT_MS });
+    device = await manager.connectToDevice(connectionId, { timeout: CONNECT_TIMEOUT_MS });
     await device.discoverAllServicesAndCharacteristics();
 
     // The password write is the confirmed unlock step. Failure is not fatal on
@@ -91,7 +98,7 @@ async function withConnection<T>(
         CP27_PASSWORD_CHAR_UUID,
         asciiToBase64(password),
       );
-      bleLog(`cp27: unlocked ${deviceId}`);
+      bleLog(`cp27: unlocked ${connectionId}`);
     } catch (e) {
       bleLog('cp27: unlock failed:', e instanceof Error ? e.message : String(e));
     }
@@ -142,12 +149,12 @@ export interface BatteryResult {
 
 /** Connect, unlock and read the battery level. */
 export async function readBattery(
-  deviceId: string,
+  connectionId: string,
   options: CommandOptions = {},
 ): Promise<BatteryResult> {
   const password = options.password ?? CP27_DEFAULT_PASSWORD;
   try {
-    const percent = await withConnection(deviceId, password, readBatteryOnDevice);
+    const percent = await withConnection(connectionId, password, readBatteryOnDevice);
     return {
       ok: true,
       percent,
@@ -167,14 +174,14 @@ export async function readBattery(
 
 /** Connect and unlock, to prove a tag is reachable and the password is right. */
 export async function verifyDevice(
-  deviceId: string,
+  connectionId: string,
   options: CommandOptions = {},
 ): Promise<CommandResult & { battery: number | null }> {
   const password = options.password ?? CP27_DEFAULT_PASSWORD;
   try {
     // Battery is read on the SAME connection. Opening a second one purely to
     // read it would spend the tag's cell to measure the tag's cell.
-    const { services, battery } = await withConnection(deviceId, password, async (device) => {
+    const { services, battery } = await withConnection(connectionId, password, async (device) => {
       const svcs = await device.services();
       return {
         services: svcs.map((s) => s.uuid.toLowerCase()),
@@ -214,7 +221,7 @@ export async function verifyDevice(
  * @param opcode the command body, WITHOUT the "NO" prefix — that is added here.
  */
 export async function sendCommand(
-  deviceId: string,
+  connectionId: string,
   opcode: string,
   options: CommandOptions = {},
 ): Promise<CommandResult> {
@@ -227,7 +234,7 @@ export async function sendCommand(
   const timeout = options.responseTimeoutMs ?? 3000;
 
   try {
-    const response = await withConnection(deviceId, password, async (device) => {
+    const response = await withConnection(connectionId, password, async (device) => {
       // Subscribe BEFORE writing: a fast firmware can answer before a
       // subscription registered afterwards would exist to hear it.
       let resolveResponse: (v: string | null) => void = () => undefined;
@@ -251,7 +258,7 @@ export async function sendCommand(
           CP27_CMD_CHAR_UUID,
           asciiToBase64(CP27_CMD_PREFIX + trimmed),
         );
-        bleLog(`cp27: wrote "${CP27_CMD_PREFIX}${trimmed}" to ${deviceId}`);
+        bleLog(`cp27: wrote "${CP27_CMD_PREFIX}${trimmed}" to ${connectionId}`);
         return await responsePromise;
       } finally {
         clearTimeout(timer);
@@ -259,11 +266,17 @@ export async function sendCommand(
       }
     });
 
+    // ok reflects ACKNOWLEDGEMENT, not merely that the write returned. The
+    // caller marks a tag powered-off on this verdict, and an unrecognised opcode
+    // — which is the likely case while the vocabulary is uncaptured — would
+    // otherwise latch a live tag as "off" and make its rod unarmable.
     return {
-      ok: true,
-      detail: response
-        ? 'Command written; the tag replied.'
-        : 'Command written. No reply within the timeout — which is not necessarily a failure.',
+      ok: response !== null,
+      detail:
+        response !== null
+          ? 'Command written; the tag replied.'
+          : 'Command written, but the tag did not reply. Treating it as unacknowledged — ' +
+            'the opcode may be wrong.',
       response: response ?? undefined,
     };
   } catch (e) {
@@ -282,7 +295,7 @@ export async function sendCommand(
  * an acceptable substitute — and cp27Opcodes.ts for how to capture the real one.
  */
 export async function powerOff(
-  deviceId: string,
+  connectionId: string,
   opcode: string | null,
   options: CommandOptions = {},
 ): Promise<CommandResult> {
@@ -294,5 +307,5 @@ export async function powerOff(
         '(Admin → Device commands) and set it there — guessing could reconfigure the tag.',
     };
   }
-  return sendCommand(deviceId, opcode, options);
+  return sendCommand(connectionId, opcode, options);
 }

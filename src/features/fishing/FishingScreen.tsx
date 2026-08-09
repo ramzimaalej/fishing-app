@@ -91,7 +91,7 @@ function BiteBanner({ bite, rodName }: { bite: BiteEvent; rodName: string }) {
         </Text>
         <Text style={styles.bannerMeta}>
           {t('fishing.bitePeak', {
-            peak: bite.peakMagnitude.toFixed(2),
+            peak: bite.peakMagnitude.toFixed(0),
             confidence: Math.round(bite.confidence * 100),
           })}
         </Text>

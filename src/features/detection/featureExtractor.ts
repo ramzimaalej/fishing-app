@@ -14,9 +14,11 @@
 import type { AccSample } from './accSample';
 import { magnitudeMg } from './accSample';
 import {
+  BASELINE_FREEZE_FACTOR,
   type DetectionParams,
   IMPACT_DEVIATION_MG,
   MAX_DT_FOR_RATE_MS,
+  SIGNAL_LOST_MS,
 } from './detectionParams';
 import {
   angleBetweenDeg,
@@ -96,6 +98,16 @@ export class FeatureExtractor {
    */
   private activeRise: Crossing | null = null;
 
+  /**
+   * True when the rise in progress contained a pair too far apart to trust.
+   *
+   * Such a rise's rate is UNKNOWN, permanently. Letting a later, shallower pair
+   * from the same rise fill in a number is worse than leaving it null: a 70°/s
+   * fish onset straddled by one dropped packet was being recorded as 14.9°/s and
+   * classified as swell. Null at least declares ignorance.
+   */
+  private riseHadGap = false;
+
   constructor(baseline: Vec3, params: DetectionParams) {
     const unit = normalise(baseline);
     if (!unit) throw new Error('Baseline has no direction.');
@@ -123,10 +135,19 @@ export class FeatureExtractor {
     // permanently redefines "at rest".
     const isImpact = Math.abs(mag - 1000) > IMPACT_DEVIATION_MG;
 
-    // Freeze while deflected, or a hooked fish is slowly absorbed into the
-    // baseline and the alarm cancels itself.
-    const baselineFrozen = isImpact || thetaDeg > this.params.thetaDeg;
-    if (!baselineFrozen && dtMs !== null && dtMs > 0) {
+    // Freeze WELL BELOW the alarm threshold. Gating this on the threshold itself
+    // only protected loads that had already alarmed, and actively erased every
+    // load beneath it — see BASELINE_FREEZE_FACTOR.
+    const baselineFrozen =
+      isImpact || thetaDeg > this.params.thetaDeg * BASELINE_FREEZE_FACTOR;
+
+    // A packet after a long silence must not redefine "at rest". With an
+    // elapsed-time alpha and no cap, alpha approaches 1 as the gap grows, so a
+    // single sample after a five-minute outage moved the baseline 7.98° in one
+    // step — the longer the outage, the more authority one arbitrary packet had.
+    const afterOutage = dtMs !== null && dtMs > SIGNAL_LOST_MS;
+
+    if (!baselineFrozen && !afterOutage && dtMs !== null && dtMs > 0) {
       this.updateBaseline(v, dtMs);
     }
 
@@ -225,6 +246,13 @@ export class FeatureExtractor {
       completedCrossing = this.activeRise;
       this.activeRise = null;
     }
+    if (!rising) this.riseHadGap = false;
+
+    // Record the gap against the rise BEFORE any later pair can overwrite it.
+    if (prev !== null && dtMs !== null && dtMs > MAX_DT_FOR_RATE_MS && rising) {
+      this.riseHadGap = true;
+      if (this.activeRise) this.activeRise.onsetRateDegPerS = null;
+    }
 
     const crossedUp = prev !== null && prev.thetaDeg <= threshold && thetaDeg > threshold;
     if (crossedUp) {
@@ -233,7 +261,7 @@ export class FeatureExtractor {
       this.activeRise = crossing;
     }
 
-    if (this.activeRise && rising && slope !== null && slope > 0) {
+    if (this.activeRise && rising && !this.riseHadGap && slope !== null && slope > 0) {
       const current = this.activeRise.onsetRateDegPerS;
       if (current === null || slope > current) this.activeRise.onsetRateDegPerS = slope;
     }

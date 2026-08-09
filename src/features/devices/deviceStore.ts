@@ -23,6 +23,8 @@ const PUBLISH_MS = 1000;
 /** Tags seen while scanning but not yet paired. */
 export interface DiscoveredDevice {
   id: string;
+  /** Platform handle to connect with. See PairedDevice.connectionId. */
+  connectionId: string;
   name: string;
   rssi: number;
   lastSeenAt: number;
@@ -85,6 +87,7 @@ export const useDeviceStore = create<DeviceState>()(
             ...s.paired,
             [device.id]: s.paired[device.id] ?? {
               id: device.id,
+              connectionId: device.connectionId,
               name: device.name,
               label: null,
               pairedAt: Date.now(),
@@ -123,6 +126,9 @@ export const useDeviceStore = create<DeviceState>()(
         // rather than ready until an advertisement actually arrives.
         const device: PairedDevice = {
           id,
+          // No address yet: a typed code proves nothing about where the tag is.
+          // GATT commands stay unavailable until it is actually heard.
+          connectionId: null,
           name: name ?? `CP27-${id.replace(/[^0-9A-F]/gi, '').slice(-4).toUpperCase()}`,
           label: null,
           pairedAt: Date.now(),
@@ -206,7 +212,10 @@ let unsubscribe: (() => void) | null = null;
 let publishTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Buffered between publishes, so a busy scan does not re-render per packet. */
-let pendingPaired: Record<string, { lastSeenAt: number; rssi: number; battery: number | null }> = {};
+let pendingPaired: Record<
+  string,
+  { lastSeenAt: number; rssi: number; battery: number | null; connectionId: string }
+> = {};
 let pendingDiscovered: Record<string, DiscoveredDevice> = {};
 
 /**
@@ -236,11 +245,14 @@ export function startDeviceWatch(): void {
     const now = Date.now();
     const rssi = adv.rssi ?? -127;
     const battery = reading?.batteryPct ?? null;
+    // Relearned from every advertisement: on iOS the platform handle is not
+    // stable across app installs, and on Android a tag can be re-bonded.
+    const connectionId = reading?.connectionId ?? adv.id;
 
     if (useDeviceStore.getState().paired[id]) {
-      pendingPaired[id] = { lastSeenAt: now, rssi, battery };
+      pendingPaired[id] = { lastSeenAt: now, rssi, battery, connectionId };
     } else {
-      pendingDiscovered[id] = { id, name: name || id, rssi, lastSeenAt: now, battery };
+      pendingDiscovered[id] = { id, connectionId, name: name || id, rssi, lastSeenAt: now, battery };
     }
   });
 
@@ -264,6 +276,7 @@ function publish(): void {
         ...device,
         lastSeenAt: seen.lastSeenAt,
         rssi: seen.rssi,
+        connectionId: seen.connectionId,
         // Advertisements never carry a battery level on this hardware, so a
         // GATT reading must survive them. `?? device.battery` alone would be
         // enough today; being explicit stops a future frame with a battery field

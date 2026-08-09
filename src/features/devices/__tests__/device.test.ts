@@ -13,7 +13,8 @@ import {
 const NOW = 1_700_000_000_000;
 
 const device = (over: Partial<PairedDevice> = {}): PairedDevice => ({
-  id: '48:87:2D:9D:C0:0C',
+  id: '87:2D:9D:C0:0C',
+  connectionId: '48:87:2D:9D:C0:0C',
   name: 'CP27-C00C',
   label: null,
   pairedAt: NOW - 60_000,
@@ -152,10 +153,30 @@ describe('labels', () => {
 
   it('falls back through name to id', () => {
     expect(deviceLabel(device({ label: '   ' }))).toBe('CP27-C00C');
-    expect(deviceLabel(device({ label: null, name: '' }))).toBe('48:87:2D:9D:C0:0C');
+    expect(deviceLabel(device({ label: null, name: '' }))).toBe('87:2D:9D:C0:0C');
   });
 
   it('shortens an id to what is printed on the tag', () => {
     expect(deviceShortId('48:87:2D:9D:C0:0C')).toBe('C00C');
+    // The frame carries only five octets, and the printed code still resolves.
+    expect(deviceShortId('87:2D:9D:C0:0C')).toBe('C00C');
+  });
+});
+
+describe('identity vs connection handle', () => {
+  it('keeps them as separate fields', () => {
+    // Conflating them broke every GATT command: the CP27 frame carries five of
+    // six MAC octets, so the identity is not a connectable address — Android
+    // rejects it as a malformed BDADDR and iOS needs its own peripheral UUID.
+    const d = device();
+    expect(d.id).not.toBe(d.connectionId);
+    expect(d.id.replace(/[^0-9A-F]/gi, '')).toHaveLength(10);
+    expect(d.connectionId!.replace(/[^0-9A-F]/gi, '')).toHaveLength(12);
+  });
+
+  it('allows a paired-by-code tag to have no address yet', () => {
+    // Typing a code proves nothing about where the tag is, so commands must stay
+    // unavailable until it has actually been heard.
+    expect(device({ connectionId: null }).connectionId).toBeNull();
   });
 });

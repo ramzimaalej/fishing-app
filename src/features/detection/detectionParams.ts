@@ -89,6 +89,35 @@ export const RESET_THETA_FACTOR = 0.6;
 export const RESET_HOLD_MS = 5000;
 
 /**
+ * Fraction of the alarm threshold above which the baseline stops tracking.
+ *
+ * The freeze used to be gated on the ALARM threshold itself, which meant any
+ * load below it was actively erased: the EMA pulled the baseline toward the
+ * load, which lowered theta, which produced more sub-threshold samples. Measured
+ * on the real code, a steady 8.5° load (94% of threshold) decayed to 0.17° in
+ * under three minutes, and one minute of an 8° pre-load — a fish mouthing the
+ * bait — made a subsequent genuine 13° run read as 6.7° and never alarm.
+ *
+ * Half the threshold is a compromise, not a free win. The baseline still has to
+ * follow tide, and the lag it can absorb is roughly (drift rate x tau): about
+ * 2.7° for 18° over five minutes. Freezing at 4.5° stays clear of that while
+ * catching a load well before it alarms. Freezing much lower would trade a
+ * missed fish for a baseline that cannot follow a tide.
+ */
+export const BASELINE_FREEZE_FACTOR = 0.5;
+
+/**
+ * Dwell tolerates theta dipping this far below the threshold.
+ *
+ * Without it a load sitting AT the threshold never accumulates dwell: any single
+ * sample below zeroes it, and at 16 mg quantisation the theta grid near 9° steps
+ * in ~0.9°, so there is a band that cannot be occupied stably. Asymmetric with
+ * the 5 s reset hysteresis on purpose — entering an alarm should be easier than
+ * leaving one.
+ */
+export const DWELL_DEADBAND_DEG = 0.5;
+
+/**
  * A reading this far from one gravity contains real linear acceleration — a
  * violent run, or somebody knocking the rod — rather than a change of
  * orientation. Routed to IMPACT and never allowed to move the baseline.

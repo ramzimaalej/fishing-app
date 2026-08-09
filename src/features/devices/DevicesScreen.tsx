@@ -81,8 +81,16 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
   const boundRod = rods.find((r) => r.deviceId === device.id) ?? null;
 
   const onVerify = async () => {
+    if (!device.connectionId) {
+      Alert.alert(
+        'Not heard yet',
+        'This tag was paired by code and has never been heard, so there is no address to ' +
+          'connect to. Bring it in range and try again.',
+      );
+      return;
+    }
     setBusy('Connecting…');
-    const result = await verifyDevice(device.id, {
+    const result = await verifyDevice(device.connectionId, {
       password: currentOpcodes().password ?? undefined,
     });
     // Recorded whenever the connection succeeded, including the null that means
@@ -94,8 +102,9 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
   };
 
   const onReadBattery = async () => {
+    if (!device.connectionId) return;
     setBusy('Reading battery…');
-    const result = await readBattery(device.id, {
+    const result = await readBattery(device.connectionId, {
       password: currentOpcodes().password ?? undefined,
     });
     if (result.ok) setBattery(device.id, result.percent);
@@ -120,7 +129,7 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
           onPress: () => {
             void (async () => {
               setBusy('Powering off…');
-              const result = await powerOff(device.id, opcodes.powerOff, {
+              const result = await powerOff(device.connectionId ?? '', opcodes.powerOff, {
                 password: opcodes.password ?? undefined,
               });
               setBusy(null);
@@ -220,7 +229,9 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
         <View style={{ flex: 1 }}>
           <Text style={styles.fieldLabel}>Battery</Text>
           <Text style={styles.hint}>
-            {device.batteryUnsupported
+            {!device.connectionId
+              ? 'Needs the tag in range once before it can be read.'
+              : device.batteryUnsupported
               ? 'Not reported by this tag.'
               : device.battery == null
                 ? 'Not read yet — it comes from a connection, not the broadcast.'
@@ -228,7 +239,7 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
                   (isBatteryReadingStale(device.batteryReadAt, now) ? ' · may be out of date' : '')}
           </Text>
         </View>
-        {!device.batteryUnsupported && (
+        {!device.batteryUnsupported && device.connectionId && (
           <Pressable style={styles.smallBtn} onPress={() => void onReadBattery()} disabled={!!busy}>
             <Text style={styles.smallBtnText}>
               {device.battery == null ? 'Read' : 'Refresh'}

@@ -9,10 +9,14 @@ import { DEFAULT_SENSOR_KIND, getSensorDevice } from '@/features/ble/deviceRegis
 import { subscribeToScan } from '@/features/ble/scanBroker';
 import { colors, radius, spacing, typography } from '@/theme';
 
+import { useDeviceStore } from '@/features/devices/deviceStore';
+
 import { useRodStore } from './rodStore';
 
 interface Candidate {
   id: string;
+  /** Platform handle to connect with — not the same as `id`. See PairedDevice. */
+  connectionId: string;
   label: string;
   rssi: number;
   battery?: number;
@@ -39,6 +43,7 @@ export default function PairSensorScreen() {
 
   const rods = useRodStore((s) => s.rods);
   const setDeviceId = useRodStore((s) => s.setDeviceId);
+  const pairDevice = useDeviceStore((s) => s.pair);
   const rod = rods.find((r) => r.id === rodId) ?? null;
 
   const [found, setFound] = useState<Record<string, Candidate>>({});
@@ -91,6 +96,7 @@ export default function PairSensorScreen() {
             ...prev,
             [reading.deviceKey]: {
               id: reading.deviceKey,
+              connectionId: reading.connectionId,
               label: spec.displayName(reading.deviceKey),
               rssi: device.rssi ?? -127,
               battery: reading.batteryPct,
@@ -103,7 +109,12 @@ export default function PairSensorScreen() {
         if (!name) return;
         setFound((prev) => ({
           ...prev,
-          [device.id]: { id: device.id, label: name, rssi: device.rssi ?? -127 },
+          [device.id]: {
+            id: device.id,
+            connectionId: device.id,
+            label: name,
+            rssi: device.rssi ?? -127,
+          },
         }));
       });
     })();
@@ -132,6 +143,19 @@ export default function PairSensorScreen() {
   }
 
   const choose = (id: string) => {
+    // Register in the device registry as well as on the rod. Writing only
+    // rod.deviceId left armRod's deviceFor() lookup returning null, so the rod
+    // read as 'unpaired' and refused to arm with "its tag is not responding" —
+    // about a tag that was two feet away and advertising.
+    const found = candidates.find((c) => c.id === id);
+    pairDevice({
+      id,
+      connectionId: found?.connectionId ?? id,
+      name: found?.label ?? id,
+      rssi: found?.rssi ?? -127,
+      lastSeenAt: Date.now(),
+      battery: found?.battery ?? null,
+    });
     setDeviceId(rod.id, id);
     navigation.goBack();
   };

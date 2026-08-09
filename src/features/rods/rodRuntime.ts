@@ -6,7 +6,10 @@ import { batteryState, type BatteryState } from '@/features/ble/battery';
 import { getSensorDevice } from '@/features/ble/deviceRegistry';
 import type { BleDeviceInfo, ConnectionStatus, SensorConnection } from '@/features/ble/types';
 import type { DetectionEvent } from '@/features/detection/detectionEngine';
-import type { DetectionParams } from '@/features/detection/detectionParams';
+import {
+  DETECTION_PARAM_RANGES,
+  type DetectionParams,
+} from '@/features/detection/detectionParams';
 import {
   currentDetectionParams,
   setDetectionParamsListener,
@@ -420,10 +423,13 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     if (dev.requiresBle) {
       const granted = await ensureBlePermissions();
       if (!granted) {
-        rt.status = 'unauthorized';
-        rt.error = 'Bluetooth permission denied.';
+        // Removed from the map, not just marked. Leaving it made the NEXT
+        // attempt hit the idempotence guard and return ok — so a retry after
+        // enabling Bluetooth reported every rod armed while none had a sensor,
+        // no scan subscription and no signal-loss timer.
+        runtimes.delete(rod.id);
         scheduleFlush();
-        return { ok: false, error: rt.error };
+        return { ok: false, error: 'Bluetooth permission denied.' };
       }
       await waitForPoweredOn();
     }
@@ -470,10 +476,14 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     scheduleFlush();
     return { ok: true };
   } catch (e) {
-    rt.status = 'error';
-    rt.error = e instanceof Error ? e.message : 'Failed to connect to sensor.';
+    // Same reason as the permission path: a half-armed runtime left in the map
+    // makes every retry a silent no-op that reports success.
+    runtimes.delete(rod.id);
     scheduleFlush();
-    return { ok: false, error: rt.error };
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : 'Failed to connect to sensor.',
+    };
   }
 }
 
@@ -513,10 +523,31 @@ export async function disarmAll(): Promise<void> {
 
 /** Retune every live detector when the user moves the sensitivity slider. */
 export function retuneAll(config: { sensitivity: number; liveBaitMode: boolean }): void {
+  // The sensitivity argument used to be destructured and never read, so the
+  // shipped slider — labelled "higher detects smaller nibbles" — did nothing at
+  // all. It now drives the deflection threshold, which is the parameter that
+  // actually decides how small a bite registers.
+  setDetectionParams(sensitivityToParams(config.sensitivity));
+
   for (const rt of runtimes.values()) {
     void rt.connection?.setFishingMode(config.liveBaitMode).catch(() => undefined);
   }
   scheduleFlush();
+}
+
+/**
+ * Map the 0..1 user slider onto the deflection threshold.
+ *
+ * Inverted: higher sensitivity means a SMALLER angle counts as a bite. The ends
+ * are the parameter's own documented range, so the slider and the debug screen
+ * cannot disagree about what is achievable — they write the same field, and the
+ * debug screen is the finer control over the same value.
+ */
+export function sensitivityToParams(sensitivity: number): DetectionParams {
+  const { min, max } = DETECTION_PARAM_RANGES.thetaDeg;
+  const clamped = Math.max(0, Math.min(1, sensitivity));
+  const thetaDeg = max - clamped * (max - min);
+  return { ...currentDetectionParams(), thetaDeg: Number(thetaDeg.toFixed(1)) };
 }
 
 /**

@@ -112,7 +112,7 @@ export default function SessionReportScreen() {
           <Stat
             label={t('report.bestStrike')}
             value={
-              summary.strongest ? `${summary.strongest.event.peakMagnitude.toFixed(2)} g` : '—'
+              summary.strongest ? `${summary.strongest.event.peakMagnitude.toFixed(0)}°` : '—'
             }
           />
         </View>
@@ -143,7 +143,7 @@ export default function SessionReportScreen() {
                     <Text style={styles.detailValue}>
                       {t('report.rodTally', {
                         count: r.bites,
-                        peak: r.peakMagnitude.toFixed(2),
+                        peak: r.peakMagnitude.toFixed(0),
                       })}
                     </Text>
                   </View>
