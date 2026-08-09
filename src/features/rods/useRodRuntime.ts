@@ -3,7 +3,12 @@ import { AppState } from 'react-native';
 
 import { useAuthStore } from '@/features/auth/authStore';
 import { rodActivity, type RodActivity } from '@/features/devices/device';
-import { startDeviceWatch, useDeviceStore } from '@/features/devices/deviceStore';
+import {
+  setRodBinder,
+  startDeviceWatch,
+  stopDeviceWatch,
+  useDeviceStore,
+} from '@/features/devices/deviceStore';
 import { cancelSessionNotifications } from '@/features/notifications/feedback';
 import { useFishingSessionStore } from '@/features/session/fishingSessionStore';
 import { isExpired } from '@/features/session/sessionLimit';
@@ -36,6 +41,7 @@ function idleView(rodId: string): RodRuntimeView {
     signalLost: false,
     arming: false,
     armFailReason: null,
+    lastImpactReason: null,
   };
 }
 
@@ -50,6 +56,11 @@ export function useRodView(rodId: string | null): RodRuntimeView {
 
 export function useAnyArmed(): boolean {
   return useRodRuntimeStore((s) => s.anyArmed);
+}
+
+/** How many rods are actually being watched right now. */
+export function useWatchingCount(): number {
+  return useRodRuntimeStore((s) => s.watchingCount);
 }
 
 export function useLastBiteRodId(): string | null {
@@ -119,6 +130,31 @@ export function useRodRuntimeBridge(): void {
   // would keep reading as ready until the user happened to open that screen.
   useEffect(() => {
     startDeviceWatch();
+    // Injected rather than imported by the device store, which would otherwise
+    // depend on rodStore and create a cycle.
+    setRodBinder((rodId, deviceId) => useRodStore.getState().setDeviceId(rodId, deviceId));
+
+    /**
+     * Release the scan when the app is backgrounded with nothing armed.
+     *
+     * stopDeviceWatch previously had no caller anywhere, so an allowDuplicates
+     * scan of every nearby device — plus a 1 Hz publish timer — ran for the
+     * process lifetime, long after fishing finished. Armed rods keep it alive,
+     * because their whole purpose is to keep listening.
+     */
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        startDeviceWatch();
+      } else if (!useRodRuntimeStore.getState().anyArmed) {
+        stopDeviceWatch();
+      }
+    });
+
+    return () => {
+      sub.remove();
+      setRodBinder(null);
+      stopDeviceWatch();
+    };
   }, []);
 
   useEffect(() => {

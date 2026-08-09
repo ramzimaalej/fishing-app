@@ -1,9 +1,9 @@
 /**
  * Battery level classification — pure, so it is testable without a radio.
  *
- * The Castmate G carries its battery percentage inside its advertisement frame,
- * so decoding it belongs to the frame decoder and this module only has to decide
- * what a percentage MEANS.
+ * This module only decides what a percentage MEANS. Where it comes from is
+ * settled elsewhere, and for the shipping tag the answer is a GATT read: the
+ * Castmate G advertises NO battery level in any of its frames.
  *
  * The standard GATT Battery Service decode lives here too. It was removed with
  * the GATT clients and is back because the CP27 turns out to advertise NO

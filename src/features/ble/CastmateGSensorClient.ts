@@ -64,6 +64,7 @@ const decodeServiceDataFeab: FrameDecoder = (adv) => {
       // reinstall where adv.id is an opaque per-install UUID. The frame carries
       // only the last five MAC octets; that is still unique among tags in range.
       deviceKey: reading.macTail || adv.id,
+      connectionId: adv.id,
       // This frame carries no battery field — unlike the Minew one. Left
       // undefined rather than faked, so the UI shows "unknown" instead of a
       // number that never changes.
@@ -102,6 +103,7 @@ const decodeServiceDataFfe1: FrameDecoder = (adv) => {
       yMg: Math.round(reading.y * 1000),
       zMg: Math.round(reading.z * 1000),
       deviceKey: reading.mac,
+      connectionId: adv.id,
       batteryPct: reading.batteryPct,
     };
   }

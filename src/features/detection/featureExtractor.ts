@@ -14,9 +14,11 @@
 import type { AccSample } from './accSample';
 import { magnitudeMg } from './accSample';
 import {
+  BASELINE_FREEZE_FACTOR,
   type DetectionParams,
   IMPACT_DEVIATION_MG,
   MAX_DT_FOR_RATE_MS,
+  SIGNAL_LOST_MS,
 } from './detectionParams';
 import {
   angleBetweenDeg,
@@ -96,6 +98,16 @@ export class FeatureExtractor {
    */
   private activeRise: Crossing | null = null;
 
+  /**
+   * True when the rise in progress contained a pair too far apart to trust.
+   *
+   * Such a rise's rate is UNKNOWN, permanently. Letting a later, shallower pair
+   * from the same rise fill in a number is worse than leaving it null: a 70°/s
+   * fish onset straddled by one dropped packet was being recorded as 14.9°/s and
+   * classified as swell. Null at least declares ignorance.
+   */
+  private riseHadGap = false;
+
   constructor(baseline: Vec3, params: DetectionParams) {
     const unit = normalise(baseline);
     if (!unit) throw new Error('Baseline has no direction.');
@@ -123,10 +135,19 @@ export class FeatureExtractor {
     // permanently redefines "at rest".
     const isImpact = Math.abs(mag - 1000) > IMPACT_DEVIATION_MG;
 
-    // Freeze while deflected, or a hooked fish is slowly absorbed into the
-    // baseline and the alarm cancels itself.
-    const baselineFrozen = isImpact || thetaDeg > this.params.thetaDeg;
-    if (!baselineFrozen && dtMs !== null && dtMs > 0) {
+    // Freeze WELL BELOW the alarm threshold. Gating this on the threshold itself
+    // only protected loads that had already alarmed, and actively erased every
+    // load beneath it — see BASELINE_FREEZE_FACTOR.
+    const baselineFrozen =
+      isImpact || thetaDeg > this.params.thetaDeg * BASELINE_FREEZE_FACTOR;
+
+    // A packet after a long silence must not redefine "at rest". With an
+    // elapsed-time alpha and no cap, alpha approaches 1 as the gap grows, so a
+    // single sample after a five-minute outage moved the baseline 7.98° in one
+    // step — the longer the outage, the more authority one arbitrary packet had.
+    const afterOutage = dtMs !== null && dtMs > SIGNAL_LOST_MS;
+
+    if (!baselineFrozen && !afterOutage && dtMs !== null && dtMs > 0) {
       this.updateBaseline(v, dtMs);
     }
 
@@ -225,6 +246,13 @@ export class FeatureExtractor {
       completedCrossing = this.activeRise;
       this.activeRise = null;
     }
+    if (!rising) this.riseHadGap = false;
+
+    // Record the gap against the rise BEFORE any later pair can overwrite it.
+    if (prev !== null && dtMs !== null && dtMs > MAX_DT_FOR_RATE_MS && rising) {
+      this.riseHadGap = true;
+      if (this.activeRise) this.activeRise.onsetRateDegPerS = null;
+    }
 
     const crossedUp = prev !== null && prev.thetaDeg <= threshold && thetaDeg > threshold;
     if (crossedUp) {
@@ -233,7 +261,7 @@ export class FeatureExtractor {
       this.activeRise = crossing;
     }
 
-    if (this.activeRise && rising && slope !== null && slope > 0) {
+    if (this.activeRise && rising && !this.riseHadGap && slope !== null && slope > 0) {
       const current = this.activeRise.onsetRateDegPerS;
       if (current === null || slope > current) this.activeRise.onsetRateDegPerS = slope;
     }
@@ -280,6 +308,11 @@ export interface ArmingResult {
  * is confidently wrong for the whole session, which is worse than telling the
  * user to try again.
  */
+/**
+ * Minimum coherence of the arming window — see the gate below for the maths.
+ */
+const ARMING_COHERENCE = 0.985;
+
 export function computeArming(
   samples: readonly AccSample[],
   minSamples: number,
@@ -296,32 +329,55 @@ export function computeArming(
     };
   }
 
-  // Direction only: averaging raw vectors then normalising weights each sample
-  // by its magnitude, so one impact during arming would drag the baseline.
-  const dirs = samples
+  // Impacts are DROPPED, not merely de-weighted. Normalising removes magnitude
+  // weighting but leaves the direction, which during a cast or a knock is
+  // garbage — one 4 s cast inside an otherwise still window tilted the baseline
+  // 3.75°, 42% of the detection threshold, for the whole session.
+  const usable = samples.filter(
+    (s) => Math.abs(magnitudeMg(s) - 1000) <= IMPACT_DEVIATION_MG,
+  );
+  if (usable.length < minSamples) {
+    return {
+      ok: false,
+      baseline: null,
+      sampleCount: usable.length,
+      swellPeriodMs: null,
+      reason:
+        `Only ${usable.length} of ${samples.length} arming samples were steady enough ` +
+        `(the rest were casts or knocks). Let the rod settle and try again.`,
+    };
+  }
+
+  const dirs = usable
     .map((s) => normalise(vecOf(s)))
     .filter((d): d is Vec3 => d !== null);
   const mean = meanVector(dirs);
   const baseline = mean ? normalise(mean) : null;
 
   // The mean of unit vectors is short when they point in scattered directions,
-  // so its length is a coherence measure: near 1 means the rod held one attitude,
-  // near 0 means it was waving about and no baseline is meaningful.
-  if (!mean || !baseline || magnitude(mean) < 0.5) {
+  // so its length is a coherence measure. The old 0.5 gate was ~10x too loose
+  // for a 9° detector: |mean| ~ sin(A)/A for a sweep of ±A, which is 0.83 at
+  // ±60° — so arming "succeeded" on a rod being swung through nearly seven times
+  // the detection threshold, and returned the mean of that sweep as the rest
+  // attitude. ARMING_COHERENCE refuses beyond roughly ±23°, which still admits
+  // the several swell cycles the arming window is meant to observe.
+  if (!mean || !baseline || magnitude(mean) < ARMING_COHERENCE) {
     return {
       ok: false,
       baseline: null,
       sampleCount: samples.length,
       swellPeriodMs: null,
-      reason: 'Orientation varied too much to establish a baseline. Keep the rod still.',
+      reason:
+        'The rod moved too much while arming to say where "at rest" is. ' +
+        'Set it in its rest and try again.',
     };
   }
 
   return {
     ok: true,
     baseline,
-    sampleCount: samples.length,
-    swellPeriodMs: estimateSwellPeriodMs(samples, baseline),
+    sampleCount: usable.length,
+    swellPeriodMs: estimateSwellPeriodMs(usable, baseline),
   };
 }
 

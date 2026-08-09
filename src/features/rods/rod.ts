@@ -14,6 +14,7 @@
  */
 
 import { MAX_RODS } from '@/config/constants';
+import { ROD_COLOUR_KEYS, type RodColour } from '@/theme';
 import {
   DEFAULT_SENSOR_KIND,
   isSensorKind,
@@ -34,6 +35,12 @@ export interface Rod {
   deviceId: string | null;
   /** Whether the user wants this rod armed when they start monitoring. */
   enabled: boolean;
+  /**
+   * Identity colour, so rods are told apart at a glance rather than by reading.
+   * On the bank the question is "which rod just went off", and a name in small
+   * type on a crowded strip is a slow answer.
+   */
+  colour: RodColour;
   createdAt: number;
 }
 
@@ -60,6 +67,23 @@ export function canAddRod(currentCount: number): AddRodVerdict {
  */
 export function activeRods(rods: readonly Rod[]): Rod[] {
   return rods.filter((r) => r.enabled).slice(0, MAX_RODS);
+}
+
+/**
+ * The least-used colour, so a new rod is as distinguishable as possible.
+ *
+ * Least-used rather than round-robin by index: after deleting and re-adding rods
+ * an index-based scheme happily assigns a colour already on screen, which is the
+ * one thing it exists to avoid.
+ */
+export function nextRodColour(existing: readonly RodColour[]): RodColour {
+  const counts = new Map<RodColour, number>(ROD_COLOUR_KEYS.map((k) => [k, 0]));
+  for (const c of existing) counts.set(c, (counts.get(c) ?? 0) + 1);
+  let best = ROD_COLOUR_KEYS[0]!;
+  for (const key of ROD_COLOUR_KEYS) {
+    if ((counts.get(key) ?? 0) < (counts.get(best) ?? 0)) best = key;
+  }
+  return best;
 }
 
 /** Trim and fall back, so a rod can never end up with a blank name. */
@@ -110,13 +134,22 @@ export function isRodArmable(rod: Rod, requiresDevice: boolean): boolean {
  * Retiring the simulator is a one-time step; see retireSimulatorRod.
  */
 export function normaliseRodSensorKind(rod: Rod): Rod {
-  if (isSensorKind(rod.sensorKind)) return rod;
+  // Colour was added after rods were already persisted, so a stored rod may have
+  // none. Assigned here rather than defaulted at render time, because it is
+  // identity: a rod whose colour changed between launches would be worse than
+  // one with no colour at all.
+  const withColour: Rod =
+    rod.colour && ROD_COLOUR_KEYS.includes(rod.colour)
+      ? rod
+      : { ...rod, colour: ROD_COLOUR_KEYS[0]! };
 
-  const keepsBinding = (rod.sensorKind as string) === 'minew';
+  if (isSensorKind(withColour.sensorKind)) return withColour;
+
+  const keepsBinding = (withColour.sensorKind as string) === 'minew';
   return {
-    ...rod,
+    ...withColour,
     sensorKind: DEFAULT_SENSOR_KIND,
-    deviceId: keepsBinding ? rod.deviceId : null,
+    deviceId: keepsBinding ? withColour.deviceId : null,
   };
 }
 

@@ -56,6 +56,20 @@ export interface BroadcastReading {
    * survive a reinstall. A spec that must fall back should say so in its docs.
    */
   deviceKey: string;
+  /**
+   * Platform handle for CONNECTING — `advertisement.id`, verbatim.
+   *
+   * NOT the same thing as deviceKey, and conflating them broke every GATT
+   * command. The CP27 frame carries only five of the six MAC octets, so
+   * deviceKey is a stable IDENTITY but not a valid address: connectToDevice
+   * with it fails on Android (malformed BDADDR) and on iOS (which needs its own
+   * opaque peripheral UUID, not a MAC at all).
+   *
+   * Identity must survive an iOS reinstall, so it comes from the frame. The
+   * connection handle must be whatever the platform will accept, so it comes
+   * from the scan. They are different values for good reasons.
+   */
+  connectionId: string;
   /** 0..100 when the frame reports it. */
   batteryPct?: number;
 }

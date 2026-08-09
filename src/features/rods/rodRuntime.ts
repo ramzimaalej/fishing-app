@@ -6,7 +6,10 @@ import { batteryState, type BatteryState } from '@/features/ble/battery';
 import { getSensorDevice } from '@/features/ble/deviceRegistry';
 import type { BleDeviceInfo, ConnectionStatus, SensorConnection } from '@/features/ble/types';
 import type { DetectionEvent } from '@/features/detection/detectionEngine';
-import type { DetectionParams } from '@/features/detection/detectionParams';
+import {
+  DETECTION_PARAM_RANGES,
+  type DetectionParams,
+} from '@/features/detection/detectionParams';
 import {
   currentDetectionParams,
   setDetectionParamsListener,
@@ -72,6 +75,12 @@ export interface RodRuntimeView {
   arming: boolean;
   /** Set when arming failed and the user must retry. */
   armFailReason: string | null;
+  /**
+   * Most recent IMPACT, or null. Surfaced because a fish and someone knocking
+   * the rod cannot be told apart — so the user judges, which they can only do if
+   * they are shown it. It was previously recorded and silently discarded.
+   */
+  lastImpactReason: string | null;
 }
 
 interface Runtime {
@@ -131,6 +140,15 @@ interface RodRuntimeState {
   views: Record<string, RodRuntimeView>;
   /** True while at least one rod is armed. */
   anyArmed: boolean;
+  /**
+   * Rods actually WATCHING — armed, past arming, and not signal-lost.
+   *
+   * Distinct from `anyArmed` on purpose. A rod is in the runtime from the moment
+   * arming starts, so `anyArmed` was true for the whole 60 s arming window and
+   * for rods whose tag had gone silent — during which the header read
+   * "monitoring" about rods nothing was watching.
+   */
+  watchingCount: number;
   /** Rod that most recently produced a bite, for cross-rod alerting. */
   lastBiteRodId: string | null;
 }
@@ -138,6 +156,7 @@ interface RodRuntimeState {
 export const useRodRuntimeStore = create<RodRuntimeState>(() => ({
   views: {},
   anyArmed: false,
+  watchingCount: 0,
   lastBiteRodId: null,
 }));
 
@@ -163,9 +182,10 @@ function buildView(rt: Runtime): RodRuntimeView {
     points: snap.points,
     bites: snap.bites,
     lastBite: rt.lastBite,
-    signalLost: rt.signalLost,
+    signalLost: rt.signalLost || rt.detector.isArmingSignalLost(),
     arming: rt.detector.getPhase() === 'ARMING',
     armFailReason: rt.detector.getArmFailReason(),
+    lastImpactReason: rt.lastImpactReason,
   };
 }
 
@@ -173,9 +193,16 @@ function flush(): void {
   const views: Record<string, RodRuntimeView> = {};
   for (const [id, rt] of runtimes) {
     views[id] = buildView(rt);
-    checkBattery(rt, views[id]!.device?.battery ?? null);
+    // Prefer the registry's GATT reading: the shipping tag broadcasts no battery
+    // at all, so connection.info.battery is always undefined and this ladder
+    // never fired for the only device that ships.
+    const stored = deviceFor(rt.rod.deviceId)?.battery ?? null;
+    checkBattery(rt, stored ?? views[id]!.device?.battery ?? null);
   }
-  useRodRuntimeStore.setState({ views, anyArmed: runtimes.size > 0 });
+  const watchingCount = Object.values(views).filter(
+    (v) => v.isWarmedUp && !v.signalLost && v.armFailReason === null,
+  ).length;
+  useRodRuntimeStore.setState({ views, anyArmed: runtimes.size > 0, watchingCount });
 }
 
 /**
@@ -420,10 +447,13 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     if (dev.requiresBle) {
       const granted = await ensureBlePermissions();
       if (!granted) {
-        rt.status = 'unauthorized';
-        rt.error = 'Bluetooth permission denied.';
+        // Removed from the map, not just marked. Leaving it made the NEXT
+        // attempt hit the idempotence guard and return ok — so a retry after
+        // enabling Bluetooth reported every rod armed while none had a sensor,
+        // no scan subscription and no signal-loss timer.
+        runtimes.delete(rod.id);
         scheduleFlush();
-        return { ok: false, error: rt.error };
+        return { ok: false, error: 'Bluetooth permission denied.' };
       }
       await waitForPoweredOn();
     }
@@ -470,10 +500,14 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     scheduleFlush();
     return { ok: true };
   } catch (e) {
-    rt.status = 'error';
-    rt.error = e instanceof Error ? e.message : 'Failed to connect to sensor.';
+    // Same reason as the permission path: a half-armed runtime left in the map
+    // makes every retry a silent no-op that reports success.
+    runtimes.delete(rod.id);
     scheduleFlush();
-    return { ok: false, error: rt.error };
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : 'Failed to connect to sensor.',
+    };
   }
 }
 
@@ -513,10 +547,31 @@ export async function disarmAll(): Promise<void> {
 
 /** Retune every live detector when the user moves the sensitivity slider. */
 export function retuneAll(config: { sensitivity: number; liveBaitMode: boolean }): void {
+  // The sensitivity argument used to be destructured and never read, so the
+  // shipped slider — labelled "higher detects smaller nibbles" — did nothing at
+  // all. It now drives the deflection threshold, which is the parameter that
+  // actually decides how small a bite registers.
+  setDetectionParams(sensitivityToParams(config.sensitivity));
+
   for (const rt of runtimes.values()) {
     void rt.connection?.setFishingMode(config.liveBaitMode).catch(() => undefined);
   }
   scheduleFlush();
+}
+
+/**
+ * Map the 0..1 user slider onto the deflection threshold.
+ *
+ * Inverted: higher sensitivity means a SMALLER angle counts as a bite. The ends
+ * are the parameter's own documented range, so the slider and the debug screen
+ * cannot disagree about what is achievable — they write the same field, and the
+ * debug screen is the finer control over the same value.
+ */
+export function sensitivityToParams(sensitivity: number): DetectionParams {
+  const { min, max } = DETECTION_PARAM_RANGES.thetaDeg;
+  const clamped = Math.max(0, Math.min(1, sensitivity));
+  const thetaDeg = max - clamped * (max - min);
+  return { ...currentDetectionParams(), thetaDeg: Number(thetaDeg.toFixed(1)) };
 }
 
 /**
@@ -546,6 +601,22 @@ export function tickDetection(): void {
     for (const event of rt.detector.tick(now)) handleDetectionEvent(rt, event);
   }
   scheduleFlush();
+}
+
+/**
+ * Restart arming for one rod.
+ *
+ * Exposed because ARM_FAILED was otherwise terminal: rodDetector.rearm() existed
+ * and had no caller, so a rod that failed to arm displayed a red label with no
+ * way to act on it and stayed dead for the whole session.
+ */
+export function rearmRod(rodId: string): boolean {
+  const rt = runtimes.get(rodId);
+  if (!rt) return false;
+  rt.detector.rearm();
+  rt.error = null;
+  scheduleFlush();
+  return true;
 }
 
 /** Rod ids currently armed. */
@@ -592,5 +663,10 @@ export function resetRodRuntime(): void {
   foregroundServiceRunning = false;
   conditions = null;
   currentUid = null;
-  useRodRuntimeStore.setState({ views: {}, anyArmed: false, lastBiteRodId: null });
+  useRodRuntimeStore.setState({
+    views: {},
+    anyArmed: false,
+    watchingCount: 0,
+    lastBiteRodId: null,
+  });
 }

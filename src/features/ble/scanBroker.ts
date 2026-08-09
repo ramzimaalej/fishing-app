@@ -38,22 +38,40 @@ function startUnderlyingScan(): void {
   // Scan ALL devices and let subscribers match: the beacons we care about carry
   // their payload in service DATA rather than the advertised service UUID list,
   // which a UUID scan filter would silently miss.
-  getBleManager().startDeviceScan(null, { allowDuplicates: true }, (error, device) => {
-    if (error) {
-      lastError = error.message;
-      bleLog('scanBroker: scan error:', error.message);
-      return;
-    }
-    if (!device) return;
-    // Copy first: a listener unsubscribing mid-dispatch must not perturb this
-    // iteration.
-    for (const l of [...listeners]) {
-      try {
-        l(device);
-      } catch {
-        /* one bad subscriber must never stop the fan-out */
+  // startDeviceScan RETURNS A PROMISE, and adapter-off / unauthorised / already-
+  // scanning reject it rather than reporting through the callback. Dropping it
+  // left `scanning` latched true on a scan that never started, so every later
+  // subscribe silently no-opped and BLE was dead for the process lifetime — with
+  // the error surfacing only as an unhandled rejection.
+  const started = getBleManager().startDeviceScan(
+    null,
+    { allowDuplicates: true },
+    (error, device) => {
+      if (error) {
+        // Also unlatch here: a mid-session adapter-off arrives this way, and
+        // leaving `scanning` true would block every future restart.
+        scanning = false;
+        lastError = error.message;
+        bleLog('scanBroker: scan error:', error.message);
+        return;
       }
-    }
+      if (!device) return;
+      // Copy first: a listener unsubscribing mid-dispatch must not perturb this
+      // iteration.
+      for (const l of [...listeners]) {
+        try {
+          l(device);
+        } catch {
+          /* one bad subscriber must never stop the fan-out */
+        }
+      }
+    },
+  ) as unknown as Promise<void> | undefined;
+
+  void Promise.resolve(started).catch((e: unknown) => {
+    scanning = false;
+    lastError = e instanceof Error ? e.message : 'Scan could not be started.';
+    bleLog('scanBroker: start rejected:', lastError);
   });
 }
 

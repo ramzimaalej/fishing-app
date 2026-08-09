@@ -23,8 +23,22 @@ export type DeviceStatus =
   | 'powered-off';
 
 export interface PairedDevice {
-  /** Full MAC, uppercase colon-separated. The identity everything keys on. */
+  /**
+   * Stable identity, from inside the tag's own frame.
+   *
+   * For the CP27 this is five of the six MAC octets — the frame does not carry
+   * the first — so it is NOT a connectable address. It is chosen for stability:
+   * it survives an iOS reinstall, where the platform's own device id does not.
+   * Use `connectionId` to connect.
+   */
   id: string;
+  /**
+   * Platform handle to connect with, learned from the last advertisement.
+   *
+   * Null until the tag has actually been heard, which is why pairing by typed
+   * code cannot enable GATT commands on its own — there is no address yet.
+   */
+  connectionId: string | null;
   /** Advertised name, e.g. "CP27-C00C". */
   name: string;
   /** User-chosen label, e.g. "Left tag". Falls back to `name`. */

@@ -21,7 +21,7 @@ import { isBatteryReadingStale } from '@/features/ble/battery';
 import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
 import { useRodStore } from '@/features/rods/rodStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { colors, radius, rodColours, spacing, typography } from '@/theme';
 
 import { powerOff, readBattery, verifyDevice } from './cp27Commands';
 import { currentOpcodes } from './cp27Opcodes';
@@ -29,12 +29,17 @@ import {
   canBindDevice,
   DEVICE_LIVE_WINDOW_MS,
   deviceLabel,
-  deviceShortId,
   deviceStatus,
   type DeviceStatus,
   type PairedDevice,
 } from './device';
-import { type DiscoveredDevice, startDeviceWatch, useDeviceStore } from './deviceStore';
+import { isPlausibleCode, printedCode } from './deviceCode';
+import {
+  type DiscoveredDevice,
+  pendingCandidates,
+  startDeviceWatch,
+  useDeviceStore,
+} from './deviceStore';
 
 const STATUS_TEXT: Record<DeviceStatus, string> = {
   live: 'Live',
@@ -76,8 +81,16 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
   const boundRod = rods.find((r) => r.deviceId === device.id) ?? null;
 
   const onVerify = async () => {
+    if (!device.connectionId) {
+      Alert.alert(
+        'Not heard yet',
+        'This tag was paired by code and has never been heard, so there is no address to ' +
+          'connect to. Bring it in range and try again.',
+      );
+      return;
+    }
     setBusy('Connecting…');
-    const result = await verifyDevice(device.id, {
+    const result = await verifyDevice(device.connectionId, {
       password: currentOpcodes().password ?? undefined,
     });
     // Recorded whenever the connection succeeded, including the null that means
@@ -89,8 +102,9 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
   };
 
   const onReadBattery = async () => {
+    if (!device.connectionId) return;
     setBusy('Reading battery…');
-    const result = await readBattery(device.id, {
+    const result = await readBattery(device.connectionId, {
       password: currentOpcodes().password ?? undefined,
     });
     if (result.ok) setBattery(device.id, result.percent);
@@ -115,7 +129,7 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
           onPress: () => {
             void (async () => {
               setBusy('Powering off…');
-              const result = await powerOff(device.id, opcodes.powerOff, {
+              const result = await powerOff(device.connectionId ?? '', opcodes.powerOff, {
                 password: opcodes.password ?? undefined,
               });
               setBusy(null);
@@ -185,7 +199,7 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
             </Pressable>
           )}
           <Text style={styles.cardMeta}>
-            {device.id} · {deviceShortId(device.id)}
+            <Text style={styles.code}>{printedCode(device.id)}</Text> · {device.id}
           </Text>
         </View>
         {device.battery != null && (
@@ -215,7 +229,9 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
         <View style={{ flex: 1 }}>
           <Text style={styles.fieldLabel}>Battery</Text>
           <Text style={styles.hint}>
-            {device.batteryUnsupported
+            {!device.connectionId
+              ? 'Needs the tag in range once before it can be read.'
+              : device.batteryUnsupported
               ? 'Not reported by this tag.'
               : device.battery == null
                 ? 'Not read yet — it comes from a connection, not the broadcast.'
@@ -223,7 +239,7 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
                   (isBatteryReadingStale(device.batteryReadAt, now) ? ' · may be out of date' : '')}
           </Text>
         </View>
-        {!device.batteryUnsupported && (
+        {!device.batteryUnsupported && device.connectionId && (
           <Pressable style={styles.smallBtn} onPress={() => void onReadBattery()} disabled={!!busy}>
             <Text style={styles.smallBtnText}>
               {device.battery == null ? 'Read' : 'Refresh'}
@@ -240,9 +256,13 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
           return (
             <Pressable
               key={rod.id}
-              style={[styles.chip, active && styles.chipOn]}
+              style={[
+                styles.chip,
+                active && { backgroundColor: rodColours[rod.colour] },
+              ]}
               onPress={() => (active ? setDeviceId(rod.id, null) : onBind(rod.id))}
             >
+              <View style={[styles.chipDot, { backgroundColor: rodColours[rod.colour] }]} />
               <Text style={[styles.chipText, active && styles.chipTextOn]}>{rod.name}</Text>
             </Pressable>
           );
@@ -275,7 +295,8 @@ function DiscoveredCard({ device, now }: { device: DiscoveredDevice; now: number
         <View style={{ flex: 1 }}>
           <Text style={styles.cardTitle}>{device.name}</Text>
           <Text style={styles.cardMeta}>
-            {device.id} · {device.rssi} dBm · seen {relativeTime(device.lastSeenAt, now)}
+            <Text style={styles.code}>{printedCode(device.id)}</Text> · {device.rssi} dBm ·
+            seen {relativeTime(device.lastSeenAt, now)}
           </Text>
         </View>
         <Pressable style={styles.pairBtn} onPress={() => pair(device)}>
@@ -293,7 +314,10 @@ export default function DevicesScreen() {
   const paired = useDeviceStore((s) => s.paired);
   const discovered = useDeviceStore((s) => s.discovered);
   const scanning = useDeviceStore((s) => s.scanning);
-  const pairById = useDeviceStore((s) => s.pairById);
+  const requestPair = useDeviceStore((s) => s.requestPair);
+  const cancelPending = useDeviceStore((s) => s.cancelPending);
+  const pending = useDeviceStore((s) => s.pending);
+  const pair = useDeviceStore((s) => s.pair);
 
   const [manualId, setManualId] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -371,32 +395,80 @@ export default function DevicesScreen() {
         discoveredList.map((d) => <DiscoveredCard key={d.id} device={d} now={now} />)
       )}
 
-      <Text style={styles.sectionTitle}>Pair by address</Text>
+      <Text style={styles.sectionTitle}>Pair by printed code</Text>
       <View style={styles.card}>
         <Text style={styles.hint}>
-          For a tag that is out of range now. It stays "never seen" until it actually
-          advertises — pairing by address proves nothing about whether it exists.
+          Type the code on the tag — the four characters after “CP27-”. It binds as soon as
+          that tag is heard, so you can enter it now and walk to the rod.
         </Text>
         <TextInput
           style={styles.input}
           value={manualId}
           onChangeText={setManualId}
-          placeholder="48:87:2D:9D:C0:0C"
+          placeholder="C00C"
           placeholderTextColor={colors.textMuted}
           autoCapitalize="characters"
           autoCorrect={false}
+          maxLength={20}
         />
         <Pressable
-          style={styles.primaryBtn}
+          style={[styles.primaryBtn, !isPlausibleCode(manualId) && styles.btnDisabled]}
+          disabled={!isPlausibleCode(manualId)}
           onPress={() => {
-            if (manualId.trim().length < 4) return;
-            pairById(manualId);
+            if (!requestPair(manualId, null)) return;
             setManualId('');
           }}
         >
-          <Text style={styles.primaryBtnText}>Pair</Text>
+          <Text style={styles.primaryBtnText}>Pair this code</Text>
         </Pressable>
+        {manualId.length > 0 && !isPlausibleCode(manualId) && (
+          <Text style={styles.hint}>
+            A code is at least 3 characters, all 0–9 or A–F.
+          </Text>
+        )}
       </View>
+
+      {pending.length > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>Waiting for</Text>
+          {pending.map((p) => {
+            const candidates = pendingCandidates(p.code);
+            return (
+              <View key={p.code} style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.code}>{p.code}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.hint}>
+                      {candidates.length > 1
+                        ? `${candidates.length} tags in range share this code — pick one below.`
+                        : 'Not heard yet. Bring the tag within range and switch it on.'}
+                    </Text>
+                  </View>
+                  <Pressable onPress={() => cancelPending(p.code)} hitSlop={8}>
+                    <Text style={styles.cancelText}>Cancel</Text>
+                  </Pressable>
+                </View>
+                {/* Ambiguity is shown, never resolved by guessing: the printed
+                    code is only four digits of a MAC and two tags can collide. */}
+                {candidates.length > 1 &&
+                  candidates.map((c) => (
+                    <Pressable
+                      key={c.id}
+                      style={styles.smallBtn}
+                      onPress={() => {
+                        const found = discovered[c.id];
+                        if (found) pair(found);
+                        cancelPending(p.code);
+                      }}
+                    >
+                      <Text style={styles.smallBtnText}>{c.id}</Text>
+                    </Pressable>
+                  ))}
+              </View>
+            );
+          })}
+        </>
+      )}
 
       <Text style={styles.footnote}>
         A tag counts as live if it has advertised in the last{' '}
@@ -453,11 +525,15 @@ const styles = StyleSheet.create({
   },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
     backgroundColor: colors.surfaceAlt,
   },
+  chipDot: { width: 8, height: 8, borderRadius: 4 },
   chipOn: { backgroundColor: colors.primary },
   chipText: { ...typography.caption, color: colors.text },
   chipTextOn: { color: colors.bg, fontWeight: '700' },
@@ -493,6 +569,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryBtnText: { ...typography.body, color: colors.bg, fontWeight: '800' },
+  code: { ...typography.body, color: colors.primary, fontWeight: '800', letterSpacing: 1 },
+  cancelText: { ...typography.caption, color: colors.danger, fontWeight: '700' },
+  btnDisabled: { opacity: 0.4 },
   hint: { ...typography.caption, color: colors.textMuted },
   error: { ...typography.caption, color: colors.danger },
   footnote: { ...typography.caption, color: colors.border, marginTop: spacing.md },

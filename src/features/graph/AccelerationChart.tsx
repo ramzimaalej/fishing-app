@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 
+import { SIGNAL_LOST_MS } from '@/features/detection/detectionParams';
 import { colors, radius, spacing, typography } from '@/theme';
 import type { BiteEvent } from '@/types';
 
@@ -16,10 +17,26 @@ interface AccelerationChartProps {
   points: AccelChartPoint[];
   bites?: BiteEvent[];
   height?: number;
+  /**
+   * Monotonic clock, so staleness can be judged.
+   *
+   * Without it the chart could not tell a calm rod from a dead feed: the ring
+   * buffer keeps its last points and the x-axis normalises them across the full
+   * width, so a tag that stopped advertising rendered as a steady live trace.
+   */
+  nowMs?: number;
 }
 
 const PADDING = { top: 12, right: 12, bottom: 8, left: 12 };
 const MIN_Y_MAX = 0.3; // keep a sensible scale when the signal is tiny
+
+/**
+ * Silence after which the trace is called out as stale.
+ *
+ * Matched to the detector's own loss timeout so the chart and the alarm cannot
+ * disagree about when the data stopped.
+ */
+const CHART_STALE_MS = SIGNAL_LOST_MS;
 
 /**
  * Real-time acceleration graph. Plots the Kalman-filtered dynamic magnitude
@@ -27,8 +44,17 @@ const MIN_Y_MAX = 0.3; // keep a sensible scale when the signal is tiny
  * coloured by size (small = blue, big = orange). Paths are built as raw SVG `d`
  * strings for cheap re-rendering of ~300-point windows.
  */
-function AccelerationChart({ points, bites = [], height = 220 }: AccelerationChartProps) {
+function AccelerationChart({
+  points,
+  bites = [],
+  height = 220,
+  nowMs,
+}: AccelerationChartProps) {
   const { t } = useTranslation();
+
+  const lastAt = points.length > 0 ? points[points.length - 1]!.t : null;
+  const staleForMs = nowMs !== undefined && lastAt !== null ? nowMs - lastAt : 0;
+  const stale = staleForMs > CHART_STALE_MS;
   const [width, setWidth] = useState(0);
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -122,6 +148,13 @@ function AccelerationChart({ points, bites = [], height = 220 }: AccelerationCha
             <Text style={styles.emptyText}>{t('chart.waiting')}</Text>
           </View>
         )}
+        {points.length >= 2 && stale && (
+          <View style={styles.empty}>
+            <Text style={styles.staleText}>
+              {t('chart.stale', { seconds: Math.round(staleForMs / 1000) })}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.legend}>
@@ -175,6 +208,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  staleText: {
+    ...typography.caption,
+    color: colors.danger,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   emptyText: {
     color: colors.textMuted,

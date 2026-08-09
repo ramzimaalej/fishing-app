@@ -303,9 +303,11 @@ export async function notifySensorBattery(
  * user who believes a rod is being watched when it is not is the worst failure
  * this app has, worse than a false alarm.
  *
- * It therefore borrows the bite alert's sound and vibration rather than being a
- * silent banner: the whole point is to reach someone who is not looking at the
- * screen.
+ * It uses vibration and a system notification. NOTE: it does NOT currently make
+ * a sound, because SOUND_ASSETS is empty — no audio ships in this build, so
+ * every sound request degrades to a haptic tick. Until audio is added, the only
+ * things that can actually reach someone not looking at the screen are the
+ * vibration and the notification, and the UI must not promise otherwise.
  */
 export async function notifySignalLost(
   rodName: string,
@@ -315,7 +317,10 @@ export async function notifySignalLost(
     if (settings.vibrationEnabled) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
-    if (settings.soundEnabled) await playSoundPreview(settings.soundKey);
+    // Deliberately not calling playSoundPreview: with no assets registered it
+    // produces a selection tick, which is quieter than the vibration above and
+    // would only mislead anyone reading this as "the alarm makes a noise".
+
   } catch {
     /* feedback is best-effort */
   }

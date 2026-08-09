@@ -27,8 +27,14 @@ import { useEntitlements } from '@/features/subscription/useEntitlements';
 import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import AccelerationChart from '@/features/graph/AccelerationChart';
 import {
+  BACKGROUND_SCANNING_IMPOSSIBLE,
+  PLATFORM_LIMIT_BODY,
+} from '@/features/detection/platformLimits';
+import {
   armRods,
   disarmAll,
+  isBackgroundWatchActive,
+  rearmRod,
   getSessionBites,
   startSessionLog,
   type RodRuntimeView,
@@ -39,13 +45,17 @@ import {
   useArmableRods,
   useRodActivities,
   useRodView,
+  useWatchingCount,
 } from '@/features/rods/useRodRuntime';
 import { useSessionStore } from '@/features/session-report/sessionStore';
 import { buildSessionSummary } from '@/features/session-report/sessionSummary';
 import SensitivitySlider from '@/features/settings/components/SensitivitySlider';
 import { useSettings, useSettingsStore } from '@/features/settings/settingsStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { colors, radius, rodColours, type RodColour, spacing, typography } from '@/theme';
 import type { RodActivity } from '@/features/devices/device';
+import { printedCode } from '@/features/devices/deviceCode';
+import { monotonicNowMs } from '@/features/detection/monotonicClock';
+import type { Rod } from '@/features/rods/rod';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
 /**
@@ -88,10 +98,10 @@ function BiteBanner({ bite, rodName }: { bite: BiteEvent; rodName: string }) {
           {isBig ? t('fishing.bigFish') : t('fishing.nibble')} — {rodName}
         </Text>
         <Text style={styles.bannerMeta}>
-          {t('fishing.bitePeak', {
-            peak: bite.peakMagnitude.toFixed(2),
-            confidence: Math.round(bite.confidence * 100),
-          })}
+          {/* No percentage: confidence is a fixed heuristic with two base values,
+              so "50% confidence" was a constant dressed as a measurement. The
+              path is the real information — what the detector actually saw. */}
+          {t('fishing.bitePeak', { peak: bite.peakMagnitude.toFixed(0) })}
         </Text>
       </View>
     </View>
@@ -110,12 +120,17 @@ const ACTIVITY_TEXT: Record<RodActivity, string | null> = {
 
 function RodCard({
   name,
+  colour,
+  tagCode,
   view,
   activity,
   selected,
   onPress,
 }: {
   name: string;
+  colour: RodColour;
+  /** Code printed on the bound tag, so rod and tag can be matched by eye. */
+  tagCode: string | null;
   view: RodRuntimeView;
   activity: RodActivity;
   selected: boolean;
@@ -123,7 +138,14 @@ function RodCard({
 }) {
   const { t } = useTranslation();
   return (
-    <Pressable style={[styles.rodCard, selected && styles.rodCardSelected]} onPress={onPress}>
+    <Pressable
+      style={[
+        styles.rodCard,
+        { borderColor: rodColours[colour] },
+        selected && styles.rodCardSelected,
+      ]}
+      onPress={onPress}
+    >
       <View style={styles.rodCardHeader}>
         <View
           style={[
@@ -139,6 +161,9 @@ function RodCard({
           {name}
         </Text>
       </View>
+      {/* The tag's printed code, so "which rod is this" can be answered by
+          looking at the sticker rather than remembering a binding. */}
+      {tagCode && <Text style={styles.rodCardTag}>{tagCode}</Text>}
       <Text style={styles.rodCardCount}>{view.biteCount}</Text>
       <Text
         style={[
@@ -184,6 +209,7 @@ export default function FishingScreen() {
   const armable = useArmableRods();
   const activities = useRodActivities();
   const anyArmed = useAnyArmed();
+  const watchingCount = useWatchingCount();
 
   const settings = useSettings();
   const setLiveBaitMode = useSettingsStore((s) => s.setLiveBaitMode);
@@ -214,6 +240,15 @@ export default function FishingScreen() {
   // Re-renders once a minute so the countdown ticks without a per-second timer.
   const remainingMs = useSessionCountdown(sessionWindow);
 
+  // Ticks so the chart can notice that nothing arrived — the absence of data is
+  // not an event, so nothing else would re-render it.
+  const [chartNow, setChartNow] = useState(() => monotonicNowMs());
+  useEffect(() => {
+    if (!anyArmed) return;
+    const timer = setInterval(() => setChartNow(monotonicNowMs()), 2000);
+    return () => clearInterval(timer);
+  }, [anyArmed]);
+
   const beginSession = useCallback(async () => {
     if (armable.length === 0) {
       setArmError(t('fishing.addRodFirst'));
@@ -233,6 +268,10 @@ export default function FishingScreen() {
     // Every rod failed → there is no session at all.
     if (errors.length === armable.length) {
       sessionStartRef.current = null;
+      // disarmAll as well as endSession: ending the window left any partially
+      // constructed runtimes in place, so the next Start hit the idempotence
+      // guard and reported success with nothing actually listening.
+      await disarmAll();
       endSession();
       void cancelSessionNotifications();
     }
@@ -311,9 +350,17 @@ export default function FishingScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>{t('fishing.title')}</Text>
             <Text style={styles.subtitle}>
-              {t('fishing.rodCount', { count: armable.length })}
-              {' · '}
-              {anyArmed ? t('fishing.monitoring') : t('fishing.idle')}
+              {/* Counts rods actually WATCHING, not rods switched on. The old
+                  line read "3 rods · monitoring" throughout the 60 s arming
+                  window and for rods whose tag had gone silent. */}
+              {anyArmed
+                ? t('fishing.watchingCount', {
+                    watching: watchingCount,
+                    total: armable.length,
+                  })
+                : t('fishing.rodCount', { count: armable.length }) +
+                  ' · ' +
+                  t('fishing.idle')}
             </Text>
           </View>
           <Pressable
@@ -327,6 +374,16 @@ export default function FishingScreen() {
         </View>
 
         {armError && <Text style={styles.errorText}>{armError}</Text>}
+
+        {/* The honest platform copy existed but was rendered only inside the
+            admin console, behind a code gate — so the person who needs it never
+            saw it. On iOS, backgrounding does not slow detection, it stops it. */}
+        {anyArmed && (BACKGROUND_SCANNING_IMPOSSIBLE || !isBackgroundWatchActive()) && (
+          <View style={styles.warnCard}>
+            <Text style={styles.warnTitle}>{t('signal.backgroundUnsafe')}</Text>
+            <Text style={styles.warnBody}>{PLATFORM_LIMIT_BODY}</Text>
+          </View>
+        )}
 
         <SessionBanner
           window={sessionWindow}
@@ -344,8 +401,7 @@ export default function FishingScreen() {
           {rods.map((rod) => (
             <RodCardBinding
               key={rod.id}
-              rodId={rod.id}
-              name={rod.name}
+              rod={rod}
               activity={activities[rod.id] ?? 'unpaired'}
               selected={rod.id === selected}
               onPress={() => selectRod(rod.id)}
@@ -359,8 +415,20 @@ export default function FishingScreen() {
 
         {selectedRod && (
           <>
-            <Text style={styles.chartTitle}>{selectedRod.name}</Text>
-            <AccelerationChart points={selectedView.points} bites={selectedView.bites} />
+            <View style={styles.chartTitleRow}>
+              <View
+                style={[styles.chartSwatch, { backgroundColor: rodColours[selectedRod.colour] }]}
+              />
+              <Text style={styles.chartTitle}>{selectedRod.name}</Text>
+              {selectedRod.deviceId && (
+                <Text style={styles.rodCardTag}>{printedCode(selectedRod.deviceId)}</Text>
+              )}
+            </View>
+            <AccelerationChart
+              points={selectedView.points}
+              bites={selectedView.bites}
+              nowMs={chartNow}
+            />
             <View style={styles.statsRow}>
               <Stat label={t('fishing.bites')} value={String(selectedView.biteCount)} />
               <Stat
@@ -369,16 +437,56 @@ export default function FishingScreen() {
               />
               <Stat
                 label={t('fishing.sensor')}
+                /* Same precedence as the rod card. This panel used to consult
+                   only `status`, which stays 'connected' when a tag goes silent
+                   — so it displayed "Ready" during a signal loss the card
+                   directly above it was reporting in red. */
                 value={
-                  selectedView.status === 'connected'
-                    ? selectedView.isWarmedUp
-                      ? t('fishing.status.ready')
-                      : t('fishing.status.calibrating')
-                    : t(STATUS_KEY[selectedView.status as keyof typeof STATUS_KEY] ?? 'fishing.status.idle')
+                  selectedView.signalLost
+                    ? t('fishing.status.notWatching')
+                    : selectedView.armFailReason
+                      ? t('fishing.status.armFailed')
+                      : selectedView.arming
+                        ? t('fishing.status.calibrating')
+                        : selectedView.status === 'connected'
+                          ? selectedView.isWarmedUp
+                            ? t('fishing.status.ready')
+                            : t('fishing.status.calibrating')
+                          : t(
+                              STATUS_KEY[selectedView.status as keyof typeof STATUS_KEY] ??
+                                'fishing.status.idle',
+                            )
                 }
               />
             </View>
           </>
+        )}
+
+        {selectedView.armFailReason && selectedRod && (
+          <View style={[styles.banner, { borderColor: colors.danger }]}>
+            <Text style={styles.bannerEmoji}>⚠️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bannerTitle}>{t('fishing.status.armFailed')}</Text>
+              <Text style={styles.bannerMeta}>{selectedView.armFailReason}</Text>
+            </View>
+            {/* ARM_FAILED used to be terminal: rearm() existed with no caller,
+                so the red label was a dead end for the whole session. */}
+            <Pressable style={styles.retryBtn} onPress={() => rearmRod(selectedRod.id)}>
+              <Text style={styles.retryText}>{t('common.retry')}</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {selectedView.lastImpactReason && selectedRod && (
+          <View style={[styles.banner, { borderColor: colors.accent }]}>
+            <Text style={styles.bannerEmoji}>💥</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bannerTitle}>{t('fishing.impactTitle')}</Text>
+              {/* Deliberately not called a bite: a fish and a knock cannot be
+                  told apart at this sample rate, so the user judges. */}
+              <Text style={styles.bannerMeta}>{t('fishing.impactBody')}</Text>
+            </View>
+          </View>
         )}
 
         {selectedView.lastBite && selectedRod && (
@@ -504,22 +612,22 @@ function SessionBanner({
 
 /** Subscribes one rod's view — a component per rod keeps the hook rule intact. */
 function RodCardBinding({
-  rodId,
-  name,
+  rod,
   activity,
   selected,
   onPress,
 }: {
-  rodId: string;
-  name: string;
+  rod: Rod;
   activity: RodActivity;
   selected: boolean;
   onPress: () => void;
 }) {
-  const view = useRodView(rodId);
+  const view = useRodView(rod.id);
   return (
     <RodCard
-      name={name}
+      name={rod.name}
+      colour={rod.colour}
+      tagCode={rod.deviceId ? printedCode(rod.deviceId) : null}
       view={view}
       activity={activity}
       selected={selected}
@@ -552,6 +660,16 @@ const styles = StyleSheet.create({
   armBtnActive: { backgroundColor: colors.surfaceAlt },
   armBtnText: { ...typography.h3, color: colors.text },
   errorText: { ...typography.caption, color: colors.danger },
+  warnCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  warnTitle: { ...typography.body, color: colors.accent, fontWeight: '700' },
+  warnBody: { ...typography.caption, color: colors.textMuted },
   sessionCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
@@ -592,6 +710,7 @@ const styles = StyleSheet.create({
   rodCardLabel: { ...typography.caption, color: colors.textMuted },
   rodCardLabelAlarm: { color: colors.danger, fontWeight: '700' },
   rodCardLabelMuted: { color: colors.accent },
+  rodCardTag: { ...typography.caption, color: colors.textMuted, letterSpacing: 1 },
   rodCardBattery: { ...typography.caption, color: colors.textMuted },
   addRodCard: {
     width: 104,
@@ -606,6 +725,8 @@ const styles = StyleSheet.create({
   },
   addRodPlus: { fontSize: 24, color: colors.primary },
   chartTitle: { ...typography.h3, color: colors.text },
+  chartTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  chartSwatch: { width: 12, height: 12, borderRadius: 6 },
   statsRow: { flexDirection: 'row', gap: spacing.sm },
   stat: {
     flex: 1,
@@ -630,6 +751,13 @@ const styles = StyleSheet.create({
   bannerEmoji: { fontSize: 28 },
   bannerTitle: { ...typography.h3, color: colors.text },
   bannerMeta: { ...typography.caption, color: colors.textMuted },
+  retryBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  retryText: { ...typography.caption, color: colors.bg, fontWeight: '800' },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
