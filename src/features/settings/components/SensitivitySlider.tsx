@@ -73,10 +73,15 @@ export default function SensitivitySlider({ value, onChange }: Props) {
     () =>
       // eslint-disable-next-line react-hooks/refs
       PanResponder.create({
-        // CAPTURE, so the track claims the gesture before the thumb child can.
-        // Without this the thumb becomes the touch target and `locationX` is
-        // measured against its 26px width instead of the track's — the cause of
-        // the Android flicker this replaced.
+        // CAPTURE, so the track claims the gesture before an enclosing scroll
+        // view can steal it mid-drag.
+        //
+        // This does NOT, on its own, make the coordinate right: `locationX` is
+        // measured against the TOUCH TARGET, not against whoever became the
+        // responder. A press landing on the thumb still reports a thumb-relative
+        // x however the responder was decided. The children below are
+        // pointerEvents="none" so the track is always the target — THAT is what
+        // keeps the coordinate correct.
         onStartShouldSetPanResponderCapture: () => true,
         onMoveShouldSetPanResponderCapture: () => true,
         onPanResponderGrant: (evt) => {
@@ -114,8 +119,16 @@ export default function SensitivitySlider({ value, onChange }: Props) {
         hitSlop={{ top: 16, bottom: 16 }}
         {...responder.panHandlers}
       >
-        <View style={[styles.fill, { width: `${pct * 100}%` }]} />
+        {/* Both children are decoration and MUST stay untouchable. If either
+            can be a touch target, `locationX` starts being measured against it
+            instead of the track: pressing the 26px thumb reported an x in
+            [0, 26], so grabbing the thumb — the most natural way to use a
+            slider — snapped the value to near zero before the drag even moved.
+            The track's own width is already used for the division; this is the
+            other half of the same coordinate bug. */}
+        <View pointerEvents="none" style={[styles.fill, { width: `${pct * 100}%` }]} />
         <View
+          pointerEvents="none"
           style={[
             styles.thumb,
             // Keep the thumb within the track edges.
