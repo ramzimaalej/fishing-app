@@ -609,10 +609,20 @@ loads. **Adopting a moving load as "at rest" is the worst thing this mechanism
 can do**, since a load that holds while changing is exactly what Path A calls a
 fish.
 
-The cost of a tight gate is that swell past about +/-2 degrees blocks recovery,
-leaving a re-seated rod mis-baselined until the sea drops. That is the chosen
-direction to fail in: a stale baseline degrades detection visibly, whereas
-erasing a live load hides a fish that is already on.
+The gate is a spread bound, so it draws one line in both directions. Swept
+against a load held above the freeze threshold: variation up to **+/-3 degrees**
+is adopted as a new rest attitude, **+/-4 degrees and above** is kept as a load.
+
+That cuts both ways, and both are worth knowing before a session:
+
+- Swell rocking a re-seated rod more than +/-3 degrees **blocks recovery**, so
+  the rod stays mis-baselined until the sea drops.
+- A load steadier than +/-3 degrees held for 45 s **is adopted as rest**. A
+  gentle fish holding against the current is the case to watch for.
+
+Neither is fixable by moving the number — it trades one for the other. The
+current value fails toward a stale baseline, which degrades detection visibly,
+rather than toward erasing a live load, which hides a fish already on.
 
 `ARMING_DURATION_MS` is a deadline, not a required wait. A rod that has lain
 still for `ARMING_MIN_SPAN_MS` has already supplied the rest attitude arming
