@@ -8,6 +8,8 @@
  */
 
 const STEP = 0.05;
+/** The thumb's width, which is what a thumb-relative x is measured against. */
+const THUMB = 26;
 const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
 const snap = (n: number): number => Number((Math.round(n / STEP) * STEP).toFixed(2));
 
@@ -72,6 +74,19 @@ describe('valueAt', () => {
       expect(v).toBeGreaterThanOrEqual(prev);
       prev = v;
     }
+  });
+
+  it('collapses toward zero if x is measured from anything but the track', () => {
+    // The second half of the same coordinate bug, and the reason it came back.
+    // `locationX` is relative to the TOUCH TARGET, not to whichever view became
+    // the responder — so a press landing on the 26px thumb at 70% of the track
+    // reported an x in [0, 26] instead of ~210, and the value snapped to almost
+    // zero before the drag had moved at all. Only keeping the thumb and fill
+    // untouchable (pointerEvents="none") makes the track the target, and the
+    // track origin the one the maths below assumes.
+    const thumbRelativeX = THUMB / 2; // finger in the middle of the thumb
+    expect(valueAt(thumbRelativeX, W)).not.toBe(valueAt(0.7 * W, W));
+    expect(valueAt(thumbRelativeX, W)).toBeLessThan(0.1);
   });
 
   it('is independent of the width used to compute it', () => {
