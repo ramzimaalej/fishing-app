@@ -538,6 +538,53 @@ covered by deterministic unit tests (no device or network needed).
 
 ---
 
+## Diagnosing "no sensor data"
+
+A rod stuck on *Calibrating*, or reporting *Signal lost*, has several causes
+that look identical on screen. The app now names the one it is actually in —
+"the tag is being heard, but only 0.27 readings/s — detection needs 3.3/s" —
+but when you need the raw evidence, capture it.
+
+**1. Power-cycle the tag first.** Pull the battery, wait ~10 s, reseat it. A tag
+can drop into advertising its identity only, with no motion payload at all, and
+this is what brings it back.
+
+**2. Capture.** Settings → *Admin* → **Open BLE sniffer**.
+
+- **Turn OFF "Sensors only"** — it hides beacons that do not decode as a known
+  sensor, which is exactly what an identity-only tag is. With it on, a
+  misbehaving tag simply vanishes and looks like nothing is transmitting.
+- Filter by the printed code (e.g. `C00C`), **Start scanning**.
+- Label the capture and use **Record 30 s**: one capture with the tag at rest,
+  one while moving it. Shorter runs land too few frames for the rate to mean
+  anything.
+
+**3. Pull and analyse.**
+
+```bash
+adb shell run-as co.castmate ls -t files/castmate-captures/
+adb shell run-as co.castmate cat files/castmate-captures/<name>.ndjson > cap.ndjson
+python3 scripts/analyse-capture.py cap.ndjson --tag C00C   # --frames for every reading
+```
+
+**4. Read the verdict.** The script reports the frame mix, the motion-frame
+RATE, the worst gap, and whether each clears the detector's thresholds:
+
+| Output | Meaning |
+| --- | --- |
+| `no accelerometer frames at all` | Identity-only mode. Hardware/config; no app change helps. |
+| `arming NOT MET` | Streaming, but below `ARMING_MIN_SAMPLES / ARMING_DURATION_MS`. |
+| `signal-lost would fire` | Gaps exceed `SIGNAL_LOST_MS`, so arming is torn down before it finishes. |
+
+The rate is the number that matters. Arming needs 200 readings in 60 s — 3.33/s
+— and a bite lasts a second or two, so a tag advertising every few seconds
+cannot resolve one however the thresholds are set. Measured for reference: the
+CP27 sample tag ran at **1.04 Hz** in August 2026 and **0.27 Hz** by September,
+against the 3.33 Hz required. Loosening the thresholds to accept that would
+report a rod as watched while it was incapable of catching anything.
+
+---
+
 ## Requirements → where it lives
 
 | Requirement | Implementation |
