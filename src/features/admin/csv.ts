@@ -39,7 +39,8 @@ export function csvField(value: string): string {
 }
 
 export const SAMPLE_CSV_HEADER =
-  't,rodId,xMg,yMg,zMg,magMg,thetaDeg,dtMs,crossings,sharpCrossings,meanDevDeg,cv,impact';
+  't,rodId,xMg,yMg,zMg,magMg,thetaDeg,dtMs,crossings,sharpCrossings,meanDevDeg,cv,impact,' +
+  'frozen,rebaselined';
 
 /**
  * One sample row.
@@ -51,6 +52,12 @@ export const SAMPLE_CSV_HEADER =
  * `dtMs` is included deliberately: with no sequence numbers it is the only
  * evidence of a dropped packet, and any analysis of onset rates has to know
  * which pairs were too far apart to trust.
+ *
+ * `frozen` and `rebaselined` are what make a recorded session legible after a
+ * cast. Without them theta alone cannot say WHY a rod sat at 7 degrees for an
+ * hour — a real load, or a stale baseline the freeze had trapped — and those
+ * two readings call for opposite fixes. Appended rather than inserted so column
+ * positions in already-recorded sessions still mean what they meant.
  */
 export function sampleRow(rodId: string, frame: FeatureFrame): string {
   const { sample } = frame;
@@ -68,6 +75,8 @@ export function sampleRow(rodId: string, frame: FeatureFrame): string {
     num(frame.meanDeviationDeg),
     frame.crossingIntervalCv === null ? '' : num(frame.crossingIntervalCv),
     frame.isImpact ? '1' : '0',
+    frame.baselineFrozen ? '1' : '0',
+    frame.rebaselined ? '1' : '0',
   ].join(',');
 }
 

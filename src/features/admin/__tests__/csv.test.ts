@@ -157,3 +157,23 @@ describe('eventsCsv', () => {
     }
   });
 });
+
+describe('baseline columns', () => {
+  it('records why a rod sat deflected, not just that it did', () => {
+    // theta alone cannot tell a real load from a baseline the freeze has
+    // trapped, and the two call for opposite fixes. A session recorded without
+    // these is unreadable after a cast.
+    const cols = SAMPLE_CSV_HEADER.split(',');
+    expect(cols).toContain('frozen');
+    expect(cols).toContain('rebaselined');
+
+    const row = sampleRow('rod_a', tick({ baselineFrozen: true, rebaselined: true })).split(',');
+    expect(row[cols.indexOf('frozen')]).toBe('1');
+    expect(row[cols.indexOf('rebaselined')]).toBe('1');
+
+    const idle = sampleRow('rod_a', tick()).split(',');
+    expect(idle[cols.indexOf('frozen')]).toBe('0');
+    expect(idle[cols.indexOf('rebaselined')]).toBe('0');
+  });
+});
+

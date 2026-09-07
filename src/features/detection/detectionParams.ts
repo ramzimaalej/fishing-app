@@ -294,10 +294,15 @@ export const REBASELINE_STILL_MS = ARMING_MIN_SPAN_MS * 3;
  * 0.9 degrees near the threshold, so a few degrees covers quantisation and mild
  * noise while staying far below anything alive.
  *
- * The cost is that this will not fire in swell strong enough to rock the rod
- * past it, leaving a re-seated rod mis-baselined until the sea drops. That is
- * the deliberate direction to fail in: a stale baseline degrades detection,
- * whereas erasing a live load hides a fish that is already on.
+ * Swept against a load held above the freeze threshold, this is where the line
+ * actually falls: variation up to +/-3 degrees is adopted as a new rest
+ * attitude, +/-4 degrees and above is kept as a load. It cuts both ways. Swell
+ * rocking a re-seated rod past that blocks recovery and leaves it mis-baselined;
+ * a load steadier than that held for 45 s is adopted, so a gentle fish holding
+ * against the current is the case to watch. Moving the number trades one for the
+ * other rather than fixing either. This value fails toward a stale baseline,
+ * which degrades detection visibly, rather than toward erasing a live load,
+ * which hides a fish that is already on.
  */
 export const REBASELINE_SPREAD_DEG = 3.0;
 
