@@ -14,7 +14,12 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import {
   DETECTION_PARAM_RANGES,
   type DetectionParams,
+  ARMING_DURATION_MS,
+  ARMING_MIN_SAMPLES,
+  DWELL_GAP_TOLERANCE_MS,
+  EXPECTED_SAMPLE_INTERVAL_MS,
   MAX_DT_FOR_RATE_MS,
+  SIGNAL_LOST_MS,
 } from '@/features/detection/detectionParams';
 import { useDetectionParamsStore } from '@/features/detection/detectionParamsStore';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -103,6 +108,16 @@ function ParamRow({ field }: { field: Field }) {
   );
 }
 
+const SAMPLE_RATE_HZ = 1000 / EXPECTED_SAMPLE_INTERVAL_MS;
+
+/**
+ * Path B scores a crossing as "sharp" only when its leading edge was measured
+ * across a pair no wider than MAX_DT_FOR_RATE_MS, so a tag slower than that
+ * makes the path unreachable rather than merely insensitive. Shown here because
+ * a silently dead detection path is indistinguishable from a quiet sea.
+ */
+const PATH_B_AVAILABLE = EXPECTED_SAMPLE_INTERVAL_MS <= MAX_DT_FOR_RATE_MS;
+
 export default function DetectionSettingsScreen() {
   const reset = useDetectionParamsStore((s) => s.reset);
 
@@ -138,6 +153,25 @@ export default function DetectionSettingsScreen() {
         </Text>
       </View>
 
+      <View style={styles.card}>
+        <Text style={styles.label}>
+          Tag interval: {(EXPECTED_SAMPLE_INTERVAL_MS / 1000).toFixed(1)} s ({SAMPLE_RATE_HZ.toFixed(2)} Hz)
+        </Text>
+        <Text style={styles.help}>
+          Measured, not assumed. Arming ({ARMING_MIN_SAMPLES} readings in{' '}
+          {ARMING_DURATION_MS / 1000} s), signal-lost ({SIGNAL_LOST_MS / 1000} s) and dwell
+          tolerance ({DWELL_GAP_TOLERANCE_MS / 1000} s) are all derived from it.
+        </Text>
+        {!PATH_B_AVAILABLE && (
+          <Text style={styles.warn}>
+            Too slow for Path B. Repeated-deflection detection needs a leading edge measured
+            within {MAX_DT_FOR_RATE_MS} ms, so at this interval every crossing scores zero
+            sharp and only Path A (sustained load) can alert. Reconfigure the tag to ~7 Hz to
+            restore it.
+          </Text>
+        )}
+      </View>
+
       <Pressable style={styles.resetBtn} onPress={confirmReset}>
         <Text style={styles.resetText}>Reset to defaults</Text>
       </Pressable>
@@ -166,6 +200,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   label: { ...typography.body, color: colors.text, fontWeight: '700' },
   help: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+  warn: { ...typography.caption, color: colors.accent, marginTop: spacing.xs },
   range: { ...typography.caption, color: colors.border, marginTop: 2 },
   input: {
     ...typography.h3,

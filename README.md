@@ -575,13 +575,30 @@ RATE, the worst gap, and whether each clears the detector's thresholds:
 | `no accelerometer frames at all` | Identity-only mode. Hardware/config; no app change helps. |
 | `arming NOT MET` | Streaming, but below `ARMING_MIN_SAMPLES / ARMING_DURATION_MS`. |
 | `signal-lost would fire` | Gaps exceed `SIGNAL_LOST_MS`, so arming is torn down before it finishes. |
+| `paths: A only` | Too slow to measure a leading edge. Sustained-load alerts only. |
 
-The rate is the number that matters. Arming needs 200 readings in 60 s — 3.33/s
-— and a bite lasts a second or two, so a tag advertising every few seconds
-cannot resolve one however the thresholds are set. Measured for reference: the
-CP27 sample tag ran at **1.04 Hz** in August 2026 and **0.27 Hz** by September,
-against the 3.33 Hz required. Loosening the thresholds to accept that would
-report a rod as watched while it was incapable of catching anything.
+### Tuning the detector to a tag's rate
+
+The rate is the number that matters, and the thresholds are derived from it
+rather than chosen. `EXPECTED_SAMPLE_INTERVAL_MS` in
+`features/detection/detectionParams.ts` is the one place a measurement is
+recorded; arming budget, signal-lost timeout and dwell gap tolerance all follow
+from it, and `analyse-capture.py` mirrors the same derivation. Re-measure with
+the steps above, change that one constant, and both move together.
+
+Measured on the CP27 sample tag: **1.04 Hz** in August 2026, **0.21–0.30 Hz** by
+September, currently pinned at 3.6 s per reading.
+
+What that rate costs is not recoverable by tuning. A fish loads a rod in
+100–300 ms and a wave over 1–3 s; both are shorter than one sample interval
+here, so the leading edge that separates them is never sampled.
+`MAX_DT_FOR_RATE_MS` (150 ms) refuses to infer a slope across a wider gap —
+raising it would not reveal that edge, it would fabricate one out of whichever
+gap a whole bend happened to land in. So Path B (repeated sharp deflection)
+**cannot fire at this rate**, and the app runs on Path A (sustained load) alone.
+The settings screen says so directly rather than leaving a dead path to look
+like a quiet sea. Getting Path B back needs the tag advertising near 7 Hz, which
+is a tag configuration problem, not an app one.
 
 ---
 

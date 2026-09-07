@@ -42,9 +42,14 @@ MAX_PLAUSIBLE_G = 16
 
 # Mirrors src/features/detection/detectionParams.ts, so the report can say
 # whether a capture would actually have armed rather than leaving you to divide.
+# Derived the same way the TS derives them, from one measured interval, so that
+# re-tuning the app for a faster tag needs the same single edit here.
+EXPECTED_SAMPLE_INTERVAL_MS = 3_600
 ARMING_DURATION_MS = 60_000
-ARMING_MIN_SAMPLES = 200
-SIGNAL_LOST_MS = 5_000
+ARMING_YIELD = 0.65
+ARMING_MIN_SAMPLES = max(8, int((ARMING_DURATION_MS / EXPECTED_SAMPLE_INTERVAL_MS) * ARMING_YIELD))
+SIGNAL_LOST_MS = EXPECTED_SAMPLE_INTERVAL_MS * 5
+MAX_DT_FOR_RATE_MS = 150
 
 
 def service_data(row):
@@ -148,6 +153,23 @@ def main():
     print(f"             : {'MET' if rate >= needed else 'NOT MET'} at this rate")
     print(f"signal-lost  : gap > {SIGNAL_LOST_MS / 1000:.0f}s")
     print(f"             : {'would fire' if worst > SIGNAL_LOST_MS / 1000 else 'would not fire'} (worst gap {worst:.1f}s)")
+
+    # Which detection paths this rate can actually reach. Path B scores a
+    # crossing as "sharp" only when its leading edge was measured across a pair
+    # no wider than MAX_DT_FOR_RATE_MS, so a slower tag does not weaken Path B,
+    # it removes it — worth stating outright, because a dead path and a quiet
+    # sea produce identical output.
+    interval_ms = 1000 / rate if rate else float("inf")
+    print()
+    if interval_ms <= MAX_DT_FOR_RATE_MS:
+        print("paths        : A (sustained load) and B (repeated sharp deflection)")
+    else:
+        print("paths        : A (sustained load) only")
+        print(
+            f"             : {interval_ms / 1000:.1f}s between readings vs the "
+            f"{MAX_DT_FOR_RATE_MS}ms needed to measure a leading edge, so every"
+        )
+        print("               crossing scores zero sharp and Path B cannot fire.")
 
 
 if __name__ == "__main__":
