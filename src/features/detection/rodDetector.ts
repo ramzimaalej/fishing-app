@@ -13,11 +13,19 @@ import type { AccSample } from './accSample';
 import { DetectionEngine, type DetectionEvent } from './detectionEngine';
 import {
   ARMING_DURATION_MS,
+  ARMING_FAST_COHERENCE,
+  ARMING_FAST_MIN_SAMPLES,
   ARMING_MIN_SAMPLES,
+  ARMING_MIN_SPAN_MS,
   type DetectionParams,
   SIGNAL_LOST_MS,
 } from './detectionParams';
-import { computeArming, FeatureExtractor, type FeatureFrame } from './featureExtractor';
+import {
+  type ArmingResult,
+  computeArming,
+  FeatureExtractor,
+  type FeatureFrame,
+} from './featureExtractor';
 
 export type RodDetectorPhase =
   /** Collecting the arming window; not yet watching. */
@@ -184,19 +192,38 @@ export class RodDetector {
     this.armingSamples.push(sample);
 
     const elapsed = sample.tMonotonicMs - this.armingStartMs;
+
+    // Try to finish early. A rod that has lain still for ARMING_MIN_SPAN_MS has
+    // already given up its rest attitude, and waiting out the rest of the
+    // deadline only costs the angler fishing time. The stricter coherence gate
+    // is what keeps this from arming on a rod that happens to be between
+    // movements; anything less than convincing falls through to the deadline
+    // below, where the full window and the normal gate apply.
+    if (elapsed >= ARMING_MIN_SPAN_MS && this.armingSamples.length >= ARMING_FAST_MIN_SAMPLES) {
+      const fast = computeArming(
+        this.armingSamples,
+        ARMING_FAST_MIN_SAMPLES,
+        ARMING_FAST_COHERENCE,
+      );
+      if (fast.ok && fast.baseline) return this.startWatching(sample, fast);
+    }
+
     if (elapsed < ARMING_DURATION_MS) {
       return {
         phase: 'ARMING',
         frame: null,
         events: [],
+        // Against the deadline, which is the only bound that holds — the short
+        // path may finish at any point before it, so this is an upper bound on
+        // the wait rather than a prediction of it.
         armingProgress: Math.min(1, elapsed / ARMING_DURATION_MS),
       };
     }
 
     const result = computeArming(this.armingSamples, ARMING_MIN_SAMPLES);
-    this.armingSamples = [];
 
     if (!result.ok || !result.baseline) {
+      this.armingSamples = [];
       // Refuse rather than guess. Arming on a bad baseline yields a detector that
       // is confidently wrong for the whole session — worse than saying so.
       this.phase = 'ARM_FAILED';
@@ -204,8 +231,14 @@ export class RodDetector {
       return { phase: this.phase, frame: null, events: [], armingProgress: 1 };
     }
 
+    return this.startWatching(sample, result);
+  }
+
+  /** Commit an accepted baseline and start watching. */
+  private startWatching(sample: AccSample, result: ArmingResult): RodDetectorTick {
+    this.armingSamples = [];
     this.swellPeriodMs = result.swellPeriodMs;
-    this.extractor = new FeatureExtractor(result.baseline, this.params);
+    this.extractor = new FeatureExtractor(result.baseline!, this.params);
     this.engine.arm(sample.tMonotonicMs);
     this.phase = 'WATCHING';
 

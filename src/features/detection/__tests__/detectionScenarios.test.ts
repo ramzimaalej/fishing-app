@@ -6,9 +6,11 @@
  * would pass while hiding the failures that matter.
  */
 
+import type { AccSample } from '../accSample';
 import { DetectionEngine } from '../detectionEngine';
 import {
   ARMING_DURATION_MS,
+  ARMING_MIN_SPAN_MS,
   DEFAULT_DETECTION_PARAMS,
   EXPECTED_SAMPLE_INTERVAL_MS,
   MAX_DT_FOR_RATE_MS,
@@ -529,5 +531,62 @@ describe('at the tag\'s measured advertising rate', () => {
 
     expect(result.frames.every((f) => f.sharpCrossings === 0)).toBe(true);
     expect(result.alerts.some((a) => a.path === 'B')).toBe(false);
+  });
+});
+
+/**
+ * Arming is a deadline, not a stopwatch.
+ *
+ * A minute of "calibrating" is a minute of a fishing session in which nothing is
+ * being watched, and a rod that has lain still since the moment it was set down
+ * has already supplied everything arming needs. These pin that it finishes on
+ * evidence rather than on the clock, and that finishing early still requires the
+ * rod to be convincingly at rest.
+ */
+describe('arming finishes as soon as the rod has proved it is still', () => {
+  const atTagRate = (opts: Parameters<typeof generateStream>[0]) =>
+    generateStream({ nominalIntervalMs: EXPECTED_SAMPLE_INTERVAL_MS, jitterMs: 300, ...opts });
+
+  /** Elapsed ms from the first sample to the one that started WATCHING. */
+  const timeToArm = (stream: readonly AccSample[]): number | null => {
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    const start = stream[0]!.tMonotonicMs;
+    for (const sample of stream) {
+      if (detector.process(sample).phase === 'WATCHING') {
+        return sample.tMonotonicMs - start;
+      }
+    }
+    return null;
+  };
+
+  it('arms a parked rod well inside the deadline', () => {
+    const armedAt = timeToArm(
+      atTagRate({
+        durationMs: ARMING_DURATION_MS + 10_000,
+        angleAt: constantAngle(0),
+        dropRate: 0.05,
+        seed: 81,
+      }),
+    );
+
+    expect(armedAt).not.toBeNull();
+    expect(armedAt!).toBeGreaterThanOrEqual(ARMING_MIN_SPAN_MS);
+    expect(armedAt!).toBeLessThan(ARMING_DURATION_MS / 2);
+  });
+
+  it('will not take the short path on a rod that is still being handled', () => {
+    // A ±15° sweep sits between the two coherence gates by construction: loose
+    // enough for the full window to accept as swell, too loose to arm early on.
+    // If the short path used the same gate as the deadline, this would arm in
+    // fifteen seconds on the mean of a swing.
+    const armedAt = timeToArm(
+      atTagRate({
+        durationMs: ARMING_DURATION_MS + 10_000,
+        angleAt: triangleWave({ amplitudeDeg: 15, rampMs: 4_500, alternate: true }),
+        seed: 82,
+      }),
+    );
+
+    expect(armedAt === null || armedAt >= ARMING_DURATION_MS).toBe(true);
   });
 });
