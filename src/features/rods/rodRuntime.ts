@@ -76,6 +76,23 @@ export interface RodRuntimeView {
   /** Set when arming failed and the user must retry. */
   armFailReason: string | null;
   /**
+   * Readings per second actually arriving from the tag, null before two have.
+   *
+   * Exposed so "not being watched" can name its cause. A tag can be heard
+   * perfectly and still be useless if it advertises once every few seconds,
+   * and that is indistinguishable on screen from a flat battery.
+   */
+  sampleRateHz: number | null;
+  /**
+   * When the bound tag was last HEARD on air, independent of whether any of
+   * those advertisements carried motion. Null when it has not been heard.
+   *
+   * The pair of these two separates the three cases that all looked the same:
+   * nothing heard at all, heard but sending no motion data, and sending motion
+   * data too slowly to detect with.
+   */
+  tagLastHeardAt: number | null;
+  /**
    * Most recent IMPACT, or null. Surfaced because a fish and someone knocking
    * the rod cannot be told apart — so the user judges, which they can only do if
    * they are shown it. It was previously recorded and silently discarded.
@@ -185,6 +202,8 @@ function buildView(rt: Runtime): RodRuntimeView {
     signalLost: rt.signalLost || rt.detector.isArmingSignalLost(),
     arming: rt.detector.getPhase() === 'ARMING',
     armFailReason: rt.detector.getArmFailReason(),
+    sampleRateHz: rt.detector.observedRateHz(),
+    tagLastHeardAt: deviceFor(rt.rod.deviceId)?.lastSeenAt ?? null,
     lastImpactReason: rt.lastImpactReason,
   };
 }

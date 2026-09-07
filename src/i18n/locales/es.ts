@@ -354,6 +354,10 @@ const es: Translation = {
     lostBody:
       '{{rod}} ha dejado de responder — esta caña NO está siendo vigilada. Comprueba que el sensor esté en alcance y con batería.',
     lostBanner: 'Señal perdida — esta caña no está siendo vigilada',
+    diagTooSlow: 'Se recibe el sensor, pero solo {{rate}} lecturas/s — la detección necesita {{needed}}/s.',
+    diagNoMotion: 'Se recibe el sensor, pero no envía datos de movimiento.',
+    diagStalled: 'Se recibe el sensor, pero ha dejado de enviar lecturas.',
+    diagSilent: 'No se recibe nada del sensor.',
     watchingTitle: 'Castmate está vigilando tus cañas',
     watchingBody: 'Mantén la app activa para detectar picadas.',
     backgroundUnsafe: 'Vigilancia en segundo plano inactiva — mantén Castmate abierto',

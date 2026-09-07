@@ -42,6 +42,9 @@ function idleView(rodId: string): RodRuntimeView {
     signalLost: false,
     arming: false,
     armFailReason: null,
+    // An idle rod has measured nothing; the diagnostics are for armed rods.
+    sampleRateHz: null,
+    tagLastHeardAt: null,
     lastImpactReason: null,
   };
 }

@@ -49,6 +49,9 @@ export class RodDetector {
   private params: DetectionParams;
 
   private armingSamples: AccSample[] = [];
+  /** Rate bookkeeping — spans the whole session, not just the arming window. */
+  private firstSampleMs: number | null = null;
+  private sampleCount = 0;
   private armingStartMs: number | null = null;
   private armFailReason: string | null = null;
 
@@ -100,6 +103,8 @@ export class RodDetector {
     this.armingSignalLost = false;
     this.armingSamples = [];
     this.armingStartMs = null;
+    this.firstSampleMs = null;
+    this.sampleCount = 0;
     this.armFailReason = null;
     this.extractor = null;
     this.engine.disarm();
@@ -136,8 +141,25 @@ export class RodDetector {
     return this.armingSignalLost;
   }
 
+  /**
+   * Readings per second actually arriving, or null before two have.
+   *
+   * Surfaced because "not being watched" has causes that look identical on
+   * screen and are not: a tag that is silent, and a tag that is advertising
+   * perfectly well but far too slowly to detect anything. Only the rate tells
+   * them apart, and without it that diagnosis needed a packet sniffer.
+   */
+  observedRateHz(): number | null {
+    if (this.firstSampleMs === null || this.lastSampleMs === null) return null;
+    if (this.sampleCount < 2) return null;
+    const spanS = (this.lastSampleMs - this.firstSampleMs) / 1000;
+    return spanS > 0 ? this.sampleCount / spanS : null;
+  }
+
   process(sample: AccSample): RodDetectorTick {
     this.lastSampleMs = sample.tMonotonicMs;
+    this.firstSampleMs ??= sample.tMonotonicMs;
+    this.sampleCount += 1;
     this.armingSignalLost = false;
 
     if (this.phase === 'ARM_FAILED') {
