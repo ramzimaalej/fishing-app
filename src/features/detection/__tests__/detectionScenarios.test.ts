@@ -10,7 +10,9 @@ import { DetectionEngine } from '../detectionEngine';
 import {
   ARMING_DURATION_MS,
   DEFAULT_DETECTION_PARAMS,
+  EXPECTED_SAMPLE_INTERVAL_MS,
   MAX_DT_FOR_RATE_MS,
+  SIGNAL_LOST_MS,
 } from '../detectionParams';
 import { RodDetector } from '../rodDetector';
 import { alerted, runSession } from '../testkit/runSession';
@@ -315,13 +317,17 @@ describe('events that must not alert', () => {
 });
 
 describe('signal loss', () => {
-  it('reports SIGNAL_LOST after 6 s of silence, never "no fish"', () => {
+  // Relative to SIGNAL_LOST_MS rather than to a literal, because that constant
+  // is derived from the tag's measured advertising interval and moves whenever a
+  // tag is re-measured. Pinning the wall-clock numbers here would turn a
+  // deliberate re-tune into a test failure that says nothing about behaviour.
+  it('reports SIGNAL_LOST once the silence threshold passes, never "no fish"', () => {
     const engine = new DetectionEngine(DEFAULT_DETECTION_PARAMS);
     engine.arm(100_000);
 
-    expect(engine.tick(104_000)).toHaveLength(0);
+    expect(engine.tick(100_000 + SIGNAL_LOST_MS - 1_000)).toHaveLength(0);
 
-    const events = engine.tick(106_000);
+    const events = engine.tick(100_000 + SIGNAL_LOST_MS + 1_000);
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('SIGNAL_LOST');
     expect(engine.isSignalLost()).toBe(true);
@@ -331,9 +337,9 @@ describe('signal loss', () => {
     const engine = new DetectionEngine(DEFAULT_DETECTION_PARAMS);
     engine.arm(100_000);
 
-    expect(engine.tick(106_000)).toHaveLength(1);
-    expect(engine.tick(108_000)).toHaveLength(0);
-    expect(engine.tick(110_000)).toHaveLength(0);
+    expect(engine.tick(100_000 + SIGNAL_LOST_MS + 1_000)).toHaveLength(1);
+    expect(engine.tick(100_000 + SIGNAL_LOST_MS + 3_000)).toHaveLength(0);
+    expect(engine.tick(100_000 + SIGNAL_LOST_MS + 5_000)).toHaveLength(0);
   });
 
   it('does not fire while idle — an unarmed rod is not being watched', () => {
@@ -426,8 +432,8 @@ describe('arming', () => {
     expect(detector.getPhase()).toBe('ARMING');
 
     const last = partial[partial.length - 1]!.tMonotonicMs;
-    expect(detector.tick(last + 3_000)).toHaveLength(0);
-    const events = detector.tick(last + 6_000);
+    expect(detector.tick(last + SIGNAL_LOST_MS - 1_000)).toHaveLength(0);
+    const events = detector.tick(last + SIGNAL_LOST_MS + 1_000);
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('SIGNAL_LOST');
   });
@@ -444,5 +450,84 @@ describe('parameters changing mid-session', () => {
 
     engine.setParams({ ...DEFAULT_DETECTION_PARAMS, thetaDeg: 20 });
     expect(engine.getState()).toBe('ARMED');
+  });
+});
+
+/**
+ * The rate the tag actually delivers.
+ *
+ * Every other scenario in this file runs at the generator's 100 ms default,
+ * which is roughly what the tag advertised when the detector was written and
+ * thirty-six times faster than what it sends now. Those scenarios still describe
+ * the intended behaviour and are worth keeping, but they cannot show whether the
+ * detector works on the hardware in hand — at 3.6 s spacing the constants, not
+ * the algorithm, decide whether anything fires at all.
+ */
+describe('at the tag\'s measured advertising rate', () => {
+  const atTagRate = (opts: Parameters<typeof generateStream>[0]) =>
+    generateStream({ nominalIntervalMs: EXPECTED_SAMPLE_INTERVAL_MS, jitterMs: 300, ...opts });
+
+  it('arms, rather than calibrating forever', () => {
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    const stream = atTagRate({
+      durationMs: ARMING_DURATION_MS + 10_000,
+      angleAt: constantAngle(0),
+      dropRate: 0.05,
+      seed: 71,
+    });
+    for (const sample of stream) detector.process(sample);
+
+    expect(detector.getPhase()).toBe('WATCHING');
+  });
+
+  it('does not declare the signal lost across a single dropped advertisement', () => {
+    // The gap that used to be fatal. Two intervals of silence is one missed
+    // advert on a healthy tag, and the old 5 s threshold reported it as a dead
+    // tag — an alarm describing its own threshold rather than the hardware.
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    const stream = atTagRate({
+      durationMs: ARMING_DURATION_MS + 10_000,
+      angleAt: constantAngle(0),
+      seed: 72,
+    });
+    for (const sample of stream) detector.process(sample);
+
+    const last = stream[stream.length - 1]!.tMonotonicMs;
+    expect(detector.tick(last + EXPECTED_SAMPLE_INTERVAL_MS * 2.5)).toHaveLength(0);
+  });
+
+  it('still alerts on a sustained load (Path A)', () => {
+    const stream = atTagRate({
+      durationMs: 40_000,
+      angleAt: constantAngle(14),
+      dropRate: 0.05,
+      seed: 73,
+    });
+    const result = runSession(stream);
+
+    expect(alerted(result)).toBe(true);
+    expect(result.alerts.every((a) => a.path === 'A')).toBe(true);
+  });
+
+  it('cannot reach Path B, and says so by scoring every crossing unsharp', () => {
+    // Not a bug to fix by tuning — a consequence of sampling. A fish's leading
+    // edge lasts 100–300 ms and lands entirely between two readings 3.6 s apart,
+    // so MAX_DT_FOR_RATE_MS correctly refuses to infer a slope across the gap.
+    // Asserted rather than left implicit: a dead detection path and a quiet sea
+    // produce identical output, and only a test tells them apart.
+    const stream = atTagRate({
+      durationMs: 60_000,
+      angleAt: pulses([
+        { atMs: 10_000, riseMs: 200, holdMs: 400, fallMs: 400, peakDeg: 16 },
+        { atMs: 20_000, riseMs: 200, holdMs: 400, fallMs: 400, peakDeg: 16 },
+        { atMs: 30_000, riseMs: 200, holdMs: 400, fallMs: 400, peakDeg: 16 },
+        { atMs: 40_000, riseMs: 200, holdMs: 400, fallMs: 400, peakDeg: 16 },
+      ]),
+      seed: 74,
+    });
+    const result = runSession(stream);
+
+    expect(result.frames.every((f) => f.sharpCrossings === 0)).toBe(true);
+    expect(result.alerts.some((a) => a.path === 'B')).toBe(false);
   });
 });
