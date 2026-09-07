@@ -318,14 +318,24 @@ export function computeArming(
   minSamples: number,
 ): ArmingResult {
   if (samples.length < minSamples) {
+    // The RATE is the actionable number. "Only 18 samples" reads like a dropout
+    // you could fix by moving closer; "0.3 readings/s where 3.3 is needed" says
+    // the tag is advertising too slowly to detect anything, which no amount of
+    // range or battery will change.
+    const spanS =
+      samples.length >= 2
+        ? (samples[samples.length - 1]!.tMonotonicMs - samples[0]!.tMonotonicMs) / 1000
+        : 0;
+    const rate = spanS > 0 ? samples.length / spanS : null;
     return {
       ok: false,
       baseline: null,
       sampleCount: samples.length,
       swellPeriodMs: null,
       reason:
-        `Only ${samples.length} samples in the arming window (need ${minSamples}). ` +
-        `Check the tag is advertising and in range.`,
+        `Only ${samples.length} readings in the arming window (need ${minSamples})` +
+        (rate === null ? '. ' : ` — about ${rate.toFixed(2)}/s. `) +
+        `The tag is advertising too slowly, or is out of range.`,
     };
   }
 

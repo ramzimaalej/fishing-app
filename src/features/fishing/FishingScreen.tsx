@@ -39,6 +39,10 @@ import {
   startSessionLog,
   type RodRuntimeView,
 } from '@/features/rods/rodRuntime';
+import {
+  ARMING_DURATION_MS,
+  ARMING_MIN_SAMPLES,
+} from '@/features/detection/detectionParams';
 import { useRodStore } from '@/features/rods/rodStore';
 import {
   useAnyArmed,
@@ -110,6 +114,42 @@ function BiteBanner({ bite, rodName }: { bite: BiteEvent; rodName: string }) {
 }
 
 /** Compact per-rod status card. Tapping it selects that rod's chart. */
+/**
+ * Readings per second the detector needs before it will arm.
+ *
+ * Derived from the arming budget rather than hardcoded, so the message can
+ * never quote a figure the detector does not actually enforce.
+ */
+const REQUIRED_RATE_HZ = ARMING_MIN_SAMPLES / (ARMING_DURATION_MS / 1000);
+
+/**
+ * Why this rod is not being watched, in one sentence.
+ *
+ * "Signal lost" was the same words for three genuinely different faults: a tag
+ * that is silent, a tag that is heard but sending no motion data, and a tag
+ * advertising motion far too slowly to detect with. Telling them apart used to
+ * take a packet sniffer and a hex decoder — while the app already held every
+ * fact needed to just say which one it is.
+ */
+function signalDiagnosis(
+  view: RodRuntimeView,
+  tagBeingHeard: boolean,
+  t: ReturnType<typeof useTranslation>['t'],
+): string {
+  const rate = view.sampleRateHz;
+  if (rate !== null && rate < REQUIRED_RATE_HZ) {
+    return t('signal.diagTooSlow', {
+      rate: rate.toFixed(2),
+      needed: REQUIRED_RATE_HZ.toFixed(1),
+    });
+  }
+  if (tagBeingHeard) {
+    // On air, but carrying nothing the detector can use.
+    return rate === null ? t('signal.diagNoMotion') : t('signal.diagStalled');
+  }
+  return t('signal.diagSilent');
+}
+
 /** Why a rod cannot fish, in words. Null when it can. */
 const ACTIVITY_TEXT: Record<RodActivity, string | null> = {
   active: null,
@@ -469,6 +509,18 @@ export default function FishingScreen() {
               />
             </View>
           </>
+        )}
+
+        {selectedView.signalLost && selectedRod && (
+          <View style={[styles.banner, { borderColor: colors.danger }]}>
+            <Text style={styles.bannerEmoji}>⚠️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bannerTitle}>{t('signal.lostBanner')}</Text>
+              <Text style={styles.bannerMeta}>
+                {signalDiagnosis(selectedView, activities[selectedRod.id] === 'active', t)}
+              </Text>
+            </View>
+          </View>
         )}
 
         {selectedView.armFailReason && selectedRod && (
