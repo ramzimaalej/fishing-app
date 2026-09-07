@@ -116,6 +116,10 @@ const ACTIVITY_TEXT: Record<RodActivity, string | null> = {
   disabled: 'Switched off',
   unpaired: 'No tag paired',
   'device-silent': 'Tag not responding',
+  // Deliberately not an alarm: nothing has been heard YET, which on a fresh
+  // launch is normal and lasts a second or two. Saying "not responding" here
+  // accused a working tag of being dead every time the app opened.
+  'device-unheard': 'Listening…',
   'device-off': 'Tag powered off',
 };
 

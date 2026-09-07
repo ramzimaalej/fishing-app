@@ -121,6 +121,11 @@ export type RodActivity =
   | 'unpaired'
   /** Tag bound but not advertising. */
   | 'device-silent'
+  /**
+   * Bound, and nothing heard from it YET — we have only just started listening.
+   * Distinct from 'device-silent' because it is not yet evidence of anything.
+   */
+  | 'device-unheard'
   /** Tag deliberately powered down. */
   | 'device-off'
   /** The user switched this rod off themselves. */
@@ -131,6 +136,34 @@ export interface RodActivityInput {
   enabled: boolean;
   /** The bound device, or null when the rod has none. */
   device: PairedDevice | null;
+  /**
+   * When the app actually started listening, or null when it is not.
+   *
+   * Not "when the app launched": a scan that took time to come up, or came back
+   * after the adapter was switched on, has heard nothing yet for a good reason.
+   */
+  listeningSince?: number | null;
+}
+
+/**
+ * Have we been listening long enough for silence to mean something?
+ *
+ * Liveness is deliberately not persisted (see deviceStore), so EVERY launch
+ * starts with every paired tag never-seen. Reporting that as "not responding"
+ * immediately accused a perfectly good tag of being dead for the first seconds
+ * of every session — the alarm this app exists to raise, cried wolf on startup.
+ *
+ * Treating it as benign indefinitely would be the worse mistake in the other
+ * direction: a tag that is flat, off or out of range would read as fine for as
+ * long as the app stayed open. So this is a grace period, not a state.
+ *
+ * It is DEVICE_LIVE_WINDOW_MS for the same reason that bounds liveness — ten
+ * advertising intervals at the slowest documented rate. If the tag were there,
+ * we would have heard it by now.
+ */
+function withinListeningGrace(since: number | null | undefined, nowMs: number): boolean {
+  if (since === null || since === undefined) return false;
+  return nowMs - since <= DEVICE_LIVE_WINDOW_MS;
 }
 
 /**
@@ -149,7 +182,11 @@ export function rodActivity(input: RodActivityInput, nowMs: number): RodActivity
       return 'active';
     case 'powered-off':
       return 'device-off';
+    case 'never-seen':
+      // Never heard is only news once we have been listening a while.
+      return withinListeningGrace(input.listeningSince, nowMs) ? 'device-unheard' : 'device-silent';
     default:
+      // 'stale': heard before, gone quiet since. That IS evidence.
       return 'device-silent';
   }
 }

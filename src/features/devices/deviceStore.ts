@@ -54,6 +54,14 @@ interface DeviceState {
   /** Tags seen in the current scan and not paired. Not persisted. */
   discovered: Record<string, DiscoveredDevice>;
   scanning: boolean;
+  /**
+   * When scanning actually began, or null when it is not running.
+   *
+   * Not persisted and not "app start": a paired tag that has not been heard is
+   * only meaningful relative to how long we have been listening, and the scan
+   * can start late — or restart after the adapter comes back.
+   */
+  scanStartedAt: number | null;
 
   pair: (device: DiscoveredDevice) => void;
   /** Queue a printed code; binds when a matching tag is heard. */
@@ -80,6 +88,7 @@ export const useDeviceStore = create<DeviceState>()(
       pending: [],
       discovered: {},
       scanning: false,
+      scanStartedAt: null,
 
       pair: (device) =>
         set((s) => {
@@ -310,17 +319,14 @@ export function startDeviceWatch(): void {
   // Whether the radio actually came up is not known yet — startDeviceScan can
   // reject afterwards — so this reads the broker rather than asserting true.
   // publish() keeps it honest from here on.
-  useDeviceStore.setState({ scanning: scanBrokerState().scanning });
+  syncScanning(scanBrokerState().scanning);
 }
 
 function publish(): void {
   // Keep the UI's idea of scanning honest. The flag used to be set optimistically
   // and never corrected, so the tags screen said "Nearby" — implying it was
   // listening — while the scan had rejected and nothing was being heard at all.
-  const live = scanBrokerState().scanning;
-  if (useDeviceStore.getState().scanning !== live) {
-    useDeviceStore.setState({ scanning: live });
-  }
+  syncScanning(scanBrokerState().scanning);
 
   const paired = pendingPaired;
   const discovered = pendingDiscovered;
@@ -363,6 +369,21 @@ function publish(): void {
   });
 
   resolvePending();
+}
+
+/**
+ * Mirror the broker's scanning state, stamping when listening actually began.
+ *
+ * The timestamp moves only on a false→true transition, so it measures how long
+ * we have been listening rather than how long the app has been open — which is
+ * what makes "nothing heard yet" distinguishable from "nothing there".
+ */
+function syncScanning(live: boolean): void {
+  if (useDeviceStore.getState().scanning === live) return;
+  useDeviceStore.setState({
+    scanning: live,
+    scanStartedAt: live ? Date.now() : null,
+  });
 }
 
 /** Rod binder, injected so this store stays free of a dependency on rodStore. */
@@ -429,7 +450,7 @@ export function stopDeviceWatch(): void {
     clearInterval(publishTimer);
     publishTimer = null;
   }
-  useDeviceStore.setState({ scanning: false });
+  syncScanning(false);
 }
 
 /** The device bound to a rod, or null. */

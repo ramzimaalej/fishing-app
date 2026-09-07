@@ -30,7 +30,7 @@ import type { AccSample } from '@/features/detection/accSample';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
 import { rodActivity } from '@/features/devices/device';
-import { deviceFor } from '@/features/devices/deviceStore';
+import { deviceFor, useDeviceStore } from '@/features/devices/deviceStore';
 
 import { isRodArmable, type Rod } from './rod';
 
@@ -409,17 +409,35 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
   // not moved. SIGNAL_LOST would eventually fire, but only after the fish.
   if (dev.requiresDeviceBinding) {
     const activity = rodActivity(
-      { enabled: rod.enabled, device: deviceFor(rod.deviceId) },
+      {
+        enabled: rod.enabled,
+        device: deviceFor(rod.deviceId),
+        listeningSince: useDeviceStore.getState().scanStartedAt,
+      },
       Date.now(),
     );
     if (activity === 'device-off') {
       return { ok: false, error: `${rod.name}: its tag is powered off.` };
+    }
+    if (activity === 'device-unheard') {
+      // Refused like any other non-live tag — arming would show the rod as
+      // watched before a single advertisement had arrived — but this one is
+      // very likely about to fix itself, so it says so instead of alarming.
+      return {
+        ok: false,
+        error: `${rod.name}: still listening for its tag. Try again in a moment.`,
+      };
     }
     if (activity === 'device-silent' || activity === 'unpaired') {
       return {
         ok: false,
         error: `${rod.name}: its tag is not responding. Check it is switched on and in range.`,
       };
+    }
+    // Belt and braces: only a live tag may arm. A future activity state added
+    // without touching this guard must fail closed, not silently arm a rod.
+    if (activity !== 'active') {
+      return { ok: false, error: `${rod.name}: its tag is not ready.` };
     }
   }
 
