@@ -589,6 +589,31 @@ the steps above, change that one constant, and both move together.
 Measured on the CP27 sample tag: **1.04 Hz** in August 2026, **0.21–0.30 Hz** by
 September, currently pinned at 3.6 s per reading.
 
+### Recovering from a cast
+
+The baseline freezes whenever the rod reads more than `BASELINE_FREEZE_FACTOR x
+thetaDeg` off it, so a hooked fish is never averaged into "at rest". That freeze
+has no natural end, which used to mean a rod reeled in and put back at a
+different angle was measured against wherever it was armed for the rest of the
+session — 6 degrees off held 6.0 degrees indefinitely, 12 degrees off held 12.0
+and alerted on an empty hook.
+
+A deflection that holds a CONSTANT attitude, through no impacts, for
+`REBASELINE_STILL_MS` (45 s) is now adopted as the new rest position. Stillness
+is the discriminator: a fish is the one load that will not hold an attitude.
+
+The gate is `REBASELINE_SPREAD_DEG` (3 degrees of spread), deliberately far
+tighter than the arming coherence gate — that one is built to accept a rod
+rocking in swell, and when it was tried here it erased 42 of 42 simulated moving
+loads. **Adopting a moving load as "at rest" is the worst thing this mechanism
+can do**, since a load that holds while changing is exactly what Path A calls a
+fish.
+
+The cost of a tight gate is that swell past about +/-2 degrees blocks recovery,
+leaving a re-seated rod mis-baselined until the sea drops. That is the chosen
+direction to fail in: a stale baseline degrades detection visibly, whereas
+erasing a live load hides a fish that is already on.
+
 `ARMING_DURATION_MS` is a deadline, not a required wait. A rod that has lain
 still for `ARMING_MIN_SPAN_MS` has already supplied the rest attitude arming
 needs, so it starts watching then — about 18 s in practice at this tag's rate,

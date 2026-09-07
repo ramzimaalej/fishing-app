@@ -16,6 +16,7 @@ const tick = (over: Partial<FeatureFrame> = {}): FeatureFrame => ({
   thetaDeg: 0.5,
   isImpact: false,
   baselineFrozen: false,
+  rebaselined: false,
   crossedUp: false,
   completedCrossing: null,
   crossings: 0,

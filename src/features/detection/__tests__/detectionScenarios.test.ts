@@ -12,6 +12,8 @@ import {
   ARMING_DURATION_MS,
   ARMING_MIN_SPAN_MS,
   DEFAULT_DETECTION_PARAMS,
+  IMPACT_DEVIATION_MG,
+  REBASELINE_STILL_MS,
   EXPECTED_SAMPLE_INTERVAL_MS,
   MAX_DT_FOR_RATE_MS,
   SIGNAL_LOST_MS,
@@ -588,5 +590,92 @@ describe('arming finishes as soon as the rod has proved it is still', () => {
     );
 
     expect(armedAt === null || armedAt >= ARMING_DURATION_MS).toBe(true);
+  });
+});
+
+/**
+ * The rod put back down somewhere else.
+ *
+ * BASELINE_FREEZE_FACTOR stops the baseline chasing a bend, which is what keeps
+ * a hooked fish from being averaged into "at rest". It also has no natural end,
+ * so a rod reeled in and re-seated at a different angle used to be measured
+ * against wherever it was armed for the rest of the session: 6 degrees off held
+ * 6.0 degrees for six simulated minutes, and 12 degrees off held 12.0 and raised
+ * a bite alert on an empty hook.
+ */
+describe('a rod re-seated after a cast', () => {
+  const atTagRate = (opts: Parameters<typeof generateStream>[0]) =>
+    generateStream({ nominalIntervalMs: EXPECTED_SAMPLE_INTERVAL_MS, jitterMs: 300, ...opts });
+
+  /** An armed detector, and the time to start the next stream at. */
+  const armedRod = (seed: number) => {
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    const stream = atTagRate({ durationMs: 40_000, angleAt: constantAngle(0), seed });
+    for (const sample of stream) detector.process(sample);
+    expect(detector.getPhase()).toBe('WATCHING');
+    return { detector, from: stream[stream.length - 1]!.tMonotonicMs + 4_000 };
+  };
+
+  it('adopts the new rest attitude instead of reading it as a permanent load', () => {
+    const { detector, from } = armedRod(5);
+    const after = atTagRate({
+      durationMs: 4 * 60_000,
+      angleAt: constantAngle(12),
+      startMs: from,
+      seed: 6,
+    });
+
+    let theta = 0;
+    let rebaselinedAt: number | null = null;
+    for (const sample of after) {
+      const tick = detector.process(sample);
+      theta = tick.frame?.thetaDeg ?? theta;
+      if (tick.frame?.rebaselined && rebaselinedAt === null) {
+        rebaselinedAt = sample.tMonotonicMs - from;
+      }
+    }
+
+    expect(rebaselinedAt).not.toBeNull();
+    // Promptly after the stillness requirement, not eventually.
+    expect(rebaselinedAt!).toBeLessThan(REBASELINE_STILL_MS * 1.5);
+    // And the rod now reads at rest, rather than permanently 12 degrees loaded.
+    expect(theta).toBeLessThan(1);
+  });
+
+  it('never does it to a load that is still moving', () => {
+    // THE failure that matters. A load that holds while changing is precisely
+    // what Path A calls a fish, so adopting it as "at rest" would erase a fish
+    // that is on and silence an alert that has already been raised. Swept across
+    // oscillation periods because at this sample rate some of them alias toward
+    // DC, which is exactly when a stillness test is most likely to be fooled.
+    for (const rampMs of [1_500, 3_000, 4_500, 6_000, 9_000, 12_000, 20_000]) {
+      const { detector, from } = armedRod(7);
+      const fish = atTagRate({
+        durationMs: 3 * 60_000,
+        startMs: from,
+        seed: 8,
+        angleAt: triangleWave({ amplitudeDeg: 20, rampMs, offsetDeg: 11 }),
+      });
+
+      const rebaselines = fish.filter((s) => detector.process(s).frame?.rebaselined).length;
+      expect(rebaselines).toBe(0);
+    }
+  });
+
+  it('starts the clock over whenever the rod is knocked', () => {
+    // A rod being handled is not a rod at rest, however deflected it looks. The
+    // impact clears the window, so a rod knocked every half minute can never
+    // accumulate the undisturbed stretch a re-baseline requires.
+    const { detector, from } = armedRod(9);
+    const handled = atTagRate({
+      durationMs: 4 * 60_000,
+      angleAt: constantAngle(12),
+      startMs: from,
+      seed: 10,
+      magnitudeAt: (t) => (Math.floor(t / 30_000) % 2 === 0 ? 1000 : 1000 + IMPACT_DEVIATION_MG * 2),
+    });
+
+    const rebaselines = handled.filter((s) => detector.process(s).frame?.rebaselined).length;
+    expect(rebaselines).toBe(0);
   });
 });
