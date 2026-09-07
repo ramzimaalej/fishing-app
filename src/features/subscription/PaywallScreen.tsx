@@ -1,6 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { useEffect } from 'react';
+import { useEffect, type ReactElement } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -82,7 +82,7 @@ function priceOf(product: any): string | undefined {
  * its terms is an App Store 3.1.2 rejection — restore them, translated and
  * reviewed, at the same time you flip SUBSCRIPTIONS_ENABLED.
  */
-export default function PaywallScreen(): JSX.Element {
+export default function PaywallScreen(): ReactElement {
   const { t } = useTranslation();
   const navigation = useNavigation<any>();
   const {

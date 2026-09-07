@@ -147,14 +147,14 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
       const products: Partial<Record<PlanKey, any>> = {};
       const [oneTime, subs] = await Promise.all([
         ONE_TIME_SKUS.length > 0
-          ? iap.getProducts({ skus: ONE_TIME_SKUS }).catch(() => [])
+          ? iap.fetchProducts({ skus: ONE_TIME_SKUS, type: 'in-app' }).catch(() => [])
           : Promise.resolve([]),
         SUBSCRIPTION_SKUS.length > 0
-          ? iap.getSubscriptions({ skus: SUBSCRIPTION_SKUS }).catch(() => [])
+          ? iap.fetchProducts({ skus: SUBSCRIPTION_SKUS, type: 'subs' }).catch(() => [])
           : Promise.resolve([]),
       ]);
       for (const p of [...(oneTime ?? []), ...(subs ?? [])] as any[]) {
-        const id = p?.productId ?? p?.sku;
+        const id = p?.id ?? p?.productId ?? p?.sku;
         if (id === IAP_PRODUCT_IDS.lifetime) products.lifetime = p;
         else if (id === IAP_PRODUCT_IDS.yearly) products.yearly = p;
       }
@@ -162,7 +162,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
 
       // 3. React to purchases (including deferred / restored ones).
       purchaseUpdateSub = iap.purchaseUpdatedListener(async (purchase: any) => {
-        const receipt = purchase?.transactionReceipt ?? purchase?.purchaseToken;
+        const receipt = purchase?.purchaseToken ?? purchase?.transactionReceipt;
         if (!receipt) return;
         const productId: string | undefined = purchase?.productId ?? purchase?.sku;
         try {
@@ -196,8 +196,9 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
       });
 
       purchaseErrorSub = iap.purchaseErrorListener((err: any) => {
-        // E_USER_CANCELLED is a normal, non-error outcome.
-        const cancelled = err?.code === 'E_USER_CANCELLED';
+        // A user backing out is a normal, non-error outcome. The helper is
+        // used rather than matching a code: the raw shape differs per platform.
+        const cancelled = iap.isUserCancelledError(err);
         set({
           purchasing: false,
           pendingPlan: null,
@@ -218,16 +219,16 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     set({ purchasing: true, pendingPlan: plan, error: null });
     const sku = IAP_PRODUCT_IDS[plan];
     try {
-      if (PLAN_KIND[plan] === 'subscription') {
-        await iap.requestSubscription({ sku, subscriptionOffers: [] as any });
-      } else {
-        // Non-consumable. Arg shape differs across platforms and RN-IAP
-        // versions, so pass both spellings.
-        await iap.requestPurchase({ sku, skus: [sku] } as any);
-      }
+      // One call for both plans: the product TYPE is now explicit rather than
+      // implied by the function name, and the request is keyed per platform —
+      // Apple takes a single `sku`, Google a `skus` array.
+      await iap.requestPurchase({
+        type: PLAN_KIND[plan] === 'subscription' ? 'subs' : 'in-app',
+        request: { apple: { sku }, google: { skus: [sku] } },
+      } as any);
       // Success is finalized by the purchaseUpdatedListener.
     } catch (e: any) {
-      const cancelled = e?.code === 'E_USER_CANCELLED';
+      const cancelled = iap.isUserCancelledError(e);
       set({
         purchasing: false,
         pendingPlan: null,
@@ -244,10 +245,12 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     }
     set({ purchasing: true, error: null });
     try {
-      // onlyIncludeActiveItems is the library default, but state it: relying on
-      // a default for whether a lapsed subscription counts as owned is exactly
-      // the kind of thing that changes under you in a minor version bump.
-      const purchases = (await iap.getAvailablePurchases({ onlyIncludeActiveItems: true })) ?? [];
+      // State the active-items filter rather than leaning on the default:
+      // whether a lapsed subscription still counts as owned is exactly the kind
+      // of thing that changes under you in a version bump. Android returns only
+      // active entitlements already; the flag is iOS-scoped in v16.
+      const purchases =
+        (await iap.getAvailablePurchases({ onlyIncludeActiveItemsIOS: true })) ?? [];
       const ids = purchases
         .map((p: any) => p?.productId ?? p?.sku)
         .filter((id: unknown): id is string => typeof id === 'string');

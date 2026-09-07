@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { DEFAULT_SENSOR_KIND, type SensorKind } from '@/features/ble/deviceRegistry';
+import { canonicalDeviceId } from '@/features/devices/device';
 import type { RodColour } from '@/theme';
 import i18n from '@/i18n';
 
@@ -60,8 +61,6 @@ interface RodState {
   setDeviceId: (id: string, deviceId: string | null) => void;
   setEnabled: (id: string, enabled: boolean) => void;
   selectRod: (id: string | null) => void;
-  /** Create the implicit first rod on first launch, if none exist. */
-  ensureDefaultRod: () => void;
 }
 
 export const useRodStore = create<RodState>()(
@@ -135,36 +134,36 @@ export const useRodStore = create<RodState>()(
         })),
 
       selectRod: (id) => set({ selectedRodId: id }),
-
-      ensureDefaultRod: () => {
-        if (get().rods.length > 0) return;
-        const rod: Rod = {
-          id: newRodId(),
-          name: localisedRodName(0),
-          sensorKind: DEFAULT_SENSOR_KIND,
-          deviceId: null,
-          enabled: true,
-          colour: nextRodColour([]),
-          createdAt: Date.now(),
-        };
-        set({ rods: [rod], selectedRodId: rod.id });
-      },
     }),
     {
       name: 'castmate:rods',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (s) => ({ rods: s.rods, selectedRodId: s.selectedRodId }),
-      // Bumped when the four selectable sensor kinds collapsed to one device.
-      version: 1,
-      /**
-       * One-time upgrade from the multi-device build: rewrites the retired kinds
-       * ('minew' / 'cp27' / 'generic') and moves rods off the now dev-only
-       * simulator, which used to be the default for every rod this app created.
-       */
+      // 1: the four selectable sensor kinds collapsed to one device.
+      // 2: tag identity became the five-octet MAC tail.
+      version: 2,
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as { rods?: Rod[]; selectedRodId?: string | null };
-        if (version >= 1) return state;
-        return { ...state, rods: migrateRods(state.rods ?? []) };
+        let rods = state.rods ?? [];
+        /**
+         * One-time upgrade from the multi-device build: rewrites the retired
+         * kinds ('minew' / 'cp27' / 'generic') and moves rods off the now
+         * dev-only simulator, which used to be the default for every rod this
+         * app created.
+         */
+        if (version < 1) rods = migrateRods(rods);
+        /**
+         * Bindings written before tag identity was canonicalised hold a full
+         * six-octet MAC. The tag is now keyed by its five-octet tail, so an
+         * unmigrated rod would point at an id no tag will ever report and read
+         * as permanently unpaired.
+         */
+        if (version < 2) {
+          rods = rods.map((r) =>
+            r.deviceId ? { ...r, deviceId: canonicalDeviceId(r.deviceId) } : r,
+          );
+        }
+        return { ...state, rods };
       },
       onRehydrateStorage: () => (state) => {
         // Every launch, but only rescuing kinds the registry cannot resolve —
@@ -173,9 +172,11 @@ export const useRodStore = create<RodState>()(
         // on arming. Deliberately NOT the full migration: that would revert a
         // simulator picked in admin mode on the next launch.
         if (state) state.rods = normaliseRods(state.rods);
-        // Guarantee there is always at least one rod to fish with, including for
-        // users upgrading from the single-sensor build (who have none stored).
-        useRodStore.getState().ensureDefaultRod();
+        // Deliberately NOT creating a starter rod here. An auto-created rod is
+        // one nobody chose and no tag is bound to, so it shows on the Fishing
+        // screen as a rod that cannot fish — and, being the only rod, it could
+        // not be deleted either. Rods are created by the user (Fishing → ＋), and
+        // "no rods yet" is a state the Rods and Devices screens both handle.
       },
     },
   ),

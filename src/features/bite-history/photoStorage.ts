@@ -1,4 +1,7 @@
-import * as FileSystem from 'expo-file-system';
+// SDK 54 replaced the flat FileSystem API with Paths/File/Directory. The
+// legacy entry point keeps the previous behaviour verbatim; migrating to the
+// new API is a separate change.
+import * as FileSystem from 'expo-file-system/legacy';
 
 /**
  * On-device catch-photo storage (free tier). Photos picked from the library are

@@ -8,7 +8,7 @@ import {
   logSignUp,
   setAnalyticsCollectionEnabled,
   setUserId,
-  type FirebaseAnalyticsTypes,
+  type Analytics,
 } from '@react-native-firebase/analytics';
 
 import type { BiteSize } from '@/types';
@@ -33,9 +33,7 @@ import type { BiteSize } from '@/types';
  * set in the Podfile via a prebuild config plugin. See README.
  */
 
-type Analytics = FirebaseAnalyticsTypes.Module;
-
-async function run(fn: (a: Analytics) => Promise<unknown>): Promise<void> {
+async function run(fn: (a: Analytics) => unknown): Promise<void> {
   try {
     await fn(getAnalytics(getApp()));
   } catch {

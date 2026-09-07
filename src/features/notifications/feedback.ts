@@ -6,12 +6,12 @@
  * handler, creating the Android channel, and firing an immediate local
  * notification when a bite is detected.
  *
- * Sound playback uses expo-av. Sound assets are NOT bundled yet — see
+ * Sound playback uses expo-audio. Sound assets are NOT bundled yet — see
  * SOUND_ASSETS below. Until they are, sound gracefully degrades to a haptic
  * tick so nothing throws.
  */
 import { Platform } from 'react-native';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 
@@ -97,25 +97,27 @@ async function playSound(key: string): Promise<void> {
     return;
   }
 
-  let sound: Audio.Sound | undefined;
+  let player: AudioPlayer | undefined;
   try {
-    const created = await Audio.Sound.createAsync(asset, { shouldPlay: true });
-    sound = created.sound;
-    // Wait for playback to finish, then unload.
+    player = createAudioPlayer(asset);
+    player.play();
+    // Wait for playback to finish, then release the native player.
     await new Promise<void>((resolve) => {
-      sound!.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish) resolve();
-        if (!status.isLoaded && status.error) resolve();
+      const sub = player!.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish || status.error) {
+          sub.remove();
+          resolve();
+        }
       });
     });
   } catch {
     /* playback failed — ignore */
   } finally {
-    if (sound) {
+    if (player) {
       try {
-        await sound.unloadAsync();
+        player.remove();
       } catch {
-        /* already unloaded */
+        /* already released */
       }
     }
   }

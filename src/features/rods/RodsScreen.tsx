@@ -35,19 +35,16 @@ import { useRodStore } from './rodStore';
 
 function RodRow({
   rod,
-  index,
   onRename,
   onPair,
 }: {
   rod: Rod;
-  index: number;
   onRename: (rod: Rod) => void;
   onPair: (rod: Rod) => void;
 }) {
   const setSensorKind = useRodStore((s) => s.setSensorKind);
   const setEnabled = useRodStore((s) => s.setEnabled);
   const removeRod = useRodStore((s) => s.removeRod);
-  const rods = useRodStore((s) => s.rods);
   // Subscribed, not read imperatively: the label must update when the rod is
   // armed or disarmed from the Fishing screen.
   // Not merely "is there a runtime": a rod is in the runtime from the moment
@@ -168,17 +165,13 @@ function RodRow({
         </>
       )}
 
-      {rods.length > 1 && (
-        <>
-          <View style={styles.divider} />
-          <Pressable onPress={confirmRemove}>
-            <Text style={styles.removeText}>{t('rods.removeTitle')}</Text>
-          </Pressable>
-        </>
-      )}
-      {index === 0 && rods.length === 1 && (
-        <Text style={styles.pairHint}>{t('rods.firstRodFixed')}</Text>
-      )}
+      {/* Every rod can be removed, including the last one. Nothing creates a
+          rod behind the user's back any more, so "no rods" is a state they chose
+          and can undo with Add rod. */}
+      <View style={styles.divider} />
+      <Pressable onPress={confirmRemove}>
+        <Text style={styles.removeText}>{t('rods.removeTitle')}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -231,14 +224,10 @@ export default function RodsScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.intro}>{t('rods.intro')}</Text>
 
-        {rods.map((rod, i) => (
-          <RodRow
-            key={rod.id}
-            rod={rod}
-            index={i}
-            onRename={openRename}
-            onPair={openPairing}
-          />
+        {rods.length === 0 && <Text style={styles.pairHint}>{t('rods.noneYet')}</Text>}
+
+        {rods.map((rod) => (
+          <RodRow key={rod.id} rod={rod} onRename={openRename} onPair={openPairing} />
         ))}
 
         <Pressable style={styles.addBtn} onPress={onAdd}>
@@ -247,6 +236,12 @@ export default function RodsScreen() {
               ? t('rods.addRod')
               : t('rods.addRodCount', { current: rods.length, max: MAX_RODS })}
           </Text>
+        </Pressable>
+
+        {/* The tag registry is reached from here: it is where a tag is paired
+            once and then bound to whichever rod is carrying it. */}
+        <Pressable style={styles.tagsBtn} onPress={() => navigation.navigate('Devices')}>
+          <Text style={styles.tagsBtnText}>{t('rods.manageTags')}</Text>
         </Pressable>
       </ScrollView>
 
@@ -353,6 +348,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   addBtnText: { ...typography.body, color: colors.primary, fontWeight: '700' },
+  tagsBtn: { paddingVertical: spacing.md, alignItems: 'center' },
+  tagsBtnText: { ...typography.body, color: colors.primary },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',

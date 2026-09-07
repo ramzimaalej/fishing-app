@@ -1,4 +1,16 @@
-import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+import {
+  deleteDoc,
+  doc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+  type DocumentData,
+  type QueryDocumentSnapshot,
+  type QuerySnapshot,
+} from '@react-native-firebase/firestore';
 
 import { bitesCollection } from '@/services/firebase/firestore';
 import { uploadBiteImage } from '@/services/firebase/storage';
@@ -19,8 +31,8 @@ export interface AttachResult {
  * idempotent and image/note updates target a known doc.
  */
 
-type DocData = FirebaseFirestoreTypes.DocumentData;
-type QueryDocSnapshot = FirebaseFirestoreTypes.QueryDocumentSnapshot;
+type DocData = DocumentData;
+type QueryDocSnapshot = QueryDocumentSnapshot;
 
 const VALID_SIZES: readonly BiteSize[] = ['small', 'big'];
 
@@ -51,7 +63,7 @@ function toRecord(uid: string, id: string, data: DocData | undefined): BiteRecor
   };
 }
 
-function mapSnapshot(uid: string, snapshot: FirebaseFirestoreTypes.QuerySnapshot): BiteRecord[] {
+function mapSnapshot(uid: string, snapshot: QuerySnapshot): BiteRecord[] {
   return snapshot.docs.map((doc: QueryDocSnapshot) => toRecord(uid, doc.id, doc.data()));
 }
 
@@ -72,7 +84,7 @@ export const biteRepository = {
     // device-clock sample time + a per-session counter, both of which reset /
     // wrap — reusing it as the doc id risks a new bite overwriting an older one
     // across sessions.
-    const ref = bitesCollection(uid).doc();
+    const ref = doc(bitesCollection(uid));
     const record: BiteRecord = {
       ...event,
       id: ref.id,
@@ -88,28 +100,25 @@ export const biteRepository = {
       rodId: rod?.rodId ?? null,
       rodName: rod?.rodName ?? null,
     };
-    await ref.set(record);
+    await setDoc(ref, record);
     return ref.id;
   },
 
   /** One-shot fetch of all bites, newest first. */
   async list(uid: string): Promise<BiteRecord[]> {
-    const snapshot = await bitesCollection(uid).orderBy('timestamp', 'desc').get();
+    const snapshot = await getDocs(query(bitesCollection(uid), orderBy('timestamp', 'desc')));
     return mapSnapshot(uid, snapshot);
   },
 
   /** Live subscription to a user's bites (newest first). Returns unsubscribe. */
   subscribe(uid: string, cb: (records: BiteRecord[]) => void): () => void {
-    return bitesCollection(uid)
-      .orderBy('timestamp', 'desc')
-      .onSnapshot(
-        (snapshot: FirebaseFirestoreTypes.QuerySnapshot | null) => {
-          if (snapshot) cb(mapSnapshot(uid, snapshot));
-        },
-        // Swallow listener errors into an empty update path; callers surface
-        // loading/error via the hook layer.
-        () => cb([]),
-      );
+    return onSnapshot(
+      query(bitesCollection(uid), orderBy('timestamp', 'desc')),
+      (snapshot) => cb(mapSnapshot(uid, snapshot)),
+      // Swallow listener errors into an empty update path; callers surface
+      // loading/error via the hook layer.
+      () => cb([]),
+    );
   },
 
   /**
@@ -128,13 +137,13 @@ export const biteRepository = {
     opts: { cloudBackup: boolean },
   ): Promise<AttachResult> {
     const localImage = await persistLocalPhoto(biteId, sourceUri);
-    await bitesCollection(uid).doc(biteId).update({ localImage });
+    await updateDoc(doc(bitesCollection(uid), biteId), { localImage });
 
     let imageUrl: string | null = null;
     if (opts.cloudBackup) {
       try {
         imageUrl = await uploadBiteImage(uid, biteId, resolveLocalPhoto(localImage));
-        await bitesCollection(uid).doc(biteId).update({ imageUrl });
+        await updateDoc(doc(bitesCollection(uid), biteId), { imageUrl });
       } catch {
         // Storage not enabled/reachable — keep the local copy, no cloud backup.
       }
@@ -152,7 +161,7 @@ export const biteRepository = {
     for (const r of pending) {
       try {
         const url = await uploadBiteImage(uid, r.id, resolveLocalPhoto(r.localImage as string));
-        await bitesCollection(uid).doc(r.id).update({ imageUrl: url });
+        await updateDoc(doc(bitesCollection(uid), r.id), { imageUrl: url });
       } catch {
         // Storage unavailable or a single file missing — skip, try again later.
       }
@@ -160,11 +169,11 @@ export const biteRepository = {
   },
 
   async updateNote(uid: string, biteId: string, note: string): Promise<void> {
-    await bitesCollection(uid).doc(biteId).update({ note });
+    await updateDoc(doc(bitesCollection(uid), biteId), { note });
   },
 
   async remove(uid: string, biteId: string, localImage?: string | null): Promise<void> {
     if (localImage) await deleteLocalPhoto(localImage);
-    await bitesCollection(uid).doc(biteId).delete();
+    await deleteDoc(doc(bitesCollection(uid), biteId));
   },
 };
