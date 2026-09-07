@@ -257,6 +257,56 @@ export const ARMING_FAST_MIN_SAMPLES = Math.max(
  */
 export const ARMING_FAST_COHERENCE = 0.995;
 
+/**
+ * How long a deflected rod must sit undisturbed before its attitude is accepted
+ * as the new rest position rather than a load.
+ *
+ * BASELINE_FREEZE_FACTOR stops the baseline following a bend, which is what
+ * keeps a hooked fish from being absorbed into "at rest". The same freeze traps
+ * a STALE baseline when the rod is reeled in and put back at a different angle:
+ * measured on the real code, a rod re-seated 6° off held 6.0° indefinitely, and
+ * one re-seated 12° off held 12.0° and raised a bite alert on nothing. Neither
+ * recovered — six simulated minutes, no convergence — because the freeze that
+ * protects a fish has no way to end on its own.
+ *
+ * Stillness is what ends it. A hooked fish is never still: it is the one load
+ * that keeps changing. So a deflection that holds a CONSTANT attitude, through
+ * no impacts, for this long is the rod's new rest position and not a fish.
+ *
+ * The cost of being wrong here is bounded and the cost of the current behaviour
+ * is not. A fish that somehow held perfectly steady for this long would have
+ * raised its alert some forty seconds earlier — the angler has already been
+ * told — whereas a stale baseline silently degrades every cast that follows it.
+ */
+export const REBASELINE_STILL_MS = ARMING_MIN_SPAN_MS * 3;
+
+/**
+ * Angular spread a re-baseline window may contain, degrees.
+ *
+ * NOT the arming coherence gate, which was tried here first and admitted every
+ * fish put to it — 42 of 42 simulated moving loads were erased. That gate exists
+ * to accept a rod rocking in swell, so it tolerates roughly +/-10 degrees, and a
+ * fish working a rod sits comfortably inside that. Accepting a moving load as
+ * "at rest" is the worst thing this mechanism can do: a load that holds while
+ * changing is precisely what Path A calls a fish.
+ *
+ * A rod set down does not vary. At 16 mg quantisation the theta grid steps about
+ * 0.9 degrees near the threshold, so a few degrees covers quantisation and mild
+ * noise while staying far below anything alive.
+ *
+ * The cost is that this will not fire in swell strong enough to rock the rod
+ * past it, leaving a re-seated rod mis-baselined until the sea drops. That is
+ * the deliberate direction to fail in: a stale baseline degrades detection,
+ * whereas erasing a live load hides a fish that is already on.
+ */
+export const REBASELINE_SPREAD_DEG = 3.0;
+
+/** Readings the re-baseline window must hold before it is believed. */
+export const REBASELINE_MIN_SAMPLES = Math.max(
+  ARMING_FAST_MIN_SAMPLES,
+  Math.floor((REBASELINE_STILL_MS / EXPECTED_SAMPLE_INTERVAL_MS) * ARMING_YIELD),
+);
+
 export function clampParams(p: DetectionParams): DetectionParams {
   const out = { ...p };
   for (const key of Object.keys(DETECTION_PARAM_RANGES) as (keyof DetectionParams)[]) {

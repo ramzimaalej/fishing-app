@@ -18,6 +18,9 @@ import {
   type DetectionParams,
   IMPACT_DEVIATION_MG,
   MAX_DT_FOR_RATE_MS,
+  REBASELINE_MIN_SAMPLES,
+  REBASELINE_SPREAD_DEG,
+  REBASELINE_STILL_MS,
   SIGNAL_LOST_MS,
 } from './detectionParams';
 import {
@@ -56,6 +59,11 @@ export interface FeatureFrame {
   isImpact: boolean;
   /** True while the baseline is held still because the rod is deflected. */
   baselineFrozen: boolean;
+  /**
+   * This sample's attitude was adopted as the new rest position, because the rod
+   * had held it undisturbed for REBASELINE_STILL_MS. See trackResettle.
+   */
+  rebaselined: boolean;
   /** This sample crossed the threshold upward. */
   crossedUp: boolean;
   /**
@@ -107,6 +115,19 @@ export class FeatureExtractor {
    * classified as swell. Null at least declares ignorance.
    */
   private riseHadGap = false;
+
+  /**
+   * Readings taken while the baseline has been frozen and the rod untouched.
+   *
+   * Cleared the instant the rod is knocked or the deflection relaxes, so its
+   * span is a direct measure of how long the rod has held one attitude without
+   * being handled — which is what separates a rod put back down at a new angle
+   * from a fish that is still on.
+   */
+  private settleWindow: AccSample[] = [];
+
+  /** When the current undisturbed, deflected stretch began. */
+  private settleStartMs: number | null = null;
 
   constructor(baseline: Vec3, params: DetectionParams) {
     const unit = normalise(baseline);
@@ -171,6 +192,10 @@ export class FeatureExtractor {
     const mean = meanVector(this.window.map((e) => e.v));
     const meanDeviationDeg = mean ? angleBetweenDeg(mean, this.baseline) : 0;
 
+    // Last, so that everything above describes the sample as it was actually
+    // observed. A new baseline adopted here applies from the NEXT reading.
+    const rebaselined = this.trackResettle(sample, isImpact, baselineFrozen);
+
     return {
       sample,
       dtMs,
@@ -178,6 +203,7 @@ export class FeatureExtractor {
       thetaDeg,
       isImpact,
       baselineFrozen,
+      rebaselined,
       crossedUp,
       completedCrossing,
       crossings: windowCrossings.length,
@@ -188,6 +214,73 @@ export class FeatureExtractor {
       meanDeviationDeg,
       crossingIntervalCv: coefficientOfVariation(intervals),
     };
+  }
+
+  /**
+   * Adopt a held attitude as the new rest position once it has proved it is not
+   * a fish.
+   *
+   * The freeze that protects a hooked fish from being averaged away has no
+   * natural end, so a rod reeled in and put back at a different angle stays
+   * measured against wherever it happened to be armed — permanently, and with a
+   * false alert already raised if the difference cleared the threshold. This is
+   * the only way out of that state.
+   *
+   * The discriminator is stillness, not force. A fish is the one load that will
+   * not hold an attitude: it pulls, gives, and pulls again. So the window is
+   * cleared by any impact and by any relaxation back toward baseline, and what
+   * survives is a rod that has sat at one angle, untouched, for
+   * REBASELINE_STILL_MS. The same coherence gate the short arming path uses
+   * decides whether those readings really do agree.
+   *
+   * @returns true when a new baseline was adopted.
+   */
+  private trackResettle(sample: AccSample, isImpact: boolean, baselineFrozen: boolean): boolean {
+    // Knocked, or tracking normally again — either way there is nothing here to
+    // correct, and the stretch of stillness starts over.
+    if (isImpact || !baselineFrozen) {
+      if (this.settleWindow.length > 0) this.settleWindow = [];
+      this.settleStartMs = null;
+      return false;
+    }
+
+    this.settleStartMs ??= sample.tMonotonicMs;
+    this.settleWindow.push(sample);
+
+    // Judge the RECENT attitude, but only after the rod has been undisturbed for
+    // the full duration: settleStartMs is what times the stretch, the window is
+    // only the evidence from the end of it. Pruning bounds it on a rod that
+    // stays deflected and never settles.
+    const cutoff = sample.tMonotonicMs - REBASELINE_STILL_MS;
+    while (this.settleWindow.length > 1 && this.settleWindow[0]!.tMonotonicMs < cutoff) {
+      this.settleWindow.shift();
+    }
+
+    if (sample.tMonotonicMs - this.settleStartMs < REBASELINE_STILL_MS) return false;
+    if (this.settleWindow.length < REBASELINE_MIN_SAMPLES) return false;
+
+    // Spread, not coherence. See REBASELINE_SPREAD_DEG: the arming gate is built
+    // to accept a rod rocking in swell and so accepts a working fish too.
+    const dirs = this.settleWindow
+      .map((s) => normalise(vecOf(s)))
+      .filter((d): d is Vec3 => d !== null);
+    const settled = dirs.length >= REBASELINE_MIN_SAMPLES ? normalise(meanVector(dirs)!) : null;
+    if (!settled) return false;
+    if (dirs.some((d) => angleBetweenDeg(d, settled) > REBASELINE_SPREAD_DEG)) return false;
+
+    this.baseline = settled;
+    this.settleWindow = [];
+    this.settleStartMs = null;
+
+    // Everything measured against the old baseline is now meaningless. Crossings
+    // counted toward Path B, and prev carries a theta the next slope would be
+    // computed from; a null prev simply declares the next pair unmeasurable,
+    // which is the honest state after the reference has moved.
+    this.crossings = [];
+    this.activeRise = null;
+    this.prev = null;
+
+    return true;
   }
 
   /**
