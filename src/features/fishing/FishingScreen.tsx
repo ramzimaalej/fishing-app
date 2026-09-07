@@ -52,6 +52,7 @@ import { buildSessionSummary } from '@/features/session-report/sessionSummary';
 import SensitivitySlider from '@/features/settings/components/SensitivitySlider';
 import { useSettings, useSettingsStore } from '@/features/settings/settingsStore';
 import { colors, radius, rodColours, type RodColour, spacing, typography } from '@/theme';
+import { useNow } from '@/utils/useNow';
 import type { RodActivity } from '@/features/devices/device';
 import { printedCode } from '@/features/devices/deviceCode';
 import { monotonicNowMs } from '@/features/detection/monotonicClock';
@@ -238,7 +239,7 @@ export default function FishingScreen() {
   const sessionConditionsRef = useRef<Partial<EnvironmentSnapshot> | null>(null);
 
   // Re-renders once a minute so the countdown ticks without a per-second timer.
-  const remainingMs = useSessionCountdown(sessionWindow);
+  const { remainingMs, near: sessionNearExpiry } = useSessionCountdown(sessionWindow);
 
   // Ticks so the chart can notice that nothing arrived — the absence of data is
   // not an event, so nothing else would re-render it.
@@ -388,6 +389,7 @@ export default function FishingScreen() {
         <SessionBanner
           window={sessionWindow}
           remainingMs={remainingMs}
+          near={sessionNearExpiry}
           isPremium={isPremium || !SUBSCRIPTIONS_ENABLED}
           onExtend={extendSessionBlock}
           onGoPremium={() => {
@@ -525,19 +527,23 @@ export default function FishingScreen() {
 }
 
 /**
- * Milliseconds left on the window, re-rendering once a minute.
+ * How much of the window is left, and whether it is close to lapsing.
  *
- * A per-second tick would repaint the whole screen 3,600 times an hour for a
- * countdown displayed to the minute. Null means unlimited (premium).
+ * Both come off ONE clock reading. Sampling the time separately per consumer
+ * let the countdown and the near-expiry styling disagree about what time it was
+ * within a single render, which is exactly the instability that reading the
+ * clock mid-render invites.
+ *
+ * Ticks once a minute: a per-second tick would repaint the whole screen 3,600
+ * times an hour for a countdown displayed to the minute. A null `remainingMs`
+ * means unlimited (premium), and nothing ticks in that case.
  */
-function useSessionCountdown(window: SessionWindow | null): number | null {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!window || window.expiresAt === null) return;
-    const timer = setInterval(() => setTick((t) => t + 1), 60_000);
-    return () => clearInterval(timer);
-  }, [window]);
-  return msRemaining(window, Date.now());
+function useSessionCountdown(window: SessionWindow | null): {
+  remainingMs: number | null;
+  near: boolean;
+} {
+  const now = useNow(60_000, window !== null && window.expiresAt !== null);
+  return { remainingMs: msRemaining(window, now), near: isNearExpiry(window, now) };
 }
 
 /**
@@ -550,12 +556,15 @@ function useSessionCountdown(window: SessionWindow | null): number | null {
 function SessionBanner({
   window,
   remainingMs,
+  near,
   isPremium,
   onExtend,
   onGoPremium,
 }: {
   window: SessionWindow | null;
   remainingMs: number | null;
+  /** Passed in rather than derived here, so it shares the caller's clock. */
+  near: boolean;
   isPremium: boolean;
   onExtend: () => void;
   onGoPremium: () => void;
@@ -574,7 +583,6 @@ function SessionBanner({
   }
 
   const expired = remainingMs <= 0;
-  const near = isNearExpiry(window, Date.now());
 
   return (
     <View

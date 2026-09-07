@@ -2,7 +2,7 @@
  * Dependency-free sensitivity slider built from View + PanResponder.
  * Maps touch X across the track to a value in [0, 1], snapped to STEP.
  */
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutChangeEvent,
@@ -40,7 +40,12 @@ export default function SensitivitySlider({ value, onChange }: Props) {
   /** Last value handed upwards, so identical steps don't re-notify. */
   const lastSentRef = useRef(value);
   const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
+  // Synced in an effect, not during render: a render can be discarded, and a
+  // ref written by one that never commits leaves the gesture calling back into
+  // a handler the component was never actually shown with.
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   const onLayout = (e: LayoutChangeEvent) => {
     widthRef.current = e.nativeEvent.layout.width;
@@ -58,8 +63,15 @@ export default function SensitivitySlider({ value, onChange }: Props) {
     onChangeRef.current(next);
   };
 
+  // `emit` closes over the refs, and creating that closure during render is what
+  // the rule objects to — it cannot tell that emit is only ever reached from
+  // onPanResponderGrant/onPanResponderMove, i.e. from a gesture, never from
+  // render. Reading the refs at gesture time is the entire point: the responder
+  // is built once ([] deps) so the handlers must not capture a stale `value` or
+  // `onChange`.
   const responder = useMemo(
     () =>
+      // eslint-disable-next-line react-hooks/refs
       PanResponder.create({
         // CAPTURE, so the track claims the gesture before the thumb child can.
         // Without this the thumb becomes the touch target and `locationX` is
@@ -83,9 +95,14 @@ export default function SensitivitySlider({ value, onChange }: Props) {
 
   // Keep the de-dupe latch in step with an externally changed value (e.g. the
   // settings Reset button), or the next drag to that same value would be eaten.
-  if (value !== lastSentRef.current && Math.abs(value - lastSentRef.current) > STEP / 2) {
-    lastSentRef.current = value;
-  }
+  // After commit rather than during render, for the same reason as above — and
+  // safe there, because the latch is only ever read from a gesture, which cannot
+  // arrive before effects have run.
+  useEffect(() => {
+    if (Math.abs(value - lastSentRef.current) > STEP / 2) {
+      lastSentRef.current = value;
+    }
+  }, [value]);
 
   const pct = clamp01(value);
 

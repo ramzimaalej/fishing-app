@@ -30,6 +30,9 @@ export interface UseCatchInsightsResult {
   refresh: () => void;
 }
 
+/** Stable identity for "nothing to analyse", so a reset does not churn memos. */
+const NO_SERIES: EnvironmentSnapshot[] = [];
+
 export function useCatchInsights(
   records: BiteRecord[],
   coords: GeoCoords = DEFAULT_COORDS,
@@ -48,23 +51,29 @@ export function useCatchInsights(
   // invalidate a fetched season of reanalysis.
   const window = useMemo(() => analysisWindow(oldest), [oldest]);
 
+  // What is being analysed right now. Null when there is nothing to fetch.
+  const key =
+    window.valid && records.length > 0 ? cacheKey(coords, window.from, window.to) : null;
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+
+  // Seeded DURING render, which is what makes re-entering the screen instant:
+  // a cached window is already on screen for the first paint instead of
+  // arriving an effect later behind a spinner.
+  if (loadedFor !== key) {
+    setLoadedFor(key);
+    const hit = key === null ? null : (cache.get(key) ?? null);
+    setSeries(key === null ? NO_SERIES : hit);
+    setError(null);
+    setLoading(key !== null && hit === null);
+  }
+
   const load = useCallback(
     async (force = false) => {
-      if (!window.valid || records.length === 0) {
-        setSeries([]);
-        return;
-      }
-      const key = cacheKey(coords, window.from, window.to);
-      if (!force) {
-        const hit = cache.get(key);
-        if (hit) {
-          setSeries(hit);
-          return;
-        }
-      }
-
-      setLoading(true);
-      setError(null);
+      // Touches no state before the first await — see the effect below. The
+      // render-time seeding above has already handled the empty and cached
+      // cases, so this only ever performs the fetch they could not.
+      if (key === null) return;
+      if (!force && cache.has(key)) return;
       try {
         const data = await openMeteoProvider.fetchHistory(coords, window.from, window.to);
         cache.set(key, data);
@@ -75,12 +84,18 @@ export function useCatchInsights(
         setLoading(false);
       }
     },
-    // Depend on the window's day boundaries, not the Date identities.
+    // Keyed on the cache key rather than the window's Date identities: it
+    // already encodes the coordinates and both day boundaries, and a dependency
+    // list has to be simple expressions — `window.from.getTime()` is a call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [coords.latitude, coords.longitude, window.valid, window.from.getTime(), window.to.getTime(), records.length],
+    [key, coords.latitude, coords.longitude],
   );
 
   useEffect(() => {
+    // Every setState inside `load` is behind its first await, so none of them
+    // can run synchronously with this effect. The rule cannot see across the
+    // await and reports the call itself.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -89,5 +104,15 @@ export function useCatchInsights(
     [records, series],
   );
 
-  return { insights, pendingRecent, loading, error, refresh: () => void load(true) };
+  return {
+    insights,
+    pendingRecent,
+    loading,
+    error,
+    refresh: () => {
+      setLoading(key !== null);
+      setError(null);
+      void load(true);
+    },
+  };
 }

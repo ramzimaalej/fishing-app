@@ -9,7 +9,7 @@ import { DEFAULT_SENSOR_KIND, getSensorDevice } from '@/features/ble/deviceRegis
 import { subscribeToScan } from '@/features/ble/scanBroker';
 import { colors, radius, spacing, typography } from '@/theme';
 
-import { useDeviceStore } from '@/features/devices/deviceStore';
+import { useDeviceStore, type DiscoveredDevice } from '@/features/devices/deviceStore';
 
 import { useRodStore } from './rodStore';
 
@@ -35,6 +35,46 @@ interface Candidate {
  * Runs on the shared scan broker, so opening it never disturbs rods that are
  * already armed and fishing.
  */
+/**
+ * Bind a heard tag to a rod.
+ *
+ * Module-level rather than a closure inside the component, because it is an
+ * ACTION: it stamps the clock and writes to two stores. Declared in the render
+ * body it reads as render logic — which is what made `Date.now()` here an
+ * impure call during render — and it is not render logic at all.
+ *
+ * Registers in the device registry as well as on the rod. Writing only
+ * rod.deviceId left armRod's deviceFor() lookup returning null, so the rod read
+ * as 'unpaired' and refused to arm with "its tag is not responding" — about a
+ * tag that was two feet away and advertising.
+ */
+function bindTagToRod({
+  id,
+  candidate,
+  rodId,
+  pairDevice,
+  setDeviceId,
+  onDone,
+}: {
+  id: string;
+  candidate: { connectionId?: string; label?: string; rssi?: number; battery?: number | null } | undefined;
+  rodId: string;
+  pairDevice: (device: DiscoveredDevice) => void;
+  setDeviceId: (rodId: string, deviceId: string | null) => void;
+  onDone: () => void;
+}): void {
+  pairDevice({
+    id,
+    connectionId: candidate?.connectionId ?? id,
+    name: candidate?.label ?? id,
+    rssi: candidate?.rssi ?? -127,
+    lastSeenAt: Date.now(),
+    battery: candidate?.battery ?? null,
+  });
+  setDeviceId(rodId, id);
+  onDone();
+}
+
 export default function PairSensorScreen() {
   const { t } = useTranslation();
   const navigation = useNavigation<{ goBack: () => void }>();
@@ -142,24 +182,6 @@ export default function PairSensorScreen() {
     );
   }
 
-  const choose = (id: string) => {
-    // Register in the device registry as well as on the rod. Writing only
-    // rod.deviceId left armRod's deviceFor() lookup returning null, so the rod
-    // read as 'unpaired' and refused to arm with "its tag is not responding" —
-    // about a tag that was two feet away and advertising.
-    const found = candidates.find((c) => c.id === id);
-    pairDevice({
-      id,
-      connectionId: found?.connectionId ?? id,
-      name: found?.label ?? id,
-      rssi: found?.rssi ?? -127,
-      lastSeenAt: Date.now(),
-      battery: found?.battery ?? null,
-    });
-    setDeviceId(rod.id, id);
-    navigation.goBack();
-  };
-
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text style={styles.title}>{t('pairing.title', { name: rod.name })}</Text>
@@ -192,7 +214,16 @@ export default function PairSensorScreen() {
         <Pressable
           key={c.id}
           style={[styles.row, c.takenBy && styles.rowTaken]}
-          onPress={() => choose(c.id)}
+          onPress={() =>
+            bindTagToRod({
+              id: c.id,
+              candidate: candidates.find((x) => x.id === c.id),
+              rodId: rod.id,
+              pairDevice,
+              setDeviceId,
+              onDone: navigation.goBack,
+            })
+          }
         >
           <View style={{ flex: 1 }}>
             <Text style={styles.rowLabel}>{c.label}</Text>

@@ -40,6 +40,9 @@ export interface UseEnvironmentResult {
  * user. Falling back to a hardcoded coordinate is what previously showed
  * Californian tides to anglers on other continents without saying so.
  */
+/** Stable identity for the empty forecast, so a reset does not churn memos. */
+const NO_SERIES: EnvironmentSnapshot[] = [];
+
 export function useEnvironment(): UseEnvironmentResult {
   const coords = useLocationStore((st) => resolveCoords(st.mode, st.device, st.manual));
   const [series, setSeries] = useState<EnvironmentSnapshot[]>([]);
@@ -47,15 +50,28 @@ export function useEnvironment(): UseEnvironmentResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (!coords) {
-      setSeries([]);
-      setCurrent(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+  // Identity of the place on screen. A string, so an equivalent inline
+  // `{ latitude, longitude }` does not read as somewhere new.
+  const coordKey = coords ? `${coords.latitude},${coords.longitude}` : null;
+  const [loadedFor, setLoadedFor] = useState<string | null>(coordKey);
+
+  // Moving the pin clears the old forecast DURING render rather than from an
+  // effect. Cleared after the commit, the screen paints one frame of the
+  // previous location's weather under the new location's name.
+  if (loadedFor !== coordKey) {
+    setLoadedFor(coordKey);
+    setSeries(NO_SERIES);
+    setCurrent(null);
     setError(null);
+    setLoading(coordKey !== null);
+  }
+
+  const load = useCallback(async () => {
+    // Deliberately touches no state before the first await: this is called
+    // straight from an effect, where a synchronous setState costs an extra
+    // render pass. The reset above already put the screen into its loading
+    // state, and the periodic refresh below is meant to be silent.
+    if (!coords) return;
     try {
       const data = await openMeteoProvider.fetchRange(coords, new Date(), FORECAST_DAYS);
       setSeries(data);
@@ -73,6 +89,10 @@ export function useEnvironment(): UseEnvironmentResult {
 
   useEffect(() => {
     let active = true;
+    // Every setState inside `load` is behind its first await, so none of them
+    // can run synchronously with this effect. The rule cannot see across the
+    // await and reports the call itself.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
     const timer = setInterval(() => {
       if (active) void load();
@@ -99,7 +119,14 @@ export function useEnvironment(): UseEnvironmentResult {
     current,
     loading,
     error,
-    refresh: () => void load(),
+    // The manual refresh shows the spinner; the 30-minute one does not, because
+    // nobody asked for it and a periodic flash of "loading" over a forecast
+    // that is already on screen reads as a fault.
+    refresh: () => {
+      setLoading(coords !== null);
+      setError(null);
+      void load();
+    },
   };
 }
 

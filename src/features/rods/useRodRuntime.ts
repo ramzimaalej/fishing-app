@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { AppState } from 'react-native';
 
 import { useAuthStore } from '@/features/auth/authStore';
@@ -13,6 +13,7 @@ import { cancelSessionNotifications } from '@/features/notifications/feedback';
 import { useFishingSessionStore } from '@/features/session/fishingSessionStore';
 import { isExpired } from '@/features/session/sessionLimit';
 import { useSettings } from '@/features/settings/settingsStore';
+import { useNow } from '@/utils/useNow';
 
 import { activeRods, type Rod } from './rod';
 import {
@@ -83,12 +84,7 @@ export function useArmableRods(): Rod[] {
 export function useRodActivities(): Record<string, RodActivity> {
   const rods = useRodStore((s) => s.rods);
   const paired = useDeviceStore((s) => s.paired);
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 2000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useNow(2000);
 
   return useMemo(() => {
     const out: Record<string, RodActivity> = {};
@@ -193,9 +189,14 @@ const EXPIRY_POLL_MS = 30_000;
 function useSessionExpiryEnforcement(): void {
   const window = useFishingSessionStore((s) => s.window);
 
-  // Kept in a ref so the interval callback never needs re-creating.
+  // Kept in a ref so the interval callback never needs re-creating. Written in
+  // an effect rather than during render: a render may be discarded, and a ref
+  // mutated on a render that never commits leaves the poll enforcing a window
+  // the user is not actually in.
   const windowRef = useRef(window);
-  windowRef.current = window;
+  useEffect(() => {
+    windowRef.current = window;
+  }, [window]);
   /** Guards against re-disarming every poll once already expired. */
   const handled = useRef<number | null>(null);
 
