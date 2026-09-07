@@ -16,6 +16,7 @@ import {
   type DetectionParams,
   ARMING_DURATION_MS,
   ARMING_MIN_SAMPLES,
+  ARMING_MIN_SPAN_MS,
   DWELL_GAP_TOLERANCE_MS,
   EXPECTED_SAMPLE_INTERVAL_MS,
   MAX_DT_FOR_RATE_MS,
@@ -158,9 +159,11 @@ export default function DetectionSettingsScreen() {
           Tag interval: {(EXPECTED_SAMPLE_INTERVAL_MS / 1000).toFixed(1)} s ({SAMPLE_RATE_HZ.toFixed(2)} Hz)
         </Text>
         <Text style={styles.help}>
-          Measured, not assumed. Arming ({ARMING_MIN_SAMPLES} readings in{' '}
+          Measured, not assumed. Arming ({ARMING_MIN_SAMPLES} readings, deadline{' '}
           {ARMING_DURATION_MS / 1000} s), signal-lost ({SIGNAL_LOST_MS / 1000} s) and dwell
-          tolerance ({DWELL_GAP_TOLERANCE_MS / 1000} s) are all derived from it.
+          tolerance ({DWELL_GAP_TOLERANCE_MS / 1000} s) are all derived from it. A rod left
+          still arms after about {ARMING_MIN_SPAN_MS / 1000} s rather than waiting out the
+          deadline.
         </Text>
         {!PATH_B_AVAILABLE && (
           <Text style={styles.warn}>

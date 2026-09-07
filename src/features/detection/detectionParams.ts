@@ -221,6 +221,42 @@ export const ARMING_MIN_SAMPLES = Math.max(
   Math.floor((ARMING_DURATION_MS / EXPECTED_SAMPLE_INTERVAL_MS) * ARMING_YIELD),
 );
 
+/**
+ * Shortest observation that may arm a rod, when the rod is convincingly still.
+ *
+ * ARMING_DURATION_MS is a DEADLINE, not a required wait: a rod lying dead still
+ * has given up everything arming needs long before a minute is out, and holding
+ * it in "calibrating" until the clock runs down is a minute of a fishing session
+ * spent watching nothing. What arming actually needs is a mean gravity direction
+ * and confidence that the rod was not being handled while it was measured.
+ *
+ * Time span carries that confidence better than sample count does. A rod can be
+ * momentarily still while it is being set down; it cannot be still for fifteen
+ * seconds unless it is at rest. Four sample intervals is the floor below which
+ * there is no span to judge — at the tag's rate that is ~15 s, which is where
+ * this lands.
+ */
+export const ARMING_MIN_SPAN_MS = Math.max(15_000, EXPECTED_SAMPLE_INTERVAL_MS * 4);
+
+/**
+ * Readings needed before the short path may arm. Enough to average a direction;
+ * the span requirement above is what rejects a rod in hand.
+ */
+export const ARMING_FAST_MIN_SAMPLES = Math.max(
+  4,
+  Math.floor((ARMING_MIN_SPAN_MS / EXPECTED_SAMPLE_INTERVAL_MS) * ARMING_YIELD),
+);
+
+/**
+ * Coherence the short path demands, against ARMING_COHERENCE for the full
+ * window. Stricter on purpose: arming early means deciding on less evidence, so
+ * it is only allowed when the evidence is unambiguous. Admitted angular spread
+ * scales as sqrt(1 - coherence), so this accepts a little over half the sweep
+ * the full-window gate does — a rod that is merely fairly steady waits out the
+ * deadline, and only a rod that is genuinely parked arms early.
+ */
+export const ARMING_FAST_COHERENCE = 0.995;
+
 export function clampParams(p: DetectionParams): DetectionParams {
   const out = { ...p };
   for (const key of Object.keys(DETECTION_PARAM_RANGES) as (keyof DetectionParams)[]) {

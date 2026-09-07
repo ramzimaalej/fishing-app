@@ -589,6 +589,13 @@ the steps above, change that one constant, and both move together.
 Measured on the CP27 sample tag: **1.04 Hz** in August 2026, **0.21–0.30 Hz** by
 September, currently pinned at 3.6 s per reading.
 
+`ARMING_DURATION_MS` is a deadline, not a required wait. A rod that has lain
+still for `ARMING_MIN_SPAN_MS` has already supplied the rest attitude arming
+needs, so it starts watching then — about 18 s in practice at this tag's rate,
+against the 60 s deadline. Finishing early demands a stricter coherence gate
+than the deadline does (`ARMING_FAST_COHERENCE`), so a rod still being handled
+falls through and waits out the full window instead of baselining a swing.
+
 What that rate costs is not recoverable by tuning. A fish loads a rod in
 100–300 ms and a wave over 1–3 s; both are shorter than one sample interval
 here, so the leading edge that separates them is never sampled.

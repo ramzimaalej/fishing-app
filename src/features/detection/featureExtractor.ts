@@ -316,6 +316,7 @@ const ARMING_COHERENCE = 0.985;
 export function computeArming(
   samples: readonly AccSample[],
   minSamples: number,
+  minCoherence: number = ARMING_COHERENCE,
 ): ArmingResult {
   if (samples.length < minSamples) {
     // The RATE is the actionable number. "Only 18 samples" reads like a dropout
@@ -371,7 +372,7 @@ export function computeArming(
   // the detection threshold, and returned the mean of that sweep as the rest
   // attitude. ARMING_COHERENCE refuses beyond roughly ±23°, which still admits
   // the several swell cycles the arming window is meant to observe.
-  if (!mean || !baseline || magnitude(mean) < ARMING_COHERENCE) {
+  if (!mean || !baseline || magnitude(mean) < minCoherence) {
     return {
       ok: false,
       baseline: null,
