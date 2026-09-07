@@ -198,3 +198,21 @@ export function normaliseRods(rods: readonly Rod[]): Rod[] {
 export function migrateRods(rods: readonly Rod[]): Rod[] {
   return rods.map((r) => retireSimulatorRod(normaliseRodSensorKind(r)));
 }
+
+/**
+ * The one rod waiting for a sensor, or null when the answer is ambiguous.
+ *
+ * Pairing a tag and binding it to a rod were two separate steps, and a tag
+ * paired without the second one leaves the app sitting at "Waiting for sensor
+ * data" for ever — indistinguishable on screen from a flat battery or a tag out
+ * of range. Observed in the field: two tags paired, both healthy, every rod
+ * unbound, and nothing in the UI saying so.
+ *
+ * Deliberately only the unambiguous case. With two rods waiting there is no
+ * defensible guess — binding the wrong one is worse than a prompt, because a rod
+ * silently watching the wrong tag reports someone else's bites.
+ */
+export function soleUnboundRod(rods: readonly Rod[]): Rod | null {
+  const unbound = rods.filter((r) => r.deviceId === null);
+  return unbound.length === 1 ? unbound[0]! : null;
+}

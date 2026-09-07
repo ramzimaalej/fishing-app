@@ -20,6 +20,7 @@ import {
 import { isBatteryReadingStale } from '@/features/ble/battery';
 import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
+import { soleUnboundRod } from '@/features/rods/rod';
 import { useRodStore } from '@/features/rods/rodStore';
 import { useNow } from '@/utils/useNow';
 import { colors, radius, rodColours, spacing, typography } from '@/theme';
@@ -27,6 +28,7 @@ import { colors, radius, rodColours, spacing, typography } from '@/theme';
 import { powerOff, readBattery, verifyDevice } from './cp27Commands';
 import { currentOpcodes } from './cp27Opcodes';
 import {
+  canonicalDeviceId,
   canBindDevice,
   DEVICE_LIVE_WINDOW_MS,
   deviceLabel,
@@ -291,6 +293,24 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
 
 function DiscoveredCard({ device, now }: { device: DiscoveredDevice; now: number }) {
   const pair = useDeviceStore((s) => s.pair);
+  const rods = useRodStore((s) => s.rods);
+  const setDeviceId = useRodStore((s) => s.setDeviceId);
+
+  /**
+   * Pair the tag, and bind it when there is only one rod it could belong to.
+   *
+   * Pairing and binding used to be two separate steps, and a tag paired without
+   * the second one leaves the app at "Waiting for sensor data" for ever — which
+   * on screen is indistinguishable from a flat battery or a tag out of range.
+   * Ambiguous cases still fall through to the rod's own pairing screen, because
+   * a rod silently watching the wrong tag reports someone else's bites.
+   */
+  const onPair = () => {
+    pair(device);
+    const target = soleUnboundRod(rods);
+    if (target) setDeviceId(target.id, canonicalDeviceId(device.id));
+  };
+
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
@@ -301,7 +321,7 @@ function DiscoveredCard({ device, now }: { device: DiscoveredDevice; now: number
             seen {relativeTime(device.lastSeenAt, now)}
           </Text>
         </View>
-        <Pressable style={styles.pairBtn} onPress={() => pair(device)}>
+        <Pressable style={styles.pairBtn} onPress={onPair}>
           <Text style={styles.pairBtnText}>Pair</Text>
         </Pressable>
       </View>

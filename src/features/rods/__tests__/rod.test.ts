@@ -15,6 +15,7 @@ import {
   retireSimulatorRod,
   type Rod,
   withSensorKind,
+  soleUnboundRod,
 } from '../rod';
 
 function rod(overrides: Partial<Rod> = {}): Rod {
@@ -345,3 +346,34 @@ describe('withSensorKind', () => {
     expect(after.colour).toBe(ROD_COLOUR_KEYS[0]);
   });
 });
+
+describe('soleUnboundRod', () => {
+  const rod = (id: string, deviceId: string | null): Rod => ({
+    id,
+    name: id,
+    sensorKind: 'castmate-g',
+    deviceId,
+    enabled: true,
+    colour: 'teal',
+    createdAt: 0,
+  });
+
+  it('names the rod when exactly one is waiting for a sensor', () => {
+    // The case that silently broke a real session: a tag paired, no rod bound,
+    // and the app waiting for data that had nowhere to go.
+    expect(soleUnboundRod([rod('a', null)])?.id).toBe('a');
+    expect(soleUnboundRod([rod('a', '87:2D:9D:C0:0C'), rod('b', null)])?.id).toBe('b');
+  });
+
+  it('refuses to guess between two unbound rods', () => {
+    // Binding the wrong one is worse than asking: a rod silently watching
+    // another rod's tag reports someone else's bites as its own.
+    expect(soleUnboundRod([rod('a', null), rod('b', null)])).toBeNull();
+  });
+
+  it('returns null when every rod already has its tag', () => {
+    expect(soleUnboundRod([rod('a', '87:2D:9D:C0:0C')])).toBeNull();
+    expect(soleUnboundRod([])).toBeNull();
+  });
+});
+
