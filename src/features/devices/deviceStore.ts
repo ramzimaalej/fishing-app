@@ -386,10 +386,16 @@ function syncScanning(live: boolean): void {
   });
 }
 
-/** Rod binder, injected so this store stays free of a dependency on rodStore. */
-let bindRodDevice: ((rodId: string, deviceId: string) => void) | null = null;
+/**
+ * Rod binder, injected so this store stays free of a dependency on rodStore.
+ *
+ * A null rodId means "whichever rod is obviously waiting for this" — the rods
+ * side resolves it, because only it knows what is bound. A pending code carries
+ * a rodId when the user started from a specific rod and null when they did not.
+ */
+let bindRodDevice: ((rodId: string | null, deviceId: string) => void) | null = null;
 
-export function setRodBinder(fn: ((rodId: string, deviceId: string) => void) | null): void {
+export function setRodBinder(fn: ((rodId: string | null, deviceId: string) => void) | null): void {
   bindRodDevice = fn;
 }
 
@@ -414,7 +420,7 @@ export function resolvePending(): void {
     const match = matches[0]!;
     const discovered = useDeviceStore.getState().discovered[match.id];
     if (discovered) useDeviceStore.getState().pair(discovered);
-    if (request.rodId) bindRodDevice?.(request.rodId, match.id);
+    bindRodDevice?.(request.rodId, match.id);
     useDeviceStore.getState().cancelPending(request.code);
   }
 }

@@ -15,7 +15,7 @@ import { isExpired } from '@/features/session/sessionLimit';
 import { useSettings } from '@/features/settings/settingsStore';
 import { useNow } from '@/utils/useNow';
 
-import { activeRods, type Rod } from './rod';
+import { activeRods, type Rod, soleUnboundRod } from './rod';
 import {
   disarmAll,
   retuneAll,
@@ -141,7 +141,13 @@ export function useRodRuntimeBridge(): void {
     startDeviceWatch();
     // Injected rather than imported by the device store, which would otherwise
     // depend on rodStore and create a cycle.
-    setRodBinder((rodId, deviceId) => useRodStore.getState().setDeviceId(rodId, deviceId));
+    setRodBinder((rodId, deviceId) => {
+      const rods = useRodStore.getState();
+      // A code paired without a rod in mind still has an obvious home when only
+      // one rod is waiting for a sensor. Ambiguous cases bind nothing.
+      const target = rodId ?? soleUnboundRod(rods.rods)?.id ?? null;
+      if (target) rods.setDeviceId(target, deviceId);
+    });
 
     /**
      * Release the scan when the app is backgrounded with nothing armed.
