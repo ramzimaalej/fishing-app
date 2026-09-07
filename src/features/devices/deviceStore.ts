@@ -10,7 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
-import { subscribeToScan } from '@/features/ble/scanBroker';
+import { ensureScanning, scanBrokerState, subscribeToScan } from '@/features/ble/scanBroker';
 import { getSensorDevice } from '@/features/ble/deviceRegistry';
 import type { BroadcastAdvertisement } from '@/features/ble/BroadcastSensorClient';
 
@@ -268,7 +268,16 @@ let pendingDiscovered: Record<string, DiscoveredDevice> = {};
  * what makes a rod able to notice its tag going quiet.
  */
 export function startDeviceWatch(): void {
-  if (unsubscribe) return;
+  if (unsubscribe) {
+    // Already subscribed — but the scan underneath may have died, or never
+    // started at all. This is called again on every return to foreground and
+    // after the tags screen has secured permissions, and both are precisely the
+    // moments a failed scan can now succeed. Returning early here is what made a
+    // launch-time failure permanent: the subscription exists, so subscribing
+    // again is not an option, and nothing else re-arms the radio.
+    ensureScanning();
+    return;
+  }
   const spec = getSensorDevice('castmate-g').broadcast;
 
   unsubscribe = subscribeToScan((raw) => {
@@ -298,10 +307,21 @@ export function startDeviceWatch(): void {
   });
 
   publishTimer ??= setInterval(publish, PUBLISH_MS);
-  useDeviceStore.setState({ scanning: true });
+  // Whether the radio actually came up is not known yet — startDeviceScan can
+  // reject afterwards — so this reads the broker rather than asserting true.
+  // publish() keeps it honest from here on.
+  useDeviceStore.setState({ scanning: scanBrokerState().scanning });
 }
 
 function publish(): void {
+  // Keep the UI's idea of scanning honest. The flag used to be set optimistically
+  // and never corrected, so the tags screen said "Nearby" — implying it was
+  // listening — while the scan had rejected and nothing was being heard at all.
+  const live = scanBrokerState().scanning;
+  if (useDeviceStore.getState().scanning !== live) {
+    useDeviceStore.setState({ scanning: live });
+  }
+
   const paired = pendingPaired;
   const discovered = pendingDiscovered;
   pendingPaired = {};

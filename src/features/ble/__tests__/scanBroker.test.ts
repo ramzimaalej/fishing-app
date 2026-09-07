@@ -19,7 +19,8 @@ jest.mock('../bleManager', () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const broker = require('../scanBroker') as typeof import('../scanBroker');
-const { subscribeToScan, scanBrokerState, resetScanBroker, getScanError } = broker;
+const { subscribeToScan, scanBrokerState, resetScanBroker, getScanError, ensureScanning } =
+  broker;
 
 /** Fire the callback the broker handed to startDeviceScan. */
 function emit(device: Partial<Device> | null, error: { message: string } | null = null): void {
@@ -30,10 +31,28 @@ function emit(device: Partial<Device> | null, error: { message: string } | null 
 const fakeDevice = (id: string): Partial<Device> => ({ id, rssi: -50 });
 
 beforeEach(() => {
+  jest.useFakeTimers();
   resetScanBroker();
   mockStartDeviceScan.mockClear();
   mockStopDeviceScan.mockClear();
+  mockStartDeviceScan.mockReturnValue(undefined);
 });
+
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+/** Make the next startDeviceScan reject, as an adapter-off or ungranted scan does. */
+function rejectNextStart(message: string): void {
+  mockStartDeviceScan.mockReturnValueOnce(Promise.reject(new Error(message)));
+}
+
+/** Let the rejection handler run, then advance past the backoff. */
+async function advancePastRetry(ms: number): Promise<void> {
+  await Promise.resolve();
+  jest.advanceTimersByTime(ms);
+  await Promise.resolve();
+}
 
 describe('scanBroker refcounting', () => {
   it('starts the underlying scan on the first subscriber', () => {
@@ -155,5 +174,110 @@ describe('scanBroker fan-out', () => {
     off();
     subscribeToScan(() => {});
     expect(getScanError()).toBeNull();
+  });
+});
+
+describe('scanBroker recovery from a failed start', () => {
+  // The bug: the scan is started once, by the first subscriber. If that attempt
+  // rejected, nothing ever tried again — every rod read "tag not responding"
+  // for the lifetime of the process while the app reported it was scanning.
+  it('does not stay latched as scanning when the start rejects', async () => {
+    rejectNextStart('BluetoothLE is powered off');
+    subscribeToScan(() => {});
+    await Promise.resolve();
+
+    expect(scanBrokerState().scanning).toBe(false);
+    expect(getScanError()).toBe('BluetoothLE is powered off');
+  });
+
+  it('retries on its own after a failed start', async () => {
+    rejectNextStart('permission not granted');
+    subscribeToScan(() => {});
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(1);
+
+    await advancePastRetry(2_000);
+
+    // The user granting the permission, or switching Bluetooth on, happens while
+    // the app is open and tells us nothing — so the broker has to keep asking.
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(2);
+    expect(scanBrokerState().scanning).toBe(true);
+  });
+
+  it('keeps retrying, backing off, while a start keeps failing', async () => {
+    // Both attempts queued up front: the retry fires from a timer, so a
+    // rejection armed after it has run would arrive too late to be used.
+    rejectNextStart('off');
+    rejectNextStart('still off');
+    subscribeToScan(() => {});
+
+    await advancePastRetry(2_000); // 2nd attempt, also rejects
+    await advancePastRetry(4_000); // 3rd attempt, at double the delay
+
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(3);
+    // The delay doubles rather than hammering the adapter, and the third
+    // attempt succeeded, so the scan is live again.
+    expect(scanBrokerState().scanning).toBe(true);
+  });
+
+  it('stops retrying once the last subscriber leaves', async () => {
+    rejectNextStart('off');
+    const off = subscribeToScan(() => {});
+    await Promise.resolve();
+    off();
+
+    jest.advanceTimersByTime(60_000);
+    // Nobody is listening, so reviving the scan would be pure battery cost.
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(1);
+  });
+
+  it('revives a dead scan when another subscriber arrives', async () => {
+    rejectNextStart('off');
+    subscribeToScan(() => {});
+    await Promise.resolve();
+    expect(scanBrokerState().scanning).toBe(false);
+
+    subscribeToScan(() => {});
+
+    // Previously the second subscriber just joined a scan that was not running:
+    // the start only ever fired for the first.
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(2);
+    expect(scanBrokerState().scanning).toBe(true);
+  });
+
+  it('lets an already-subscribed caller re-arm the scan', async () => {
+    rejectNextStart('permission not granted');
+    subscribeToScan(() => {});
+    await Promise.resolve();
+
+    // This is the tags screen's path: it holds a subscription already, so it
+    // cannot subscribe again, and before ensureScanning it had no way back.
+    ensureScanning();
+
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(2);
+    expect(scanBrokerState().scanning).toBe(true);
+  });
+
+  it('is a no-op to re-arm a scan that is already running', () => {
+    subscribeToScan(() => {});
+    ensureScanning();
+    ensureScanning();
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-arm when nothing is listening', () => {
+    ensureScanning();
+    expect(mockStartDeviceScan).not.toHaveBeenCalled();
+  });
+
+  it('recovers from an adapter switched off mid-session', async () => {
+    subscribeToScan(() => {});
+    expect(scanBrokerState().scanning).toBe(true);
+
+    // A mid-session failure arrives through the callback, not the promise.
+    emit(null, { message: 'BluetoothLE is powered off' });
+    expect(scanBrokerState().scanning).toBe(false);
+
+    await advancePastRetry(2_000);
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(2);
   });
 });

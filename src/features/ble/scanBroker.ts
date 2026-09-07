@@ -29,6 +29,52 @@ let scanning = false;
 /** Set when the platform scan fails, so late subscribers learn about it too. */
 let lastError: string | null = null;
 
+/**
+ * Backoff for re-arming a scan that failed to start.
+ *
+ * Without this a single failed start was terminal for the process. The scan is
+ * begun once, by the first subscriber; if that attempt rejected — permissions
+ * not granted yet on a first run, or the adapter simply off — nothing ever tried
+ * again. Every rod then read "tag not responding" forever while the app happily
+ * reported that it was scanning.
+ *
+ * Retrying is not busywork: the conditions that make a start fail are exactly
+ * the ones a user fixes WHILE the app is open (granting the permission,
+ * switching Bluetooth on), and nothing else tells us they did.
+ */
+const RETRY_BASE_MS = 2_000;
+const RETRY_MAX_MS = 30_000;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryDelay = RETRY_BASE_MS;
+
+function cancelRetry(): void {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+  retryDelay = RETRY_BASE_MS;
+}
+
+/** Try again later, backing off, for as long as anyone is still listening. */
+function scheduleRetry(): void {
+  if (retryTimer !== null || listeners.size === 0) return;
+  const delay = retryDelay;
+  // Capped rather than unbounded: an adapter that is off may be switched on at
+  // any moment, and a rod that stopped being watched is the failure this app
+  // exists to prevent — so it keeps checking, just not busily.
+  retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (listeners.size > 0) startUnderlyingScan();
+  }, delay);
+}
+
+/** Record a failed start and line up another attempt. */
+function failScan(message: string): void {
+  scanning = false;
+  lastError = message;
+  bleLog('scanBroker: scan failed:', message);
+  scheduleRetry();
+}
+
 function startUnderlyingScan(): void {
   if (scanning) return;
   scanning = true;
@@ -50,12 +96,13 @@ function startUnderlyingScan(): void {
       if (error) {
         // Also unlatch here: a mid-session adapter-off arrives this way, and
         // leaving `scanning` true would block every future restart.
-        scanning = false;
-        lastError = error.message;
-        bleLog('scanBroker: scan error:', error.message);
+        failScan(error.message);
         return;
       }
       if (!device) return;
+      // An advertisement is the only proof the scan actually works, so the
+      // backoff resets here rather than on a start that merely did not reject.
+      retryDelay = RETRY_BASE_MS;
       // Copy first: a listener unsubscribing mid-dispatch must not perturb this
       // iteration.
       for (const l of [...listeners]) {
@@ -69,13 +116,15 @@ function startUnderlyingScan(): void {
   ) as unknown as Promise<void> | undefined;
 
   void Promise.resolve(started).catch((e: unknown) => {
-    scanning = false;
-    lastError = e instanceof Error ? e.message : 'Scan could not be started.';
-    bleLog('scanBroker: start rejected:', lastError);
+    failScan(e instanceof Error ? e.message : 'Scan could not be started.');
   });
 }
 
 function stopUnderlyingScan(): void {
+  // Cancel unconditionally: a retry may be pending for a scan that never
+  // started, and letting it fire after the last listener left would resurrect a
+  // scan nobody is watching.
+  cancelRetry();
   if (!scanning) return;
   scanning = false;
   bleLog('scanBroker: stopping shared scan (no listeners left)');
@@ -93,7 +142,11 @@ function stopUnderlyingScan(): void {
  */
 export function subscribeToScan(listener: ScanListener): () => void {
   listeners.add(listener);
-  if (listeners.size === 1) startUnderlyingScan();
+  // Attempted on EVERY subscribe, not only the first. startUnderlyingScan
+  // no-ops when a scan is already running, so this costs nothing in the normal
+  // case — and it means a subscriber arriving after a failed start revives the
+  // scan instead of joining a dead one.
+  startUnderlyingScan();
 
   let released = false;
   return () => {
@@ -102,6 +155,20 @@ export function subscribeToScan(listener: ScanListener): () => void {
     listeners.delete(listener);
     if (listeners.size === 0) stopUnderlyingScan();
   };
+}
+
+/**
+ * Re-arm the shared scan if it is not currently running.
+ *
+ * For callers that are already subscribed and have reason to believe conditions
+ * changed — permissions just granted, or the app returned to the foreground.
+ * Without this they had no way to recover: they hold a live subscription, so
+ * subscribing again was not an option, and nothing else restarts the scan.
+ */
+export function ensureScanning(): void {
+  if (listeners.size === 0) return;
+  cancelRetry();
+  startUnderlyingScan();
 }
 
 /** Last platform scan error, if any. Cleared when a scan (re)starts. */
@@ -118,5 +185,6 @@ export function scanBrokerState(): { scanning: boolean; listeners: number } {
 export function resetScanBroker(): void {
   listeners.clear();
   stopUnderlyingScan();
+  cancelRetry();
   lastError = null;
 }

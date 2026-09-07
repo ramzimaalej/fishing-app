@@ -387,7 +387,11 @@ export default function DevicesScreen() {
       <Text style={styles.sectionTitle}>
         {scanning ? 'Nearby' : 'Nearby — not scanning'}
       </Text>
-      {error && <Text style={styles.error}>{error}</Text>}
+      {/* Derived, not cleared in an effect: the scan now re-arms itself, so a
+          failure from an earlier attempt is stale the moment it comes back.
+          Leaving it on screen reported a fault that had already fixed itself,
+          next to a list that was visibly filling with tags. */}
+      {!scanning && error && <Text style={styles.error}>{error}</Text>}
       {discoveredList.length === 0 ? (
         <View style={styles.card}>
           <Text style={styles.hint}>
