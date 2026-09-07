@@ -30,6 +30,7 @@ import {
 import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
 import { useAnyArmed, useArmableRods } from '@/features/rods/useRodRuntime';
 import { colors, radius, spacing, typography } from '@/theme';
+import { useNow } from '@/utils/useNow';
 
 import { useAdminStore } from './adminStore';
 import type { RecordingSummary } from './captureTypes';
@@ -235,7 +236,6 @@ export default function AdminScreen() {
   const [passwordDraft, setPasswordDraft] = useState(opcodes.password ?? '');
   const [recordings, setRecordings] = useState<RecordingSummary[] | null>(null);
   const [preset, setPreset] = useState('normal');
-  const [elapsed, setElapsed] = useState(0);
 
   const options = PRESETS.find((p) => p.key === preset)?.opts ?? DEFAULT_MATCH_OPTIONS;
 
@@ -248,14 +248,12 @@ export default function AdminScreen() {
   }, [unlocked, refresh]);
 
   // Ticks the elapsed readout while capturing; stopped otherwise so an idle
-  // admin screen is not re-rendering once a second in the background.
-  useEffect(() => {
-    if (!capture.recording || capture.startedAt === null) return;
-    const started = capture.startedAt;
-    setElapsed(Date.now() - started);
-    const timer = setInterval(() => setElapsed(Date.now() - started), 1000);
-    return () => clearInterval(timer);
-  }, [capture.recording, capture.startedAt]);
+  // admin screen is not re-rendering once a second in the background. Elapsed
+  // is derived rather than stored: it is a function of the clock and the start
+  // time, and keeping a second copy in state only creates something that can
+  // disagree with them.
+  const now = useNow(1000, capture.recording && capture.startedAt !== null);
+  const elapsed = capture.startedAt === null ? 0 : Math.max(0, now - capture.startedAt);
 
   const onStart = async () => {
     const ok = await startRecording(armable, label.trim());

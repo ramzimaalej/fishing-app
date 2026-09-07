@@ -21,6 +21,7 @@ import { isBatteryReadingStale } from '@/features/ble/battery';
 import { batteryColor, batteryGlyph } from '@/features/ble/batteryDisplay';
 import { ensureBlePermissions, waitForPoweredOn } from '@/features/ble/bleManager';
 import { useRodStore } from '@/features/rods/rodStore';
+import { useNow } from '@/utils/useNow';
 import { colors, radius, rodColours, spacing, typography } from '@/theme';
 
 import { powerOff, readBattery, verifyDevice } from './cp27Commands';
@@ -324,15 +325,13 @@ export default function DevicesScreen() {
   // Re-render on a timer so "live" decays to "not responding" without an
   // advertisement having to arrive to trigger it — the whole point is noticing
   // that nothing arrived.
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 2000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useNow(2000);
 
   const startScan = useCallback(async () => {
-    setError(null);
+    // The error is cleared on SUCCESS, not on entry. Clearing it first made the
+    // effect below set state synchronously on mount, and it also blanked a real
+    // failure for the duration of the retry, so the screen briefly claimed to be
+    // fine while it was still finding out.
     const granted = await ensureBlePermissions();
     if (!granted) {
       setError('Bluetooth permission denied.');
@@ -344,10 +343,16 @@ export default function DevicesScreen() {
       setError(e instanceof Error ? e.message : 'Bluetooth unavailable.');
       return;
     }
+    setError(null);
     startDeviceWatch();
   }, []);
 
   useEffect(() => {
+    // startScan's first statement is `await ensureBlePermissions()`, so every
+    // setState inside it happens a microtask later at the earliest — never
+    // synchronously with this effect. The rule cannot see across the await and
+    // reports the call itself.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void startScan();
     // Left running deliberately on unmount: liveness must keep updating while a
     // session is armed, or rods could not notice their tag going quiet.

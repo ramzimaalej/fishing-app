@@ -21,6 +21,9 @@ import { useLocationStore } from './locationStore';
 /** Keystrokes settle before a request goes out. */
 const SEARCH_DEBOUNCE_MS = 350;
 
+/** Stable identity, so the derived list does not change on every render. */
+const EMPTY_PLACES: GeoPlace[] = [];
+
 export default function LocationScreen() {
   const { t } = useTranslation();
   const navigation = useNavigation<{ goBack: () => void }>();
@@ -42,14 +45,15 @@ export default function LocationScreen() {
   // Debounced, and every superseded request is aborted — otherwise a slow early
   // response can land after a faster later one and overwrite the right results.
   const abortRef = useRef<AbortController | null>(null);
+  const trimmedQuery = query.trim();
+  // A query too short to search is a fact about the CURRENT query, so it is
+  // derived below rather than written back into state from the effect. Clearing
+  // it there meant every keystroke that shortened the box scheduled an extra
+  // render pass just to blank three values render could already work out.
+  const searchable = trimmedQuery.length >= 2;
+
   useEffect(() => {
-    const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      setResults([]);
-      setSearching(false);
-      setSearchError(null);
-      return;
-    }
+    if (!searchable) return;
 
     const timer = setTimeout(() => {
       abortRef.current?.abort();
@@ -58,7 +62,7 @@ export default function LocationScreen() {
       setSearching(true);
       setSearchError(null);
 
-      void searchPlaces(trimmed, { language: currentLanguage(), signal: controller.signal })
+      void searchPlaces(trimmedQuery, { language: currentLanguage(), signal: controller.signal })
         .then((places) => {
           if (controller.signal.aborted) return;
           setResults(places);
@@ -72,7 +76,13 @@ export default function LocationScreen() {
     }, SEARCH_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [query, t]);
+  }, [trimmedQuery, searchable, t]);
+
+  // What the list actually shows. Stale results from a longer query must not
+  // survive the box being cut back below the search threshold.
+  const visibleResults = searchable ? results : EMPTY_PLACES;
+  const visibleSearching = searchable && searching;
+  const visibleError = searchable ? searchError : null;
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -161,13 +171,13 @@ export default function LocationScreen() {
           returnKeyType="search"
         />
 
-        {searching && <ActivityIndicator color={colors.primary} style={styles.spinner} />}
-        {searchError && <Text style={styles.error}>{searchError}</Text>}
-        {!searching && !searchError && query.trim().length >= 2 && results.length === 0 && (
+        {visibleSearching && <ActivityIndicator color={colors.primary} style={styles.spinner} />}
+        {visibleError && <Text style={styles.error}>{visibleError}</Text>}
+        {!visibleSearching && !visibleError && searchable && visibleResults.length === 0 && (
           <Text style={styles.hint}>{t('location.noResults', { query: query.trim() })}</Text>
         )}
 
-        {results.map((place) => (
+        {visibleResults.map((place) => (
           <Pressable key={place.id} style={styles.resultRow} onPress={() => choose(place)}>
             <View style={{ flex: 1 }}>
               <Text style={styles.resultName}>{place.name}</Text>
