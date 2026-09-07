@@ -24,13 +24,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
    * detector measures.
    */
   icon: './assets/icon.png',
-  splash: {
-    image: './assets/splash-icon.png',
-    resizeMode: 'contain',
-    backgroundColor: '#0B1F2A',
-  },
   userInterfaceStyle: 'automatic',
-  newArchEnabled: true,
+  // newArchEnabled is gone from the config schema — the New Architecture is the
+  // only option from SDK 55 on, so there is nothing left to opt into.
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'co.castmate',
@@ -71,15 +67,27 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     'expo-dev-client',
+    // The top-level `splash` key was removed from the config schema; the splash
+    // screen is configured through its own plugin now.
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/splash-icon.png',
+        resizeMode: 'contain',
+        backgroundColor: '#0B1F2A',
+      },
+    ],
     '@react-native-firebase/app',
     '@react-native-firebase/auth',
     [
       'expo-build-properties',
       {
         ios: { useFrameworks: 'static' },
-        // Kotlin 1.9.25 to match the Compose Compiler 1.5.15 pulled in by a
-        // native dependency (SDK 52's default 1.9.24 mismatches it).
-        android: { minSdkVersion: 24, kotlinVersion: '1.9.25' },
+        // The old Kotlin 1.9.25 pin (added to match a Compose Compiler pulled
+        // in by a native dependency under SDK 52) is gone: those dependencies
+        // have moved on and pinning an old Kotlin against SDK 57's toolchain
+        // causes the mismatch it was meant to avoid.
+        android: { minSdkVersion: 24 },
       },
     ],
     [

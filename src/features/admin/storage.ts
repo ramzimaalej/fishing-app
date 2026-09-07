@@ -7,7 +7,8 @@
  * it — never drags a native dependency into a unit test.
  */
 
-type FileSystemModule = typeof import('expo-file-system');
+// See photoStorage.ts: pinned to the legacy API surface for now.
+type FileSystemModule = typeof import('expo-file-system/legacy');
 
 let cached: FileSystemModule | null = null;
 
@@ -15,7 +16,7 @@ function load(): FileSystemModule | null {
   if (cached) return cached;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    cached = require('expo-file-system') as FileSystemModule;
+    cached = require('expo-file-system/legacy') as FileSystemModule;
     return cached;
   } catch {
     return null;

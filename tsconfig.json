@@ -5,13 +5,20 @@
     "noUncheckedIndexedAccess": true,
     "module": "esnext",
     "moduleResolution": "bundler",
-    "baseUrl": ".",
+    // SDK 57's base config sets customConditions, which makes tsc follow the
+    // "react-native" export condition into library *source*. Naming the global
+    // type packages explicitly keeps jest/node globals available to those files
+    // and to the test suite.
+    "types": [
+      "jest",
+      "node"
+    ],
     "paths": {
       "@/*": [
-        "src/*"
+        "./src/*"
       ],
       "@scan-foreground-service": [
-        "modules/scan-foreground-service"
+        "./modules/scan-foreground-service"
       ]
     }
   },

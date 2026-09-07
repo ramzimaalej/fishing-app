@@ -4,7 +4,8 @@ import {
   getFirestore,
   getDoc,
   setDoc,
-  type FirebaseFirestoreTypes,
+  type CollectionReference,
+  type DocumentReference,
 } from '@react-native-firebase/firestore';
 
 import { COLLECTIONS } from '@/config/constants';
@@ -15,7 +16,7 @@ export const db = getFirestore();
 type UserDoc = { isPremium: boolean } & Record<string, unknown>;
 
 /** Reference to a user document at `users/{uid}`. */
-function userRef(uid: string): FirebaseFirestoreTypes.DocumentReference {
+function userRef(uid: string): DocumentReference {
   return doc(db, COLLECTIONS.users, uid);
 }
 
@@ -44,6 +45,6 @@ export async function setUserPremium(uid: string, isPremium: boolean): Promise<v
 /** Collection of a user's bite records at `users/{uid}/bites`. */
 export function bitesCollection(
   uid: string,
-): FirebaseFirestoreTypes.CollectionReference {
+): CollectionReference {
   return collection(db, COLLECTIONS.users, uid, COLLECTIONS.bites);
 }

@@ -7,7 +7,7 @@ import {
   signOut,
   GoogleAuthProvider,
   signInWithCredential,
-  type FirebaseAuthTypes,
+  type User as FirebaseUser,
 } from '@react-native-firebase/auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import Constants from 'expo-constants';
@@ -31,7 +31,7 @@ function ensureGoogleConfigured(): void {
 
 /** Map a Firebase user to the app's UI-facing projection. */
 export function mapFirebaseUser(
-  fbUser: FirebaseAuthTypes.User,
+  fbUser: FirebaseUser,
   isPremium = false,
 ): AppUser {
   return {
