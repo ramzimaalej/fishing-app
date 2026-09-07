@@ -84,18 +84,23 @@ export function useArmableRods(): Rod[] {
 export function useRodActivities(): Record<string, RodActivity> {
   const rods = useRodStore((s) => s.rods);
   const paired = useDeviceStore((s) => s.paired);
+  const listeningSince = useDeviceStore((s) => s.scanStartedAt);
   const now = useNow(2000);
 
   return useMemo(() => {
     const out: Record<string, RodActivity> = {};
     for (const rod of rods) {
       out[rod.id] = rodActivity(
-        { enabled: rod.enabled, device: rod.deviceId ? (paired[rod.deviceId] ?? null) : null },
+        {
+          enabled: rod.enabled,
+          device: rod.deviceId ? (paired[rod.deviceId] ?? null) : null,
+          listeningSince,
+        },
         now,
       );
     }
     return out;
-  }, [rods, paired, now]);
+  }, [rods, paired, listeningSince, now]);
 }
 
 /** Rods whose bound tag is live — the ones that can actually be armed. */

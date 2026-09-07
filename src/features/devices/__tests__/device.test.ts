@@ -106,6 +106,64 @@ describe('rodActivity', () => {
   });
 });
 
+describe('rodActivity while the app is still listening', () => {
+  /**
+   * Liveness is not persisted, so every launch starts with every paired tag
+   * never-seen. These pin the two mistakes either side of that:
+   * calling a working tag dead at startup, and calling a dead tag fine forever.
+   */
+  const unheard = device({ lastSeenAt: null });
+
+  it('is device-unheard just after listening began, not an alarm', () => {
+    expect(
+      rodActivity({ enabled: true, device: unheard, listeningSince: NOW - 1_000 }, NOW),
+    ).toBe('device-unheard');
+  });
+
+  it('hardens into device-silent once we have listened long enough', () => {
+    // Past the window a tag that were there would have advertised many times,
+    // so continued silence IS evidence and must read as a fault.
+    expect(
+      rodActivity(
+        { enabled: true, device: unheard, listeningSince: NOW - DEVICE_LIVE_WINDOW_MS - 1 },
+        NOW,
+      ),
+    ).toBe('device-silent');
+  });
+
+  it('is device-silent when we are not listening at all', () => {
+    // No scan running: silence proves nothing about the tag, but claiming the
+    // rod is fine would be the dangerous side to err on.
+    expect(rodActivity({ enabled: true, device: unheard, listeningSince: null }, NOW)).toBe(
+      'device-silent',
+    );
+    expect(rodActivity({ enabled: true, device: unheard }, NOW)).toBe('device-silent');
+  });
+
+  it('never counts as active, however fresh the grace period', () => {
+    // The whole point: "not heard yet" is gentler wording, not permission to
+    // arm. A rod may only be armed once its tag has actually been heard.
+    expect(
+      isRodActive({ enabled: true, device: unheard, listeningSince: NOW }, NOW),
+    ).toBe(false);
+  });
+
+  it('does not soften a tag that WAS heard and then went quiet', () => {
+    // A fresh scan restart must not relabel a real dropout as "listening".
+    const wentQuiet = device({ lastSeenAt: NOW - 60_000 });
+    expect(
+      rodActivity({ enabled: true, device: wentQuiet, listeningSince: NOW - 500 }, NOW),
+    ).toBe('device-silent');
+  });
+
+  it('still reports a deliberate power-off during the grace period', () => {
+    const off = device({ lastSeenAt: null, poweredOffAt: NOW - 500 });
+    expect(
+      rodActivity({ enabled: true, device: off, listeningSince: NOW - 500 }, NOW),
+    ).toBe('device-off');
+  });
+});
+
 describe('canBindDevice', () => {
   const rods = [
     { id: 'rod_a', name: 'Left rod', deviceId: '48:87:2D:9D:C0:0C' },
