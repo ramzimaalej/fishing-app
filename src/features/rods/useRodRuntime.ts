@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { AppState } from 'react-native';
 
 import { useAuthStore } from '@/features/auth/authStore';
-import { rodActivity, type RodActivity } from '@/features/devices/device';
+import { canonicalDeviceId, rodActivity, type RodActivity } from '@/features/devices/device';
 import {
   setRodBinder,
   startDeviceWatch,
@@ -93,7 +93,12 @@ export function useRodActivities(): Record<string, RodActivity> {
       out[rod.id] = rodActivity(
         {
           enabled: rod.enabled,
-          device: rod.deviceId ? (paired[rod.deviceId] ?? null) : null,
+          // The key is canonicalised, as every other lookup does. A raw
+          // paired[rod.deviceId] missed a tag whose id was stored in another
+          // spelling, so the rod read "no tag paired" here while armRod — which
+          // canonicalises — armed it happily. Read from `paired` rather than
+          // deviceFor() so this stays reactive to liveness updates.
+          device: rod.deviceId ? (paired[canonicalDeviceId(rod.deviceId)] ?? null) : null,
           listeningSince,
         },
         now,

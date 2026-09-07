@@ -9,6 +9,7 @@ import {
   normaliseDeviceId,
   type PairedDevice,
   rodActivity,
+  sameDeviceId,
 } from '../device';
 
 const NOW = 1_700_000_000_000;
@@ -161,6 +162,30 @@ describe('rodActivity while the app is still listening', () => {
     expect(
       rodActivity({ enabled: true, device: off, listeningSince: NOW - 500 }, NOW),
     ).toBe('device-off');
+  });
+});
+
+describe('sameDeviceId', () => {
+  // A rod's binding and a scan result can hold the same tag under different
+  // spellings (see canonicalDeviceId). Comparing them raw answered "no" about a
+  // tag that WAS bound, so the rod read "no tag paired" on the Fishing screen
+  // while armRod — which canonicalises — armed it perfectly happily.
+  it('matches a full MAC against the frame\u2019s five-octet tail', () => {
+    expect(sameDeviceId('A4:87:2D:9D:C0:0C', '87:2D:9D:C0:0C')).toBe(true);
+  });
+
+  it('ignores punctuation and case', () => {
+    expect(sameDeviceId('872d9dc00c', '87:2D:9D:C0:0C')).toBe(true);
+  });
+
+  it('still tells two different tags apart', () => {
+    expect(sameDeviceId('A4:87:2D:9D:C0:0C', 'A4:87:2D:9D:C0:11')).toBe(false);
+  });
+
+  it('treats an absent binding as bound to nothing', () => {
+    expect(sameDeviceId(null, '87:2D:9D:C0:0C')).toBe(false);
+    expect(sameDeviceId('87:2D:9D:C0:0C', null)).toBe(false);
+    expect(sameDeviceId(null, null)).toBe(false);
   });
 });
 

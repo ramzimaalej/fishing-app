@@ -33,6 +33,7 @@ import {
   deviceStatus,
   type DeviceStatus,
   type PairedDevice,
+  sameDeviceId,
 } from './device';
 import { isPlausibleCode, printedCode } from './deviceCode';
 import {
@@ -79,7 +80,7 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
   const [draft, setDraft] = useState(device.label ?? '');
 
   const status = deviceStatus(device, now);
-  const boundRod = rods.find((r) => r.deviceId === device.id) ?? null;
+  const boundRod = rods.find((r) => sameDeviceId(r.deviceId, device.id)) ?? null;
 
   const onVerify = async () => {
     if (!device.connectionId) {
@@ -253,7 +254,7 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
       <Text style={styles.fieldLabel}>Rod</Text>
       <View style={styles.chipRow}>
         {rods.map((rod) => {
-          const active = rod.deviceId === device.id;
+          const active = sameDeviceId(rod.deviceId, device.id);
           return (
             <Pressable
               key={rod.id}

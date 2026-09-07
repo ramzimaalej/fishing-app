@@ -106,6 +106,23 @@ export function defaultRodName(index: number): string {
 }
 
 /**
+ * Apply a sensor-kind choice to a rod.
+ *
+ * CHANGING the kind invalidates the binding: a MAC read out of a Minew tag is
+ * meaningless to the GATT client, and a stale id would leave the rod looking
+ * paired when it cannot stream.
+ *
+ * Re-picking the kind the rod ALREADY has is not a change, and must keep the
+ * binding. Clearing it there silently unpaired the rod for anyone who tapped
+ * the chip that was already selected — with no confirmation, and no visible
+ * difference afterwards, because the chip looks identical either way.
+ */
+export function withSensorKind(rod: Rod, kind: SensorKind): Rod {
+  if (rod.sensorKind === kind) return rod;
+  return { ...rod, sensorKind: kind, deviceId: null };
+}
+
+/**
  * True when this rod can stream. A broadcast sensor needs a bound device; the
  * simulator does not, since it generates its own signal.
  */
