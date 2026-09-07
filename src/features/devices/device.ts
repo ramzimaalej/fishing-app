@@ -210,6 +210,19 @@ export interface PairVerdict {
 }
 
 /**
+ * Whether two device ids name the same physical tag.
+ *
+ * Always use this rather than `===`. Ids reach the app in more than one
+ * spelling (see canonicalDeviceId), so a raw comparison can answer "no" about a
+ * tag that is very much bound — which showed up as a rod reading "no tag
+ * paired" on one screen while happily arming on another.
+ */
+export function sameDeviceId(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  return canonicalDeviceId(a) === canonicalDeviceId(b);
+}
+
+/**
  * Whether a device may be bound to a rod.
  *
  * One device, one rod. Two rods sharing a tag would report one physical sensor
@@ -222,7 +235,7 @@ export function canBindDevice(
   rodId: string,
   rods: readonly { id: string; name: string; deviceId: string | null }[],
 ): PairVerdict {
-  const holder = rods.find((r) => r.deviceId === deviceId);
+  const holder = rods.find((r) => sameDeviceId(r.deviceId, deviceId));
   if (!holder) return { allowed: true };
   if (holder.id === rodId) return { allowed: false, reason: 'already-paired' };
   return { allowed: false, reason: 'bound-elsewhere', boundTo: holder.name };

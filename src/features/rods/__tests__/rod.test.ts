@@ -14,6 +14,7 @@ import {
   normaliseRodSensorKind,
   retireSimulatorRod,
   type Rod,
+  withSensorKind,
 } from '../rod';
 
 function rod(overrides: Partial<Rod> = {}): Rod {
@@ -299,5 +300,48 @@ describe('colour backfill', () => {
   it('replaces a colour this build no longer defines', () => {
     const stale = rod({ colour: 'chartreuse' as unknown as RodColour });
     expect(ROD_COLOUR_KEYS).toContain(normaliseRodSensorKind(stale).colour);
+  });
+});
+
+describe('withSensorKind', () => {
+  const rod = (over: Partial<Rod> = {}): Rod => ({
+    id: 'rod_a',
+    name: 'Left rod',
+    sensorKind: 'castmate-g',
+    deviceId: '87:2D:9D:C0:0C',
+    enabled: true,
+    colour: ROD_COLOUR_KEYS[0]!,
+    createdAt: 0,
+    ...over,
+  });
+
+  it('keeps the binding when the kind is unchanged', () => {
+    // The bug this exists to stop: the sensor chips fire on every tap, including
+    // the one that is already selected, and clearing the binding there unpaired
+    // the rod silently — the chip looks identical before and after.
+    const before = rod();
+    const after = withSensorKind(before, 'castmate-g');
+    expect(after.deviceId).toBe('87:2D:9D:C0:0C');
+    expect(after).toBe(before);
+  });
+
+  it('drops the binding when the kind actually changes', () => {
+    // A MAC read out of one tag's frame is meaningless to a different client,
+    // and a stale id leaves the rod looking paired when it cannot stream.
+    const after = withSensorKind(rod(), 'mock');
+    expect(after.sensorKind).toBe('mock');
+    expect(after.deviceId).toBeNull();
+  });
+
+  it('leaves an unpaired rod alone either way', () => {
+    expect(withSensorKind(rod({ deviceId: null }), 'castmate-g').deviceId).toBeNull();
+    expect(withSensorKind(rod({ deviceId: null }), 'mock').deviceId).toBeNull();
+  });
+
+  it('changes nothing else about the rod', () => {
+    const after = withSensorKind(rod(), 'mock');
+    expect(after.name).toBe('Left rod');
+    expect(after.enabled).toBe(true);
+    expect(after.colour).toBe(ROD_COLOUR_KEYS[0]);
   });
 });

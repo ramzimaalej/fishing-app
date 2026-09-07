@@ -14,6 +14,7 @@ import {
   normaliseRodName,
   normaliseRods,
   type Rod,
+  withSensorKind,
 } from './rod';
 
 /**
@@ -110,17 +111,20 @@ export const useRodStore = create<RodState>()(
 
       setSensorKind: (id, kind) =>
         set((s) => ({
-          rods: s.rods.map((r) =>
-            // Changing sensor type invalidates the binding: a MAC from a Minew
-            // tag is meaningless to the GATT client, and a stale id would make
-            // the rod look paired when it cannot stream.
-            r.id === id ? { ...r, sensorKind: kind, deviceId: null } : r,
-          ),
+          // The rule itself lives in rod.ts, where it is testable without a
+          // store — including the part that matters, that re-picking the same
+          // kind keeps the binding.
+          rods: s.rods.map((r) => (r.id === id ? withSensorKind(r, kind) : r)),
         })),
 
       setDeviceId: (id, deviceId) =>
         set((s) => ({
-          rods: s.rods.map((r) => (r.id === id ? { ...r, deviceId } : r)),
+          rods: s.rods.map((r) =>
+            // Canonicalised on the way IN, so a binding cannot be stored in a
+            // spelling that later lookups fail to match. The migration fixed the
+            // ids already on disk; this stops new ones arriving crooked.
+            r.id === id ? { ...r, deviceId: deviceId && canonicalDeviceId(deviceId) } : r,
+          ),
         })),
 
       setEnabled: (id, enabled) =>
