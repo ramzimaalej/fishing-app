@@ -97,7 +97,6 @@ const fr: Translation = {
     maxBody: "Castmate surveille jusqu'à {{max}} cannes à la fois.",
     removeTitle: 'Supprimer la canne',
     removeBody: 'Supprimer « {{name}} » ? Les touches enregistrées sont conservées.',
-    firstRodFixed: 'Votre première canne ne peut pas être supprimée.',
     armed: 'armée',
     sensorLabel: 'Capteur',
     pairedSensor: 'Capteur associé',
@@ -106,6 +105,8 @@ const fr: Translation = {
       'Chaque canne doit être associée à son propre capteur, sinon deux cannes liraient le même.',
     nameTitle: 'Nom de la canne',
     namePlaceholder: 'ex. Canne de gauche',
+    manageTags: 'Gérer mes balises →',
+    noneYet: 'Aucune canne pour l’instant. Ajoutez-en une, puis associez sa balise.',
     defaultName: 'Canne {{number}}',
   },
 

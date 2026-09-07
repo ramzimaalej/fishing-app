@@ -407,7 +407,10 @@ export default function FishingScreen() {
               onPress={() => selectRod(rod.id)}
             />
           ))}
-          <Pressable style={styles.addRodCard} onPress={() => navigation.navigate('Devices')}>
+          {/* Rod setup, not the tag registry: this tile is how a rod gets added,
+              and "My tags" is a link from there. Pointing it at Devices left the
+              Rods screen — the only place with an Add rod button — unreachable. */}
+          <Pressable style={styles.addRodCard} onPress={() => navigation.navigate('Rods')}>
             <Text style={styles.addRodPlus}>＋</Text>
             <Text style={styles.rodCardLabel}>{t('fishing.manage')}</Text>
           </Pressable>

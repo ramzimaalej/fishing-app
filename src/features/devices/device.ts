@@ -195,5 +195,37 @@ export function canBindDevice(
 export function normaliseDeviceId(raw: string): string {
   const hex = raw.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
   if (hex.length !== 12) return raw.trim().toUpperCase();
+  return formatOctets(hex);
+}
+
+function formatOctets(hex: string): string {
   return (hex.match(/../g) ?? []).join(':');
+}
+
+/**
+ * The identity a tag is keyed by: the last five MAC octets.
+ *
+ * One physical tag reaches us by two routes, and they do NOT agree on how much
+ * of the MAC they can see:
+ *
+ *   - its frame decodes  → identity comes from inside the payload, and the
+ *     Castmate G frame carries only five of the six octets (see castmateGFrame);
+ *   - its frame does not decode (a flat tag still advertising its CP27 name)
+ *     → the only identity left is the scan result's own id, which on Android is
+ *     the FULL six-octet MAC.
+ *
+ * Keyed literally, those are two different strings for one tag — which is how a
+ * single tag ended up listed under both "My tags" and "Nearby" at once, and got
+ * paired a second time when tapped in Nearby. Reducing every MAC to the tail,
+ * the most either route can actually prove, makes them one device.
+ *
+ * Anything that is not a MAC (an iOS peripheral UUID) passes through unchanged:
+ * there is no MAC in it to reconcile, and truncating it would destroy the id.
+ */
+export function canonicalDeviceId(raw: string): string {
+  const hex = raw.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+  // Drop the leading octet the frame never carries, so both routes agree.
+  if (hex.length === 12) return formatOctets(hex.slice(2));
+  if (hex.length === 10) return formatOctets(hex);
+  return normaliseDeviceId(raw);
 }

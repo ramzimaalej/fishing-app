@@ -96,7 +96,6 @@ const en = {
     maxBody: 'Castmate monitors up to {{max}} rods at once.',
     removeTitle: 'Remove rod',
     removeBody: 'Remove “{{name}}”? Logged bites are kept.',
-    firstRodFixed: 'Your first rod can’t be removed.',
     armed: 'armed',
     sensorLabel: 'Sensor',
     pairedSensor: 'Paired sensor',
@@ -104,6 +103,8 @@ const en = {
     pairHint: 'Each rod must be bound to its own sensor, or two rods would read the same one.',
     nameTitle: 'Rod name',
     namePlaceholder: 'e.g. Left rod',
+    manageTags: 'Manage my tags →',
+    noneYet: 'No rods yet. Add one, then pair its tag.',
     defaultName: 'Rod {{number}}',
   },
 

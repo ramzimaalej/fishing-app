@@ -95,7 +95,6 @@ const es: Translation = {
     maxBody: 'Castmate vigila hasta {{max}} cañas a la vez.',
     removeTitle: 'Eliminar caña',
     removeBody: '¿Eliminar «{{name}}»? Las picadas registradas se conservan.',
-    firstRodFixed: 'Tu primera caña no se puede eliminar.',
     armed: 'activa',
     sensorLabel: 'Sensor',
     pairedSensor: 'Sensor vinculado',
@@ -104,6 +103,8 @@ const es: Translation = {
       'Cada caña debe vincularse a su propio sensor, o dos cañas leerían el mismo.',
     nameTitle: 'Nombre de la caña',
     namePlaceholder: 'p. ej. Caña izquierda',
+    manageTags: 'Gestionar mis sensores →',
+    noneYet: 'Aún no hay cañas. Añade una y vincula su sensor.',
     defaultName: 'Caña {{number}}',
   },
 

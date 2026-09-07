@@ -5,6 +5,7 @@ import {
   deviceShortId,
   deviceStatus,
   isRodActive,
+  canonicalDeviceId,
   normaliseDeviceId,
   type PairedDevice,
   rodActivity,
@@ -141,6 +142,40 @@ describe('normaliseDeviceId', () => {
     // iOS device ids are opaque UUIDs, not MACs — silently reformatting one
     // would produce an id that matches nothing.
     expect(normaliseDeviceId('A1B2C3D4-0000-1111-2222-333344445555')).toBe(
+      'A1B2C3D4-0000-1111-2222-333344445555',
+    );
+  });
+});
+
+describe('canonicalDeviceId', () => {
+  // The bug this exists to prevent: one tag listed under both "My tags" and
+  // "Nearby", then paired a second time when tapped in Nearby.
+  it('treats a full MAC and the frame\u2019s five-octet tail as one tag', () => {
+    const fromScanResult = canonicalDeviceId('A4:87:2D:9D:C0:0C');
+    const fromFrame = canonicalDeviceId('87:2D:9D:C0:0C');
+    expect(fromScanResult).toBe(fromFrame);
+  });
+
+  it('is idempotent, so re-keying stored tags cannot drift', () => {
+    const once = canonicalDeviceId('A4:87:2D:9D:C0:0C');
+    expect(canonicalDeviceId(once)).toBe(once);
+  });
+
+  it('accepts a tail however it was punctuated', () => {
+    expect(canonicalDeviceId('872d9dc00c')).toBe('87:2D:9D:C0:0C');
+    expect(canonicalDeviceId('87-2d-9d-c0-0c')).toBe('87:2D:9D:C0:0C');
+  });
+
+  it('distinguishes two tags that differ inside the tail', () => {
+    expect(canonicalDeviceId('A4:87:2D:9D:C0:0C')).not.toBe(
+      canonicalDeviceId('A4:87:2D:9D:C0:0D'),
+    );
+  });
+
+  it('leaves an iOS UUID intact rather than truncating it', () => {
+    // There is no MAC in a peripheral UUID to reconcile, and slicing octets off
+    // one would produce an id that matches nothing.
+    expect(canonicalDeviceId('A1B2C3D4-0000-1111-2222-333344445555')).toBe(
       'A1B2C3D4-0000-1111-2222-333344445555',
     );
   });

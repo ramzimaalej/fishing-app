@@ -14,7 +14,7 @@ import { subscribeToScan } from '@/features/ble/scanBroker';
 import { getSensorDevice } from '@/features/ble/deviceRegistry';
 import type { BroadcastAdvertisement } from '@/features/ble/BroadcastSensorClient';
 
-import { normaliseDeviceId, type PairedDevice } from './device';
+import { canonicalDeviceId, type PairedDevice } from './device';
 import { codeMatchesDevice, isPlausibleCode, normaliseCode } from './deviceCode';
 
 /** UI publish cadence — never once per advertisement. */
@@ -83,18 +83,23 @@ export const useDeviceStore = create<DeviceState>()(
 
       pair: (device) =>
         set((s) => {
+          // Canonicalised on the way in as well as on the way out of the radio:
+          // this is also called from the pairing screen, and a caller that
+          // passed a full MAC would recreate the duplicate-tag bug from the
+          // other side of the store.
+          const id = canonicalDeviceId(device.id);
           // Remove from `discovered` as it moves to `paired`. Leaving it in both
           // made resolvePending see two matches for one physical tag, declare it
           // ambiguous, and skip the request on every tick forever — while the UI
           // claimed "2 tags in range share this code" about a single tag.
           const discovered = { ...s.discovered };
-          delete discovered[device.id];
+          delete discovered[id];
           return {
           discovered,
           paired: {
             ...s.paired,
-            [device.id]: s.paired[device.id] ?? {
-              id: device.id,
+            [id]: s.paired[id] ?? {
+              id,
               connectionId: device.connectionId,
               name: device.name,
               label: null,
@@ -126,7 +131,7 @@ export const useDeviceStore = create<DeviceState>()(
         set((s) => ({ pending: s.pending.filter((p) => p.code !== normaliseCode(code)) })),
 
       pairById: (rawId, name) => {
-        const id = normaliseDeviceId(rawId);
+        const id = canonicalDeviceId(rawId);
         const existing = get().paired[id];
         if (existing) return existing;
 
@@ -148,7 +153,13 @@ export const useDeviceStore = create<DeviceState>()(
           batteryUnsupported: false,
           poweredOffAt: null,
         };
-        set((s) => ({ paired: { ...s.paired, [id]: device } }));
+        // Same reason as `pair`: a tag that is now owned must leave Nearby, or
+        // it is offered for pairing while already paired.
+        set((s) => {
+          const discovered = { ...s.discovered };
+          delete discovered[id];
+          return { paired: { ...s.paired, [id]: device }, discovered };
+        });
         return device;
       },
 
@@ -197,6 +208,27 @@ export const useDeviceStore = create<DeviceState>()(
     {
       name: 'castmate:devices',
       storage: createJSONStorage(() => AsyncStorage),
+      // Bumped when tag identity became the five-octet MAC tail.
+      version: 1,
+      /**
+       * Re-key tags stored under a full six-octet MAC. Without this an already
+       * paired tag no longer matches what the scanner reports, so it silently
+       * reappears in Nearby as a stranger and every rod bound to it reads as
+       * unpaired.
+       */
+      migrate: (persisted, version) => {
+        const state = (persisted ?? {}) as {
+          paired?: Record<string, PairedDevice>;
+          pending?: PendingPair[];
+        };
+        if (version >= 1) return state;
+        const paired: Record<string, PairedDevice> = {};
+        for (const device of Object.values(state.paired ?? {})) {
+          const id = canonicalDeviceId(device.id);
+          paired[id] = { ...device, id };
+        }
+        return { ...state, paired };
+      },
       // Liveness is deliberately excluded — see the module note.
       partialize: (s) => ({
         // Pending requests persist: typing a code at the car and walking to the
@@ -250,7 +282,7 @@ export function startDeviceWatch(): void {
     const isOurs = reading !== null || name.toUpperCase().startsWith('CP27');
     if (!isOurs) return;
 
-    const id = normaliseDeviceId(reading?.deviceKey ?? adv.id);
+    const id = canonicalDeviceId(reading?.deviceKey ?? adv.id);
     const now = Date.now();
     const rssi = adv.rssi ?? -127;
     const battery = reading?.batteryPct ?? null;
@@ -301,6 +333,12 @@ function publish(): void {
       };
     }
     const nextDiscovered = { ...s.discovered, ...discovered };
+    // The buffer is filled between publishes, so an advertisement banked before
+    // the user paired the tag would put it straight back into Nearby a second
+    // later — showing one tag in both lists. Ownership wins.
+    for (const id of Object.keys(nextDiscovered)) {
+      if (nextPaired[id]) delete nextDiscovered[id];
+    }
     return { paired: nextPaired, discovered: nextDiscovered };
   });
 
@@ -377,5 +415,5 @@ export function stopDeviceWatch(): void {
 /** The device bound to a rod, or null. */
 export function deviceFor(deviceId: string | null): PairedDevice | null {
   if (!deviceId) return null;
-  return useDeviceStore.getState().paired[normaliseDeviceId(deviceId)] ?? null;
+  return useDeviceStore.getState().paired[canonicalDeviceId(deviceId)] ?? null;
 }
