@@ -230,6 +230,35 @@ export class FeatureExtractor {
   }
 
   /**
+   * Take the recent mean attitude as rest, without asking whether it is still.
+   *
+   * The unconditional counterpart to trackResettle, and it exists for the one
+   * case that has no better answer: an alert that has stood for ALERT_MAX_MS
+   * without the rod returning to rest. Ordinarily a load that will not settle is
+   * exactly what must NOT be adopted — that is a fish. After three minutes it is
+   * a baseline that no longer describes rest, because a fish that has held one
+   * attitude that long has already been reported and nobody came.
+   *
+   * Uses the sliding window rather than the settle window: the settle window is
+   * cleared by every impact and by every dip back toward baseline, so in the
+   * conditions that cause this — swell, a knocked rod — it is empty precisely
+   * when it is needed.
+   */
+  forceRebaseline(): boolean {
+    const mean = meanVector(this.window.map((e) => e.v));
+    const unit = mean ? normalise(mean) : null;
+    if (!unit) return false;
+
+    this.baseline = unit;
+    this.settleWindow = [];
+    this.settleStartMs = null;
+    this.crossings = [];
+    this.activeRise = null;
+    this.prev = null;
+    return true;
+  }
+
+  /**
    * Adopt a held attitude as the new rest position once it has proved it is not
    * a fish.
    *

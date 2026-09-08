@@ -18,6 +18,7 @@
 
 import type { FeatureFrame } from './featureExtractor';
 import {
+  ALERT_MAX_MS,
   type DetectionParams,
   DWELL_DEADBAND_DEG,
   RESET_HOLD_MS,
@@ -65,6 +66,16 @@ export class DetectionEngine {
   /** Sample-counted timings for the observed rate. See adaptiveTiming. */
   private timings: RateDerivedTimings = timingsFor(BOOTSTRAP_INTERVAL_MS, TIMING_WINDOWS);
 
+  /** When the standing alert began, for the bound on how long it may stand. */
+  private alertStartedMs: number | null = null;
+
+  /**
+   * Set when an alert was ended by the time bound rather than by the rod going
+   * quiet, and consumed by RodDetector — which owns the extractor and is the
+   * only thing that can act on it.
+   */
+  private staleAlertExit = false;
+
   /** Start of the current above-threshold run, for Path A. */
   private dwellStartMs: number | null = null;
   private lastAboveMs: number | null = null;
@@ -92,6 +103,18 @@ export class DetectionEngine {
    * different rules says nothing about the new ones, and if the load still
    * qualifies it re-alarms within one dwell.
    */
+  /**
+   * True once, when the last alert was ended by the time bound rather than by
+   * the rod going quiet. The caller must re-baseline: theta is still above
+   * threshold against a baseline that no longer describes rest, so simply
+   * watching again would re-alert within seconds.
+   */
+  consumeStaleAlertExit(): boolean {
+    const value = this.staleAlertExit;
+    this.staleAlertExit = false;
+    return value;
+  }
+
   setTimings(timings: RateDerivedTimings): void {
     this.timings = timings;
   }
@@ -115,6 +138,7 @@ export class DetectionEngine {
   /** Move to ARMED once a baseline has been established. */
   arm(atMs: number): void {
     this.state = 'ARMED';
+    this.alertStartedMs = null;
     this.dwellStartMs = null;
     this.lastAboveMs = null;
     this.belowSinceMs = null;
@@ -195,18 +219,37 @@ export class DetectionEngine {
       const alert = this.checkPathA(frame) ?? this.checkPathB(frame);
       if (alert) {
         this.state = 'ALERT_HOOKED';
+        this.alertStartedMs = nowMs;
         this.belowSinceMs = null;
         events.push(alert);
       }
       return events;
     }
 
-    // ALERT_HOOKED — look for the hysteretic return to watching.
-    const reset = this.checkReset(frame);
+    // ALERT_HOOKED — look for the hysteretic return to watching, or give up
+    // waiting for one. See ALERT_MAX_MS: the hysteretic exit vanishes entirely
+    // when the baseline goes stale in conditions the re-baseline cannot read,
+    // and a rod with no exit is a rod that never alerts again.
+    const stale =
+      this.alertStartedMs !== null && nowMs - this.alertStartedMs >= ALERT_MAX_MS;
+
+    const reset = stale
+      ? ({
+          type: 'RESET_TO_ARMED',
+          atMs: nowMs,
+          reason:
+            `Alert stood for ${Math.round((nowMs - this.alertStartedMs!) / 1000)} s without ` +
+            `the rod returning to rest. Taking this attitude as the new rest and watching again.`,
+        } as DetectionEvent)
+      : this.checkReset(frame);
+
     if (reset) {
       this.state = 'ARMED';
+      this.alertStartedMs = null;
       this.dwellStartMs = null;
       this.lastAboveMs = null;
+      this.belowSinceMs = null;
+      this.staleAlertExit = stale;
       events.push(reset);
     }
     return events;
