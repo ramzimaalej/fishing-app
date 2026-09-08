@@ -30,6 +30,7 @@ import {
 import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
 import { useAnyArmed, useArmableRods } from '@/features/rods/useRodRuntime';
 import { colors, radius, spacing, typography } from '@/theme';
+import { keepAliveStats } from '@/features/rods/rodRuntime';
 import { useNow } from '@/utils/useNow';
 
 import { useAdminStore } from './adminStore';
@@ -253,6 +254,17 @@ export default function AdminScreen() {
   // time, and keeping a second copy in state only creates something that can
   // disagree with them.
   const now = useNow(1000, capture.recording && capture.startedAt !== null);
+
+  // Snapshotted on an interval rather than memoised against a clock. The
+  // counters live in mutable runtime state that changes with no user action, so
+  // there is nothing for a dependency list to key on — and a useMemo whose
+  // callback ignores its own dependency is precisely what a compiler is free to
+  // hoist, which would freeze this readout at its first value.
+  const [wakeStats, setWakeStats] = useState(keepAliveStats);
+  useEffect(() => {
+    const timer = setInterval(() => setWakeStats(keepAliveStats()), 2_000);
+    return () => clearInterval(timer);
+  }, []);
   const elapsed = capture.startedAt === null ? 0 : Math.max(0, now - capture.startedAt);
 
   const onStart = async () => {
@@ -341,6 +353,28 @@ export default function AdminScreen() {
         <Pressable style={styles.primaryBtn} onPress={() => navigation.navigate('Sniffer')}>
           <Text style={styles.primaryBtnText}>Open BLE sniffer</Text>
         </Pressable>
+      </View>
+
+      {/* Tag wake ---------------------------------------------------------- */}
+      <Text style={styles.sectionTitle}>Tag wake</Text>
+      <View style={styles.card}>
+        <Text style={styles.hint}>
+          A sleeping CP27 stops advertising, so the app reconnects to it periodically to try
+          to bring it back. Whether that actually works is UNPROVEN — nothing captured says a
+          connection makes it resume broadcasting — so every attempt is counted here. Wakes
+          staying at zero across several attempts is the answer that the mechanism does not
+          work, not a display fault.
+        </Text>
+        {wakeStats.length === 0 ? (
+          <Text style={styles.hint}>No rod is armed, so nothing is being woken.</Text>
+        ) : (
+          wakeStats.map((row) => (
+            <Text key={row.rodId} style={styles.mono}>
+              {row.rodName}: {row.stats.wakes}/{row.stats.attempts} woken · retry every{' '}
+              {Math.round(row.stats.intervalMs / 1000)} s
+            </Text>
+          ))
+        )}
       </View>
 
       {/* Device commands --------------------------------------------------- */}
@@ -583,6 +617,12 @@ const styles = StyleSheet.create({
   presetTextOn: { color: colors.bg },
 
   hint: { ...typography.caption, color: colors.textMuted },
+  mono: {
+    ...typography.caption,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+    marginTop: 4,
+  },
   warn: { ...typography.caption, color: colors.accent, fontWeight: '600' },
   error: { ...typography.caption, color: colors.danger },
 
