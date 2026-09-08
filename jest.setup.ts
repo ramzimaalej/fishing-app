@@ -11,6 +11,12 @@ jest.mock('react-native-ble-plx', () => ({
     destroy: jest.fn(),
   })),
   State: { PoweredOn: 'PoweredOn', PoweredOff: 'PoweredOff' },
+  // Real values from the library's TypeDefinition. Mirrored rather than omitted:
+  // scanBroker reads ScanMode at runtime, and a mock without it made the enum
+  // undefined, which threw inside startDeviceScan before the scan's rejection
+  // handler was attached — surfacing as an unhandled rejection with a message
+  // from a completely unrelated test.
+  ScanMode: { Opportunistic: -1, LowPower: 0, Balanced: 1, LowLatency: 2 },
 }));
 
 jest.mock('@react-native-firebase/app', () => ({}), { virtual: true });
