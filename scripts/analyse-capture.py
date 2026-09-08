@@ -17,6 +17,12 @@ USAGE
         adb shell run-as co.castmate ls files/castmate-captures/
         adb shell run-as co.castmate cat files/castmate-captures/<name>.ndjson > cap.ndjson
 
+    RETRIEVING IT. `run-as` works only on a DEBUG build — a release build reports
+    "package not debuggable" and the sandbox is unreachable over adb. From a
+    release build, which is what a session on the water is recorded on, use
+    Admin -> the recording -> Export: that writes through the Storage Access
+    Framework into a real folder (Downloads, Drive) you can copy off normally.
+
 WHAT IT REPORTS
     Frame mix (motion vs identity), the motion-frame RATE, and the decoded
     accelerations. The rate is the number that matters: arming needs

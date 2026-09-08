@@ -567,6 +567,13 @@ adb shell run-as co.castmate cat files/castmate-captures/<name>.ndjson > cap.ndj
 python3 scripts/analyse-capture.py cap.ndjson --tag C00C   # --frames for every reading
 ```
 
+**`run-as` needs a DEBUG build.** A release build answers `run-as: package not
+debuggable`, and its sandbox cannot be read over adb at all — which matters
+because a session on the water is recorded on a release build. From one, use
+**Admin → the recording → Export**: it writes through the Storage Access
+Framework into a real folder (Downloads, Drive, wherever you point it), and you
+copy it off from there. `scripts/analyse-session.py` reads that folder directly.
+
 **4. Read the verdict.** The script reports the frame mix, the motion-frame
 RATE, the worst gap, and whether each clears the detector's thresholds:
 
