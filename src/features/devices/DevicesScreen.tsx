@@ -116,6 +116,37 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
     if (!result.ok) Alert.alert('Could not read the battery', result.detail);
   };
 
+  /**
+   * Reach a tag that has gone to sleep and stopped advertising.
+   *
+   * A sleeping CP27 emits nothing, so scanning has nothing to find and there is
+   * no amount of scan duty cycle that fixes it — the radio is not the problem,
+   * the tag's silence is. A standing connection request is the one mechanism
+   * that still works: the controller holds it and completes it the moment the
+   * tag emits a single connectable advertisement.
+   *
+   * Only possible for a PAIRED tag, because it needs the address to wait on. An
+   * unpaired tag that has gone quiet has to be woken by hand — there is nothing
+   * to address a request to.
+   */
+  const onWake = async () => {
+    if (!device.connectionId) return;
+    setBusy('Waiting for the tag…');
+    const result = await readBattery(device.connectionId, {
+      password: currentOpcodes().password ?? undefined,
+      autoConnect: true,
+    });
+    if (result.ok) setBattery(device.id, result.percent);
+    setBusy(null);
+    Alert.alert(
+      result.ok ? 'Tag reached' : 'Could not reach the tag',
+      result.ok
+        ? `${result.detail} If it had stopped advertising, it should now be visible again.`
+        : `${result.detail} A tag that never answers is switched off, out of range, ` +
+          'or too deeply asleep to advertise at all — move it and try again.',
+    );
+  };
+
   const onPowerOff = () => {
     const opcodes = currentOpcodes();
     Alert.alert(
@@ -282,6 +313,9 @@ function PairedCard({ device, now }: { device: PairedDevice; now: number }) {
         </Pressable>
         <Pressable style={styles.smallBtn} onPress={onPowerOff} disabled={!!busy}>
           <Text style={styles.smallBtnText}>Power off</Text>
+        </Pressable>
+        <Pressable style={styles.smallBtn} onPress={() => void onWake()}>
+          <Text style={styles.smallBtnText}>Wake</Text>
         </Pressable>
         <Pressable style={[styles.smallBtn, styles.dangerBtn]} onPress={onUnpair}>
           <Text style={[styles.smallBtnText, { color: colors.danger }]}>Unpair</Text>

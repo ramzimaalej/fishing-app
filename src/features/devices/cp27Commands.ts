@@ -64,7 +64,32 @@ export interface CommandOptions {
   password?: string;
   /** Milliseconds to wait for a 0xFFE1 notification after writing. */
   responseTimeoutMs?: number;
+  /**
+   * Hand the request to the Bluetooth controller and let it wait, instead of
+   * dialling once and giving up (Android only).
+   *
+   * A direct connection opens a short initiating window; if the tag says nothing
+   * during it, the attempt fails. A sleeping CP27 advertises rarely or not at
+   * all, so a direct attempt is a coin toss against a tag that has gone quiet.
+   *
+   * With this set, the controller holds a standing request and completes it the
+   * instant the tag emits one connectable advertisement — hours later if need
+   * be. It does not depend on the app's scan duty cycle and is not subject to
+   * Android's scan throttling, which is why it reaches tags that scanning
+   * cannot.
+   *
+   * NOT the default. A standing request grabs the tag into a connection the
+   * moment it advertises, and a connected peripheral stops advertising — so
+   * leaving one open would starve the very sample stream the app runs on. Use it
+   * only when nothing is being heard anyway.
+   */
+  autoConnect?: boolean;
+  /** How long to hold an autoConnect request before cancelling it. */
+  deadlineMs?: number;
 }
+
+/** Longest an autoConnect request is held before being cancelled. */
+export const AUTO_CONNECT_DEADLINE_MS = 120_000;
 
 /**
  * Connect, unlock, run `fn`, disconnect — always disconnect.
@@ -73,10 +98,44 @@ export interface CommandOptions {
  * advertising, and on a CR2032 that is measured in days of life. The finally
  * block is not tidiness.
  */
+/**
+ * Wait for the tag to show itself, rather than dialling once.
+ *
+ * react-native-ble-plx ignores `timeout` when autoConnect is set — by design,
+ * since the whole point is to wait indefinitely — so the deadline is enforced
+ * here and the pending request is cancelled explicitly. Without that a request
+ * for a tag that never wakes would stay open for the life of the process,
+ * holding a controller slot and silently swallowing every later attempt.
+ */
+async function connectWhenAvailable(
+  manager: ReturnType<typeof getBleManager>,
+  connectionId: string,
+  deadlineMs = AUTO_CONNECT_DEADLINE_MS,
+): Promise<Device> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      void manager.cancelDeviceConnection(connectionId).catch(() => undefined);
+      reject(new Error(`The tag did not show itself within ${Math.round(deadlineMs / 1000)} s.`));
+    }, deadlineMs);
+  });
+
+  try {
+    return await Promise.race([
+      manager.connectToDevice(connectionId, { autoConnect: true }),
+      expiry,
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function withConnection<T>(
   connectionId: string,
   password: string,
   fn: (device: Device) => Promise<T>,
+  options: Pick<CommandOptions, 'autoConnect' | 'deadlineMs'> = {},
 ): Promise<T> {
   const granted = await ensureBlePermissions();
   if (!granted) throw new Error('Bluetooth permission denied.');
@@ -85,7 +144,9 @@ async function withConnection<T>(
   const manager = getBleManager();
   let device: Device | null = null;
   try {
-    device = await manager.connectToDevice(connectionId, { timeout: CONNECT_TIMEOUT_MS });
+    device = options.autoConnect
+      ? await connectWhenAvailable(manager, connectionId, options.deadlineMs)
+      : await manager.connectToDevice(connectionId, { timeout: CONNECT_TIMEOUT_MS });
     await device.discoverAllServicesAndCharacteristics();
 
     // The password write is the confirmed unlock step. Failure is not fatal on
@@ -154,7 +215,10 @@ export async function readBattery(
 ): Promise<BatteryResult> {
   const password = options.password ?? CP27_DEFAULT_PASSWORD;
   try {
-    const percent = await withConnection(connectionId, password, readBatteryOnDevice);
+    const percent = await withConnection(connectionId, password, readBatteryOnDevice, {
+      autoConnect: options.autoConnect,
+      deadlineMs: options.deadlineMs,
+    });
     return {
       ok: true,
       percent,

@@ -683,7 +683,12 @@ function maybeWakeTag(rt: Runtime, nowMs: number): void {
   rt.keepAlive.begin(nowMs);
   const password = useCp27OpcodeStore.getState().opcodes.password ?? undefined;
 
-  void readBattery(connectionId, { password })
+  // autoConnect, not a direct dial. The tag has stopped advertising, so there is
+  // nothing for a scan to find and nothing for a one-shot connection attempt to
+  // answer. A standing request sits in the controller and completes the instant
+  // the tag emits a single connectable advertisement — which is the only moment
+  // a sleeping tag can be reached at all.
+  void readBattery(connectionId, { password, autoConnect: true })
     .then((result) => rt.keepAlive.end(result.ok))
     .catch(() => rt.keepAlive.end(false));
 }
