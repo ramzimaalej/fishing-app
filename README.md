@@ -584,6 +584,40 @@ RATE, the worst gap, and whether each clears the detector's thresholds:
 | `signal-lost would fire` | Gaps exceed `SIGNAL_LOST_MS`, so arming is torn down before it finishes. |
 | `paths: A only` | Too slow to measure a leading edge. Sustained-load alerts only. |
 
+### The tag's rate is not a constant
+
+**Do not tune this to a fixed interval.** That was tried and it was wrong twice
+over.
+
+The first captures were taken while the app scanned in `SCAN_MODE_LOW_POWER`,
+which discards roughly nine advertisements in ten. The tag was recorded at
+**0.28 Hz** and the whole detector was tuned for it. Measured again through a
+full-duty scan, the same tag advertises at **7.3 Hz** — twenty-six times faster.
+A scanner bug had been written down as a property of the hardware.
+
+The second measurement is why no fixed number replaced it. Two tags in one room,
+30 s apart: **7.3 Hz** for the one being handled, **0.43 Hz** for the one left
+alone. The CP27 advertises fast when it moves and slowly when it does not, so the
+rate is a property of what the rod is doing, and it changes during a session —
+arming happens at rest where the tag is slow, a bite happens while it moves where
+the tag is fast.
+
+`features/detection/adaptiveTiming.ts` therefore derives every sample-counted
+timing from the live observed interval: signal-lost, dwell gap tolerance, the
+slope-trust window, and each arming sample count. The estimate is a **median**,
+not a mean — dropped advertisements are gaps several times the true interval, and
+a mean is dragged upward by exactly those outliers, which is the error that
+started all of this.
+
+Only sample-counted quantities are derived. How long a fish holds a rod, how far
+it bends it, how fast a wave loads it are facts about fish and water, identical
+at 0.4 Hz and 7 Hz; they stay in `detectionParams` as constants. Scaling `dwellMs`
+by the advertising rate is what once produced a 6.5 s dwell no real bite would
+satisfy.
+
+**Path B works at the active rate.** It was documented here as permanently
+unreachable on this hardware; that was true only of the mismeasured rate.
+
 ### Tuning the detector to a tag's rate
 
 The rate is the number that matters, and the thresholds are derived from it
