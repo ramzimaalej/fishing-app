@@ -7,6 +7,7 @@
  */
 
 import type { AccSample } from '../accSample';
+import { timingsFor } from '../adaptiveTiming';
 import { DetectionEngine } from '../detectionEngine';
 import {
   ARMING_DURATION_MS,
@@ -16,7 +17,8 @@ import {
   REBASELINE_STILL_MS,
   EXPECTED_SAMPLE_INTERVAL_MS,
   MAX_DT_FOR_RATE_MS,
-  SIGNAL_LOST_MS,
+  BOOTSTRAP_INTERVAL_MS,
+  TIMING_WINDOWS,
 } from '../detectionParams';
 import { RodDetector } from '../rodDetector';
 import { alerted, runSession } from '../testkit/runSession';
@@ -320,8 +322,17 @@ describe('events that must not alert', () => {
   });
 });
 
+/**
+ * The silence bar in force before any sample has arrived.
+ *
+ * Read from the timings rather than a constant: signal-lost is now derived from
+ * the rate the tag is actually advertising at, so there is no single number to
+ * assert against — only whatever the estimate currently says.
+ */
+const BOOTSTRAP_SIGNAL_LOST_MS = timingsFor(BOOTSTRAP_INTERVAL_MS, TIMING_WINDOWS).signalLostMs;
+
 describe('signal loss', () => {
-  // Relative to SIGNAL_LOST_MS rather than to a literal, because that constant
+  // Relative to BOOTSTRAP_SIGNAL_LOST_MS rather than to a literal, because that constant
   // is derived from the tag's measured advertising interval and moves whenever a
   // tag is re-measured. Pinning the wall-clock numbers here would turn a
   // deliberate re-tune into a test failure that says nothing about behaviour.
@@ -329,9 +340,9 @@ describe('signal loss', () => {
     const engine = new DetectionEngine(DEFAULT_DETECTION_PARAMS);
     engine.arm(100_000);
 
-    expect(engine.tick(100_000 + SIGNAL_LOST_MS - 1_000)).toHaveLength(0);
+    expect(engine.tick(100_000 + BOOTSTRAP_SIGNAL_LOST_MS - 1_000)).toHaveLength(0);
 
-    const events = engine.tick(100_000 + SIGNAL_LOST_MS + 1_000);
+    const events = engine.tick(100_000 + BOOTSTRAP_SIGNAL_LOST_MS + 1_000);
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('SIGNAL_LOST');
     expect(engine.isSignalLost()).toBe(true);
@@ -341,9 +352,9 @@ describe('signal loss', () => {
     const engine = new DetectionEngine(DEFAULT_DETECTION_PARAMS);
     engine.arm(100_000);
 
-    expect(engine.tick(100_000 + SIGNAL_LOST_MS + 1_000)).toHaveLength(1);
-    expect(engine.tick(100_000 + SIGNAL_LOST_MS + 3_000)).toHaveLength(0);
-    expect(engine.tick(100_000 + SIGNAL_LOST_MS + 5_000)).toHaveLength(0);
+    expect(engine.tick(100_000 + BOOTSTRAP_SIGNAL_LOST_MS + 1_000)).toHaveLength(1);
+    expect(engine.tick(100_000 + BOOTSTRAP_SIGNAL_LOST_MS + 3_000)).toHaveLength(0);
+    expect(engine.tick(100_000 + BOOTSTRAP_SIGNAL_LOST_MS + 5_000)).toHaveLength(0);
   });
 
   it('does not fire while idle — an unarmed rod is not being watched', () => {
@@ -435,9 +446,14 @@ describe('arming', () => {
     for (const s of partial) detector.process(s);
     expect(detector.getPhase()).toBe('ARMING');
 
+    // Against the detector's OWN bar, not the bootstrap one. It has just been fed
+    // ten seconds of samples, so it has measured this stream and narrowed the
+    // silence window to match it — which is the whole point of adapting, and
+    // asserting the prior here would be asserting that it had not.
     const last = partial[partial.length - 1]!.tMonotonicMs;
-    expect(detector.tick(last + SIGNAL_LOST_MS - 1_000)).toHaveLength(0);
-    const events = detector.tick(last + SIGNAL_LOST_MS + 1_000);
+    const bar = detector.getTimings().signalLostMs;
+    expect(detector.tick(last + bar - 1_000)).toHaveLength(0);
+    const events = detector.tick(last + bar + 1_000);
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('SIGNAL_LOST');
   });
@@ -690,9 +706,9 @@ describe('a tag that is never heard at all', () => {
     const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
 
     expect(detector.tick(100_000)).toHaveLength(0);
-    expect(detector.tick(100_000 + SIGNAL_LOST_MS - 1_000)).toHaveLength(0);
+    expect(detector.tick(100_000 + BOOTSTRAP_SIGNAL_LOST_MS - 1_000)).toHaveLength(0);
 
-    const events = detector.tick(100_000 + SIGNAL_LOST_MS + 1_000);
+    const events = detector.tick(100_000 + BOOTSTRAP_SIGNAL_LOST_MS + 1_000);
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('SIGNAL_LOST');
     // Named distinctly, because the fix differs: a tag that went quiet has moved
@@ -706,7 +722,7 @@ describe('a tag that is never heard at all', () => {
     // not be a terminal state.
     const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
     expect(detector.tick(100_000)).toHaveLength(0);
-    expect(detector.tick(100_000 + SIGNAL_LOST_MS + 1_000)).toHaveLength(1);
+    expect(detector.tick(100_000 + BOOTSTRAP_SIGNAL_LOST_MS + 1_000)).toHaveLength(1);
 
     const stream = generateStream({
       nominalIntervalMs: EXPECTED_SAMPLE_INTERVAL_MS,
@@ -719,6 +735,112 @@ describe('a tag that is never heard at all', () => {
     for (const sample of stream) detector.process(sample);
 
     expect(detector.getPhase()).toBe('WATCHING');
+  });
+});
+
+/**
+ * Both rates the tag was actually measured at, on one phone, 30 s apart.
+ *
+ * 7.3 Hz while being handled and 0.43 Hz while left alone — the CP27 advertises
+ * fast when it moves and slowly when it does not. A detector tuned to either one
+ * is wrong for the other, and arming happens at the slow rate while a bite
+ * happens at the fast one, so it has to work at both within a single session.
+ */
+describe('at both rates the tag really runs at', () => {
+  const ACTIVE_MS = 137;
+  const IDLE_MS = 2_300;
+
+  const armedAt = (intervalMs: number) => {
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    const stream = generateStream({
+      nominalIntervalMs: intervalMs,
+      jitterMs: intervalMs * 0.1,
+      durationMs: 70_000,
+      angleAt: constantAngle(0),
+      dropRate: 0.05,
+      seed: 3,
+    });
+    for (const sample of stream) detector.process(sample);
+    expect(detector.getPhase()).toBe('WATCHING');
+    return { detector, from: stream[stream.length - 1]!.tMonotonicMs + 200 };
+  };
+
+  const pathsFor = (detector: RodDetector, stream: ReturnType<typeof generateStream>) => {
+    const paths = new Set<string>();
+    for (const sample of stream) {
+      for (const event of detector.process(sample).events) {
+        if (event.type === 'ALERT_HOOKED' && event.path) paths.add(event.path);
+      }
+    }
+    return paths;
+  };
+
+  it.each([
+    ['active', ACTIVE_MS],
+    ['idle', IDLE_MS],
+  ])('alerts on a sustained load at the %s rate', (_label, intervalMs) => {
+    const { detector, from } = armedAt(intervalMs);
+    const held = generateStream({
+      nominalIntervalMs: intervalMs,
+      jitterMs: intervalMs * 0.1,
+      durationMs: 20_000,
+      startMs: from,
+      seed: 4,
+      angleAt: constantAngle(14),
+    });
+
+    expect(pathsFor(detector, held).has('A')).toBe(true);
+  });
+
+  it('reaches Path B once the tag is fast enough to show a leading edge', () => {
+    // This was documented as permanently impossible on this hardware. It was
+    // only ever impossible at a rate measured through a scanner discarding nine
+    // advertisements in ten — the tag can resolve a fish's onset perfectly well.
+    const { detector, from } = armedAt(ACTIVE_MS);
+    const strikes = generateStream({
+      nominalIntervalMs: ACTIVE_MS,
+      jitterMs: ACTIVE_MS * 0.1,
+      durationMs: 30_000,
+      startMs: from,
+      seed: 5,
+      angleAt: pulses(
+        [1_000, 3_000, 5_000, 7_000].map((atMs) => ({
+          atMs,
+          riseMs: 150,
+          holdMs: 200,
+          fallMs: 300,
+          peakDeg: 17,
+        })),
+        5,
+      ),
+    });
+
+    expect(pathsFor(detector, strikes).has('B')).toBe(true);
+    expect(detector.getTimings().pathBAvailable).toBe(true);
+  });
+
+  it('still refuses Path B at the idle rate, where no onset was sampled', () => {
+    const { detector, from } = armedAt(IDLE_MS);
+    const strikes = generateStream({
+      nominalIntervalMs: IDLE_MS,
+      jitterMs: IDLE_MS * 0.1,
+      durationMs: 60_000,
+      startMs: from,
+      seed: 6,
+      angleAt: pulses(
+        [2_000, 8_000, 14_000, 20_000].map((atMs) => ({
+          atMs,
+          riseMs: 150,
+          holdMs: 200,
+          fallMs: 300,
+          peakDeg: 17,
+        })),
+        5,
+      ),
+    });
+
+    expect(pathsFor(detector, strikes).has('B')).toBe(false);
+    expect(detector.getTimings().pathBAvailable).toBe(false);
   });
 });
 

@@ -20,11 +20,12 @@ import type { FeatureFrame } from './featureExtractor';
 import {
   type DetectionParams,
   DWELL_DEADBAND_DEG,
-  DWELL_GAP_TOLERANCE_MS,
   RESET_HOLD_MS,
   RESET_THETA_FACTOR,
-  SIGNAL_LOST_MS,
+  BOOTSTRAP_INTERVAL_MS,
+  TIMING_WINDOWS,
 } from './detectionParams';
+import { type RateDerivedTimings, timingsFor } from './adaptiveTiming';
 
 export type DetectionState = 'IDLE' | 'ARMED' | 'ALERT_HOOKED';
 
@@ -61,6 +62,9 @@ export class DetectionEngine {
   private state: DetectionState = 'IDLE';
   private params: DetectionParams;
 
+  /** Sample-counted timings for the observed rate. See adaptiveTiming. */
+  private timings: RateDerivedTimings = timingsFor(BOOTSTRAP_INTERVAL_MS, TIMING_WINDOWS);
+
   /** Start of the current above-threshold run, for Path A. */
   private dwellStartMs: number | null = null;
   private lastAboveMs: number | null = null;
@@ -88,6 +92,10 @@ export class DetectionEngine {
    * different rules says nothing about the new ones, and if the load still
    * qualifies it re-alarms within one dwell.
    */
+  setTimings(timings: RateDerivedTimings): void {
+    this.timings = timings;
+  }
+
   setParams(params: DetectionParams): void {
     this.params = params;
     if (this.state === 'ALERT_HOOKED') this.state = 'ARMED';
@@ -133,7 +141,7 @@ export class DetectionEngine {
     if (this.state === 'IDLE') return [];
     if (this.lastSampleMs === null) return [];
     if (this.signalLost) return [];
-    if (nowMs - this.lastSampleMs < SIGNAL_LOST_MS) return [];
+    if (nowMs - this.lastSampleMs < this.timings.signalLostMs) return [];
 
     this.signalLost = true;
     return [
@@ -232,7 +240,7 @@ export class DetectionEngine {
     }
 
     const gap = this.lastAboveMs === null ? 0 : nowMs - this.lastAboveMs;
-    if (this.dwellStartMs === null || gap > DWELL_GAP_TOLERANCE_MS) {
+    if (this.dwellStartMs === null || gap > this.timings.dwellGapToleranceMs) {
       this.dwellStartMs = nowMs;
     }
     this.lastAboveMs = nowMs;

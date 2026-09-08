@@ -13,15 +13,15 @@
 
 import type { AccSample } from './accSample';
 import { magnitudeMg } from './accSample';
+import { type RateDerivedTimings, timingsFor } from './adaptiveTiming';
 import {
   BASELINE_FREEZE_FACTOR,
+  BOOTSTRAP_INTERVAL_MS,
   type DetectionParams,
   IMPACT_DEVIATION_MG,
-  MAX_DT_FOR_RATE_MS,
-  REBASELINE_MIN_SAMPLES,
   REBASELINE_SPREAD_DEG,
   REBASELINE_STILL_MS,
-  SIGNAL_LOST_MS,
+  TIMING_WINDOWS,
 } from './detectionParams';
 import {
   angleBetweenDeg,
@@ -129,6 +129,15 @@ export class FeatureExtractor {
   /** When the current undisturbed, deflected stretch began. */
   private settleStartMs: number | null = null;
 
+  /**
+   * Sample-counted timings for the rate currently observed.
+   *
+   * Injected rather than imported: the same extractor runs through a tag going
+   * from 0.4 Hz at rest to 7 Hz once the rod moves, and every one of these has
+   * to move with it. See adaptiveTiming.
+   */
+  private timings: RateDerivedTimings = timingsFor(BOOTSTRAP_INTERVAL_MS, TIMING_WINDOWS);
+
   constructor(baseline: Vec3, params: DetectionParams) {
     const unit = normalise(baseline);
     if (!unit) throw new Error('Baseline has no direction.');
@@ -138,6 +147,10 @@ export class FeatureExtractor {
 
   setParams(params: DetectionParams): void {
     this.params = params;
+  }
+
+  setTimings(timings: RateDerivedTimings): void {
+    this.timings = timings;
   }
 
   getBaseline(): Vec3 {
@@ -166,7 +179,7 @@ export class FeatureExtractor {
     // elapsed-time alpha and no cap, alpha approaches 1 as the gap grows, so a
     // single sample after a five-minute outage moved the baseline 7.98° in one
     // step — the longer the outage, the more authority one arbitrary packet had.
-    const afterOutage = dtMs !== null && dtMs > SIGNAL_LOST_MS;
+    const afterOutage = dtMs !== null && dtMs > this.timings.signalLostMs;
 
     if (!baselineFrozen && !afterOutage && dtMs !== null && dtMs > 0) {
       this.updateBaseline(v, dtMs);
@@ -257,14 +270,15 @@ export class FeatureExtractor {
     }
 
     if (sample.tMonotonicMs - this.settleStartMs < REBASELINE_STILL_MS) return false;
-    if (this.settleWindow.length < REBASELINE_MIN_SAMPLES) return false;
+    if (this.settleWindow.length < this.timings.rebaselineMinSamples) return false;
 
     // Spread, not coherence. See REBASELINE_SPREAD_DEG: the arming gate is built
     // to accept a rod rocking in swell and so accepts a working fish too.
     const dirs = this.settleWindow
       .map((s) => normalise(vecOf(s)))
       .filter((d): d is Vec3 => d !== null);
-    const settled = dirs.length >= REBASELINE_MIN_SAMPLES ? normalise(meanVector(dirs)!) : null;
+    const settled =
+      dirs.length >= this.timings.rebaselineMinSamples ? normalise(meanVector(dirs)!) : null;
     if (!settled) return false;
     if (dirs.some((d) => angleBetweenDeg(d, settled) > REBASELINE_SPREAD_DEG)) return false;
 
@@ -326,7 +340,7 @@ export class FeatureExtractor {
     // look like one large jump and manufacture a fish-like onset rate on the one
     // feature the whole discriminator rests on.
     let slope: number | null = null;
-    if (prev !== null && dtMs !== null && dtMs > 0 && dtMs <= MAX_DT_FOR_RATE_MS) {
+    if (prev !== null && dtMs !== null && dtMs > 0 && dtMs <= this.timings.maxDtForRateMs) {
       slope = ((thetaDeg - prev.thetaDeg) / dtMs) * 1000;
     }
 
@@ -342,7 +356,7 @@ export class FeatureExtractor {
     if (!rising) this.riseHadGap = false;
 
     // Record the gap against the rise BEFORE any later pair can overwrite it.
-    if (prev !== null && dtMs !== null && dtMs > MAX_DT_FOR_RATE_MS && rising) {
+    if (prev !== null && dtMs !== null && dtMs > this.timings.maxDtForRateMs && rising) {
       this.riseHadGap = true;
       if (this.activeRise) this.activeRise.onsetRateDegPerS = null;
     }

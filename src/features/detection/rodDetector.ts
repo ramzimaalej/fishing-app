@@ -11,14 +11,14 @@ import type { BiteEvent, BiteSize } from '@/types';
 
 import type { AccSample } from './accSample';
 import { DetectionEngine, type DetectionEvent } from './detectionEngine';
+import { RateEstimator, type RateDerivedTimings, timingsFor } from './adaptiveTiming';
 import {
+  BOOTSTRAP_INTERVAL_MS,
+  TIMING_WINDOWS,
   ARMING_DURATION_MS,
   ARMING_FAST_COHERENCE,
-  ARMING_FAST_MIN_SAMPLES,
-  ARMING_MIN_SAMPLES,
   ARMING_MIN_SPAN_MS,
   type DetectionParams,
-  SIGNAL_LOST_MS,
 } from './detectionParams';
 import {
   type ArmingResult,
@@ -84,6 +84,19 @@ export class RodDetector {
    */
   private watchStartedMs: number | null = null;
 
+  /**
+   * Live estimate of how often this tag is speaking, and the timings derived
+   * from it.
+   *
+   * The rate is not a fixed property of the tag: it advertises fast while the
+   * rod moves and slowly while it rests, and was measured seventeen-fold apart
+   * on two tags in one room. Every sample-counted tolerance therefore has to
+   * follow it rather than be set once. See adaptiveTiming.
+   */
+  private readonly rate = new RateEstimator();
+
+  private timings: RateDerivedTimings = timingsFor(BOOTSTRAP_INTERVAL_MS, TIMING_WINDOWS);
+
   constructor(params: DetectionParams) {
     this.params = params;
     this.engine = new DetectionEngine(params);
@@ -123,6 +136,8 @@ export class RodDetector {
     this.armingSamples = [];
     this.armingStartMs = null;
     this.watchStartedMs = null;
+    this.rate.reset();
+    this.timings = timingsFor(BOOTSTRAP_INTERVAL_MS, TIMING_WINDOWS);
     this.firstSampleMs = null;
     this.sampleCount = 0;
     this.armFailReason = null;
@@ -152,7 +167,7 @@ export class RodDetector {
     // without samples, so the rod sat calibrating indefinitely and said nothing
     // about why.
     const silentSince = this.lastSampleMs ?? this.watchStartedMs;
-    if (nowMonotonicMs - silentSince < SIGNAL_LOST_MS) return [];
+    if (nowMonotonicMs - silentSince < this.timings.signalLostMs) return [];
 
     this.armingSignalLost = true;
     const silentFor = ((nowMonotonicMs - silentSince) / 1000).toFixed(1);
@@ -202,6 +217,11 @@ export class RodDetector {
     return this.watchStartedMs;
   }
 
+  /** Timings currently in force, derived from the observed rate. */
+  getTimings(): RateDerivedTimings {
+    return this.timings;
+  }
+
   observedRateHz(): number | null {
     if (this.firstSampleMs === null || this.lastSampleMs === null) return null;
     if (this.sampleCount < 2) return null;
@@ -210,6 +230,17 @@ export class RodDetector {
   }
 
   process(sample: AccSample): RodDetectorTick {
+    // Update the rate estimate BEFORE anything reads a timing off it, so a
+    // sample is judged by the rate the stream is running at now rather than the
+    // rate it was running at when the previous one arrived.
+    if (this.lastSampleMs !== null) this.rate.push(sample.tMonotonicMs - this.lastSampleMs);
+    const estimate = this.rate.estimateMs();
+    if (estimate !== null) {
+      this.timings = timingsFor(estimate, TIMING_WINDOWS);
+      this.extractor?.setTimings(this.timings);
+      this.engine.setTimings(this.timings);
+    }
+
     this.lastSampleMs = sample.tMonotonicMs;
     this.firstSampleMs ??= sample.tMonotonicMs;
     this.sampleCount += 1;
@@ -244,10 +275,13 @@ export class RodDetector {
     // is what keeps this from arming on a rod that happens to be between
     // movements; anything less than convincing falls through to the deadline
     // below, where the full window and the normal gate apply.
-    if (elapsed >= ARMING_MIN_SPAN_MS && this.armingSamples.length >= ARMING_FAST_MIN_SAMPLES) {
+    if (
+      elapsed >= ARMING_MIN_SPAN_MS &&
+      this.armingSamples.length >= this.timings.armingFastMinSamples
+    ) {
       const fast = computeArming(
         this.armingSamples,
-        ARMING_FAST_MIN_SAMPLES,
+        this.timings.armingFastMinSamples,
         ARMING_FAST_COHERENCE,
       );
       if (fast.ok && fast.baseline) return this.startWatching(sample, fast);
@@ -265,7 +299,7 @@ export class RodDetector {
       };
     }
 
-    const result = computeArming(this.armingSamples, ARMING_MIN_SAMPLES);
+    const result = computeArming(this.armingSamples, this.timings.armingMinSamples);
 
     if (!result.ok || !result.baseline) {
       this.armingSamples = [];
@@ -284,6 +318,9 @@ export class RodDetector {
     this.armingSamples = [];
     this.swellPeriodMs = result.swellPeriodMs;
     this.extractor = new FeatureExtractor(result.baseline!, this.params);
+    // Arming has just spent a whole window measuring this tag; handing the new
+    // extractor the bootstrap prior instead would throw that away.
+    this.extractor.setTimings(this.timings);
     this.engine.arm(sample.tMonotonicMs);
     this.phase = 'WATCHING';
 

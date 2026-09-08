@@ -53,6 +53,25 @@ export interface DetectionParams {
 export const EXPECTED_SAMPLE_INTERVAL_MS = 3600;
 
 /**
+ * The interval assumed before a single sample has been seen.
+ *
+ * DELIBERATELY PESSIMISTIC, and the direction matters. Every timing derived
+ * from it is a tolerance, so assuming the tag is slow yields a long
+ * signal-lost window and a generous dwell gap — harmless on a fast tag, which
+ * corrects the estimate within three readings. Assuming it is fast would set a
+ * short signal-lost window and fire a spurious alarm on a slow tag before the
+ * estimate had any samples to work from.
+ */
+export const BOOTSTRAP_INTERVAL_MS = EXPECTED_SAMPLE_INTERVAL_MS;
+
+/** Windows the sample-counted timings are derived against. */
+export const TIMING_WINDOWS = {
+  armingDurationMs: 60_000,
+  armingMinSpanMs: 10_000,
+  rebaselineStillMs: 45_000,
+} as const;
+
+/**
  * WHAT THIS RATE COSTS — read before tuning anything below.
  *
  * At one reading every 3.6 s the detector can still see that a rod is BENT, and
@@ -74,9 +93,6 @@ export const EXPECTED_SAMPLE_INTERVAL_MS = 3600;
  * and cannot be trusted at this rate either.
  */
 
-/** Continuous load must survive this many sample gaps to count as a dwell. */
-const DWELL_SAMPLE_INTERVALS = 2;
-
 /** Consecutive missed advertisements tolerated before the stream is declared lost. */
 const SIGNAL_LOST_INTERVALS = 5;
 
@@ -89,11 +105,13 @@ const ARMING_YIELD = 0.65;
 
 export const DEFAULT_DETECTION_PARAMS: DetectionParams = {
   thetaDeg: 9.0,
-  // Two whole sample gaps, less a fifth of one for jitter, so a third
-  // above-threshold reading that arrives slightly early still completes the
-  // dwell. The old 2500 ms was shorter than a single interval at this rate,
-  // which made "sustained load" mean nothing more than two adjacent readings.
-  dwellMs: Math.round(EXPECTED_SAMPLE_INTERVAL_MS * (DWELL_SAMPLE_INTERVALS - 0.2)),
+  // A PHYSICAL duration: how long a fish has to keep a rod bent before the bend
+  // counts as a hooked fish rather than a wave. It does not scale with the
+  // advertising rate, and briefly did — derived from a sample interval that had
+  // itself been mismeasured, which produced a 6.5 s dwell no real bite would
+  // ever satisfy. Whether the stream can RESOLVE this duration is a separate
+  // question, and the one adaptiveTiming answers.
+  dwellMs: 2500,
   tauS: 45,
   windowMs: 8000,
   crossingsN: 3,
