@@ -567,7 +567,22 @@ export default function FishingScreen() {
               thumbColor={settings.liveBaitMode ? colors.primary : colors.textMuted}
             />
           </View>
-          <View style={styles.divider} />
+        </View>
+
+        {/* Its own card, NOT a row under the live-bait switch.
+            Sharing one made the slider read as a live-bait setting, to the point
+            of being reported as a bug that it stayed active with live bait off.
+            It is not one: sensitivity drives thetaDeg for every rod in every
+            mode and is the only control over how small a bite registers, while
+            live bait is a command sent to the tag. Disabling it with the switch
+            would have taken away bite-threshold control during ordinary
+            fishing. */}
+        <View style={styles.card}>
+          <View style={styles.sliderHeader}>
+            <Text style={styles.switchTitle}>{t('settings.sensitivity')}</Text>
+            <Text style={styles.sliderValue}>{Math.round(settings.sensitivity * 100)}%</Text>
+          </View>
+          <Text style={styles.switchSub}>{t('settings.sensitivityHelp')}</Text>
           <SensitivitySlider value={settings.sensitivity} onChange={setSensitivity} />
         </View>
       </ScrollView>
@@ -833,6 +848,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.sm,
   },
+  sliderHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sliderValue: { ...typography.body, color: colors.primary, fontVariant: ['tabular-nums'] },
   markDock: {
     position: 'absolute',
     left: spacing.md,

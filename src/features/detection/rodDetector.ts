@@ -187,6 +187,21 @@ export class RodDetector {
    * perfectly well but far too slowly to detect anything. Only the rate tells
    * them apart, and without it that diagnosis needed a packet sniffer.
    */
+  /** Monotonic ms of the last advertisement, or null if none has ever arrived. */
+  lastHeardMs(): number | null {
+    return this.lastSampleMs;
+  }
+
+  /**
+   * When this rod started being watched, from the tick clock.
+   *
+   * Exposed so silence can be measured on a tag that has never said anything —
+   * the case where every sample-derived clock is null.
+   */
+  watchingSinceMs(): number | null {
+    return this.watchStartedMs;
+  }
+
   observedRateHz(): number | null {
     if (this.firstSampleMs === null || this.lastSampleMs === null) return null;
     if (this.sampleCount < 2) return null;
