@@ -113,19 +113,34 @@ async function connectWhenAvailable(
   deadlineMs = AUTO_CONNECT_DEADLINE_MS,
 ): Promise<Device> {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let timedOut = false;
+
+  const connect = manager.connectToDevice(connectionId, { autoConnect: true });
+
+  // A connection that LANDS AFTER THE DEADLINE belongs to nobody, and leaving it
+  // open is far worse than never connecting at all: a connected peripheral stops
+  // advertising, so the tag would disappear from every scan for as long as the
+  // orphan lived. That is indistinguishable from a flat battery on screen — and
+  // it produces the one symptom that gives it away, a tag no scan can find which
+  // nonetheless answers instantly when tested, because it is already connected.
+  //
+  // Racing a promise does not cancel the loser. This is the handler that does.
+  void connect
+    .then((device) => {
+      if (timedOut) void manager.cancelDeviceConnection(device.id).catch(() => undefined);
+    })
+    .catch(() => undefined);
 
   const expiry = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
+      timedOut = true;
       void manager.cancelDeviceConnection(connectionId).catch(() => undefined);
       reject(new Error(`The tag did not show itself within ${Math.round(deadlineMs / 1000)} s.`));
     }, deadlineMs);
   });
 
   try {
-    return await Promise.race([
-      manager.connectToDevice(connectionId, { autoConnect: true }),
-      expiry,
-    ]);
+    return await Promise.race([connect, expiry]);
   } finally {
     if (timer) clearTimeout(timer);
   }

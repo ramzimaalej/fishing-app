@@ -47,6 +47,85 @@ const RETRY_MAX_MS = 30_000;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryDelay = RETRY_BASE_MS;
 
+/**
+ * Liveness watchdog for a scan that reports itself alive.
+ *
+ * `scanning` was set optimistically and only ever cleared by an explicit error,
+ * so a scan that died SILENTLY left the broker certain it was still running:
+ * every later subscribe hit the `if (scanning) return` guard, every retry was
+ * skipped, and the app reported that it was scanning while the radio delivered
+ * nothing. Only a direct connection still worked, which is exactly how it was
+ * reported — the tag unreachable by scan, yet "reachable" when tested.
+ *
+ * Android kills scans silently in more than one way, and none of them call the
+ * error callback: an app exceeding five scan starts in thirty seconds is simply
+ * blocked, and a backgrounded app in a restricted standby bucket has its scans
+ * suspended and not resumed. Both are ordinary, and neither is observable except
+ * by noticing that nothing is arriving.
+ *
+ * So liveness is measured, not asserted. An advertisement from ANY device is
+ * proof; going quiet for this long while claiming to scan is proof of the
+ * opposite.
+ */
+const SCAN_STALL_MS = 25_000;
+
+/**
+ * Floor on how often the watchdog may restart the scan.
+ *
+ * The cure has to respect the disease: Android throttles an app that starts more
+ * than five scans in thirty seconds, so a watchdog restarting eagerly would
+ * cause exactly the silent block it exists to recover from.
+ */
+const MIN_RESTART_INTERVAL_MS = 30_000;
+
+/** How often liveness is checked while a scan is believed to be running. */
+const WATCHDOG_TICK_MS = 5_000;
+
+let lastAdvertMs = 0;
+let lastRestartMs = 0;
+let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopWatchdog(): void {
+  if (watchdogTimer) clearInterval(watchdogTimer);
+  watchdogTimer = null;
+}
+
+function startWatchdog(): void {
+  if (watchdogTimer !== null) return;
+  watchdogTimer = setInterval(checkScanAlive, WATCHDOG_TICK_MS);
+}
+
+/**
+ * Restart a scan the platform has stopped delivering to.
+ *
+ * Stops first: the old client is still registered as far as the platform is
+ * concerned, and starting a second without releasing it is how an app reaches
+ * the throttle limit.
+ */
+function restartScan(reason: string): void {
+  lastRestartMs = Date.now();
+  bleLog(`scanBroker: restarting a scan that reports itself alive — ${reason}`);
+  try {
+    getBleManager().stopDeviceScan();
+  } catch {
+    /* manager may already be torn down; the start below reports the real fault */
+  }
+  scanning = false;
+  startUnderlyingScan();
+}
+
+/** Restart the scan if it claims to be running but nothing is arriving. */
+export function checkScanAlive(): void {
+  if (!scanning || listeners.size === 0) return;
+
+  const now = Date.now();
+  const quietMs = now - lastAdvertMs;
+  if (quietMs < SCAN_STALL_MS) return;
+  if (now - lastRestartMs < MIN_RESTART_INTERVAL_MS) return;
+
+  restartScan(`nothing heard from any device for ${Math.round(quietMs / 1000)} s`);
+}
+
 function cancelRetry(): void {
   if (retryTimer) clearTimeout(retryTimer);
   retryTimer = null;
@@ -79,6 +158,10 @@ function startUnderlyingScan(): void {
   if (scanning) return;
   scanning = true;
   lastError = null;
+  // Quiet is measured from the start, so a scan that never delivers anything is
+  // judged on the same clock as one that stops mid-session.
+  lastAdvertMs = Date.now();
+  startWatchdog();
   bleLog(`scanBroker: starting shared scan (${listeners.size} listener(s))`);
 
   // Scan ALL devices and let subscribers match: the beacons we care about carry
@@ -123,7 +206,9 @@ function startUnderlyingScan(): void {
       if (!device) return;
       // An advertisement is the only proof the scan actually works, so the
       // backoff resets here rather than on a start that merely did not reject.
+      // The watchdog reads the same signal for the same reason.
       retryDelay = RETRY_BASE_MS;
+      lastAdvertMs = Date.now();
       // Copy first: a listener unsubscribing mid-dispatch must not perturb this
       // iteration.
       for (const l of [...listeners]) {
@@ -146,6 +231,7 @@ function stopUnderlyingScan(): void {
   // started, and letting it fire after the last listener left would resurrect a
   // scan nobody is watching.
   cancelRetry();
+  stopWatchdog();
   if (!scanning) return;
   scanning = false;
   bleLog('scanBroker: stopping shared scan (no listeners left)');
@@ -188,7 +274,11 @@ export function subscribeToScan(listener: ScanListener): () => void {
  */
 export function ensureScanning(): void {
   if (listeners.size === 0) return;
-  cancelRetry();
+  // Verify rather than assume. This is the hook a caller reaches for when
+  // something looks wrong, and the failure it most often needs to fix is a scan
+  // that believes it is running — so a plain no-op when `scanning` is true is
+  // precisely the wrong answer.
+  checkScanAlive();
   startUnderlyingScan();
 }
 
@@ -207,5 +297,8 @@ export function resetScanBroker(): void {
   listeners.clear();
   stopUnderlyingScan();
   cancelRetry();
+  stopWatchdog();
   lastError = null;
+  lastAdvertMs = 0;
+  lastRestartMs = 0;
 }
