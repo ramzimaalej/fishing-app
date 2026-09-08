@@ -31,6 +31,9 @@ import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
 import { rodActivity } from '@/features/devices/device';
 import { deviceFor, useDeviceStore } from '@/features/devices/deviceStore';
+import { readBattery } from '@/features/devices/cp27Commands';
+import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
+import { TagKeepAlive } from '@/features/devices/tagKeepAlive';
 
 import { isRodArmable, type Rod } from './rod';
 
@@ -112,6 +115,8 @@ interface Runtime {
   error: string | null;
   biteCount: number;
   lastBite: BiteEvent | null;
+  /** Wake policy for a tag that sleeps to save its cell. */
+  keepAlive: TagKeepAlive;
   /** Last battery band we warned about, so each step warns exactly once. */
   warnedBattery: BatteryState;
   /** True while the stream is silent — orthogonal to connection status. */
@@ -321,6 +326,11 @@ function stopSignalWatch(): void {
 }
 
 function handleSample(rt: Runtime, sample: AccSample): void {
+  // Scores any wake attempt still waiting on evidence. This is the ONLY place
+  // that can say whether reconnecting to a sleeping tag does anything, so it has
+  // to sit on the sample path rather than anywhere more convenient.
+  rt.keepAlive.noteHeard(sample.tMonotonicMs);
+
   const tick = rt.detector.process(sample);
 
   if (tick.frame) {
@@ -474,6 +484,7 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     biteCount: 0,
     lastBite: null,
     warnedBattery: 'ok',
+    keepAlive: new TagKeepAlive(),
     signalLost: false,
     lastImpactReason: null,
   };
@@ -636,8 +647,45 @@ export function tickDetection(): void {
   const now = monotonicNowMs();
   for (const rt of runtimes.values()) {
     for (const event of rt.detector.tick(now)) handleDetectionEvent(rt, event);
+    maybeWakeTag(rt, now);
   }
   scheduleFlush();
+}
+
+/**
+ * Reconnect to a tag that has gone quiet, in the hope of waking it.
+ *
+ * Fired from the signal-loss tick because that is already the one clock that
+ * runs when nothing is arriving, which is exactly the condition being answered.
+ *
+ * Connects, unlocks and reads the battery — no command opcode, ever. See
+ * tagKeepAlive and cp27Opcodes for why a guessed write is not an option, and for
+ * the fact that whether this wakes anything at all is still unproven.
+ */
+function maybeWakeTag(rt: Runtime, nowMs: number): void {
+  if (!rt.rod.deviceId) return;
+
+  const alerting = rt.lastBite !== null && rt.detector.getPhase() === 'WATCHING';
+  const due = rt.keepAlive.shouldWake({
+    nowMs,
+    lastHeardMs: rt.detector.lastHeardMs(),
+    watchingSinceMs: rt.detector.watchingSinceMs(),
+    alerting,
+  });
+  if (!due) return;
+
+  // The full six-octet MAC, not the canonical five-octet tail a rod is keyed by:
+  // a connection needs the address the radio actually dials.
+  const paired = deviceFor(rt.rod.deviceId);
+  const connectionId = paired?.connectionId;
+  if (!connectionId) return;
+
+  rt.keepAlive.begin(nowMs);
+  const password = useCp27OpcodeStore.getState().opcodes.password ?? undefined;
+
+  void readBattery(connectionId, { password })
+    .then((result) => rt.keepAlive.end(result.ok))
+    .catch(() => rt.keepAlive.end(false));
 }
 
 /**
