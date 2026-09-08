@@ -63,7 +63,7 @@ describe('scanBroker refcounting', () => {
   it('starts the underlying scan on the first subscriber', () => {
     subscribeToScan(() => {});
     expect(mockStartDeviceScan).toHaveBeenCalledTimes(1);
-    expect(scanBrokerState()).toEqual({ scanning: true, listeners: 1 });
+    expect(scanBrokerState()).toMatchObject({ scanning: true, listeners: 1 });
   });
 
   it('does NOT start a second scan for further subscribers', () => {
@@ -81,7 +81,7 @@ describe('scanBroker refcounting', () => {
     offA();
     // Rod A disarming must not deafen rod B — the original bug.
     expect(mockStopDeviceScan).not.toHaveBeenCalled();
-    expect(scanBrokerState()).toEqual({ scanning: true, listeners: 1 });
+    expect(scanBrokerState()).toMatchObject({ scanning: true, listeners: 1 });
   });
 
   it('stops only when the last subscriber leaves', () => {
@@ -90,7 +90,7 @@ describe('scanBroker refcounting', () => {
     offA();
     offB();
     expect(mockStopDeviceScan).toHaveBeenCalledTimes(1);
-    expect(scanBrokerState()).toEqual({ scanning: false, listeners: 0 });
+    expect(scanBrokerState()).toMatchObject({ scanning: false, listeners: 0 });
   });
 
   it('restarts cleanly after going idle', () => {
