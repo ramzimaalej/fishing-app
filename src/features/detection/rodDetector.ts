@@ -73,6 +73,17 @@ export class RodDetector {
   private lastSampleMs: number | null = null;
   private armingSignalLost = false;
 
+  /**
+   * When this rod started being watched, from the tick clock rather than from a
+   * sample.
+   *
+   * Silence has to be measurable before the first packet, not only between
+   * packets — a tag that is switched off, out of range, or simply not the tag
+   * the rod is bound to never produces one, and every sample-derived clock stays
+   * null for ever along with it.
+   */
+  private watchStartedMs: number | null = null;
+
   constructor(params: DetectionParams) {
     this.params = params;
     this.engine = new DetectionEngine(params);
@@ -111,6 +122,7 @@ export class RodDetector {
     this.armingSignalLost = false;
     this.armingSamples = [];
     this.armingStartMs = null;
+    this.watchStartedMs = null;
     this.firstSampleMs = null;
     this.sampleCount = 0;
     this.armFailReason = null;
@@ -129,17 +141,35 @@ export class RodDetector {
   tick(nowMonotonicMs: number): DetectionEvent[] {
     if (this.phase === 'WATCHING') return this.engine.tick(nowMonotonicMs);
 
-    if (this.lastSampleMs === null || this.armingSignalLost) return [];
-    if (nowMonotonicMs - this.lastSampleMs < SIGNAL_LOST_MS) return [];
+    // The clock starts on the first tick, so silence is measured from when the
+    // rod began being watched rather than from a packet that may never come.
+    this.watchStartedMs ??= nowMonotonicMs;
+    if (this.armingSignalLost) return [];
+
+    // Never heard falls back to the watch clock. Guarding on lastSampleMs alone
+    // returned early for ever on a rod whose tag never said anything, which is
+    // the one case where "Calibrating" is most misleading: arming cannot finish
+    // without samples, so the rod sat calibrating indefinitely and said nothing
+    // about why.
+    const silentSince = this.lastSampleMs ?? this.watchStartedMs;
+    if (nowMonotonicMs - silentSince < SIGNAL_LOST_MS) return [];
 
     this.armingSignalLost = true;
+    const silentFor = ((nowMonotonicMs - silentSince) / 1000).toFixed(1);
+    const activity = this.phase === 'ARMING' ? 'arming' : 'stopped';
+
     return [
       {
         type: 'SIGNAL_LOST',
         atMs: nowMonotonicMs,
+        // Two different faults, two different things to go and do. A tag that
+        // went quiet has moved or run flat; one never heard at all is switched
+        // off, out of range, or not the tag this rod is bound to.
         reason:
-          `No packet for ${((nowMonotonicMs - this.lastSampleMs) / 1000).toFixed(1)} s ` +
-          `while ${this.phase === 'ARMING' ? 'arming' : 'stopped'}. The rod is NOT being watched.`,
+          this.lastSampleMs === null
+            ? `Nothing heard from this tag in ${silentFor} s while ${activity}. ` +
+              `Check it is switched on, in range, and the tag this rod is paired to.`
+            : `No packet for ${silentFor} s while ${activity}. The rod is NOT being watched.`,
       },
     ];
   }

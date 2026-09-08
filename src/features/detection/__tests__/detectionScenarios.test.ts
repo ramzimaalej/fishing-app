@@ -679,3 +679,46 @@ describe('a rod re-seated after a cast', () => {
     expect(rebaselines).toBe(0);
   });
 });
+
+describe('a tag that is never heard at all', () => {
+  it('says so, instead of calibrating for ever', () => {
+    // The reported symptom: "calibrating is taking an eternity". Arming cannot
+    // finish without samples, and tick() used to return early whenever no packet
+    // had EVER arrived — so a rod bound to a tag that was off, out of range, or
+    // simply the wrong tag sat on "Calibrating" indefinitely and explained
+    // nothing. Silence has to be measurable from when watching began.
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+
+    expect(detector.tick(100_000)).toHaveLength(0);
+    expect(detector.tick(100_000 + SIGNAL_LOST_MS - 1_000)).toHaveLength(0);
+
+    const events = detector.tick(100_000 + SIGNAL_LOST_MS + 1_000);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.type).toBe('SIGNAL_LOST');
+    // Named distinctly, because the fix differs: a tag that went quiet has moved
+    // or run flat; one never heard is off, away, or not the tag this rod holds.
+    expect(events[0]!.reason).toMatch(/Nothing heard/i);
+    expect(detector.getPhase()).toBe('ARMING');
+  });
+
+  it('recovers silently when the tag finally speaks', () => {
+    // A motion-woken tag is quiet until it is moved, so reporting silence must
+    // not be a terminal state.
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    expect(detector.tick(100_000)).toHaveLength(0);
+    expect(detector.tick(100_000 + SIGNAL_LOST_MS + 1_000)).toHaveLength(1);
+
+    const stream = generateStream({
+      nominalIntervalMs: EXPECTED_SAMPLE_INTERVAL_MS,
+      jitterMs: 300,
+      durationMs: ARMING_DURATION_MS + 10_000,
+      angleAt: constantAngle(0),
+      startMs: 200_000,
+      seed: 91,
+    });
+    for (const sample of stream) detector.process(sample);
+
+    expect(detector.getPhase()).toBe('WATCHING');
+  });
+});
+
