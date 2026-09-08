@@ -709,6 +709,26 @@ export function rearmRod(rodId: string): boolean {
   return true;
 }
 
+/**
+ * Wake attempts and their outcomes, per armed rod.
+ *
+ * Exposed because the counters are the entire point of the keep-alive: nothing
+ * captured says reconnecting makes a sleeping CP27 resume broadcasting, so the
+ * feature has to be able to report whether it ever works. Accounting nobody can
+ * read is worse than none, since it looks like evidence and is not.
+ */
+export function keepAliveStats(): {
+  rodId: string;
+  rodName: string;
+  stats: ReturnType<TagKeepAlive['stats']>;
+}[] {
+  return [...runtimes.values()].map((rt) => ({
+    rodId: rt.rod.id,
+    rodName: rt.rod.name,
+    stats: rt.keepAlive.stats(),
+  }));
+}
+
 /** Rod ids currently armed. */
 export function armedRodIds(): string[] {
   return [...runtimes.keys()];
