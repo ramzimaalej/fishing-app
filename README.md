@@ -633,8 +633,14 @@ rather than toward erasing a live load, which hides a fish already on.
 
 `ARMING_DURATION_MS` is a deadline, not a required wait. A rod that has lain
 still for `ARMING_MIN_SPAN_MS` has already supplied the rest attitude arming
-needs, so it starts watching then — about 18 s in practice at this tag's rate,
-against the 60 s deadline. Finishing early demands a stricter coherence gate
+needs, so it starts watching then — a median of **10.8 s** measured over 40
+simulated rods at this tag's rate, against the 60 s deadline.
+
+`ARMING_MIN_SPAN_MS` is 10 s, which at 0.28 Hz is below what the radio can fill:
+10 s holds about 2.8 advertisements, so `ARMING_FAST_MIN_SAMPLES` (3) is what
+actually binds. Lowering the span further buys nothing — it would only mean
+waiting on the same third reading with a shorter span behind it. **The wait is
+set by how often the tag speaks, not by that constant.** Finishing early demands a stricter coherence gate
 than the deadline does (`ARMING_FAST_COHERENCE`), so a rod still being handled
 falls through and waits out the full window instead of baselining a swing.
 

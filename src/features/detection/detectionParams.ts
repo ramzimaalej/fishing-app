@@ -231,19 +231,29 @@ export const ARMING_MIN_SAMPLES = Math.max(
  * and confidence that the rod was not being handled while it was measured.
  *
  * Time span carries that confidence better than sample count does. A rod can be
- * momentarily still while it is being set down; it cannot be still for fifteen
- * seconds unless it is at rest. Four sample intervals is the floor below which
- * there is no span to judge — at the tag's rate that is ~15 s, which is where
- * this lands.
+ * momentarily still while it is being set down; it cannot be still for ten
+ * seconds unless it is at rest.
+ *
+ * Ten seconds is a deliberate floor rather than a derived one, and at this tag's
+ * rate it is BELOW what the radio can fill: 10 s holds about 2.8 advertisements,
+ * so ARMING_FAST_MIN_SAMPLES is what actually binds and the wall-clock wait
+ * lands nearer 11-14 s. Lowering this number further buys nothing at all — it
+ * would only mean waiting on the same third reading with a shorter span behind
+ * it. The wait is set by how often the tag speaks, not by this constant.
  */
-export const ARMING_MIN_SPAN_MS = Math.max(15_000, EXPECTED_SAMPLE_INTERVAL_MS * 4);
+export const ARMING_MIN_SPAN_MS = 10_000;
 
 /**
- * Readings needed before the short path may arm. Enough to average a direction;
- * the span requirement above is what rejects a rod in hand.
+ * Readings needed before the short path may arm.
+ *
+ * Three is the floor, and it is a floor rather than a preference: two readings
+ * cannot disagree. Any pair of directions defines exactly one arc, so a rod
+ * drifting steadily through the threshold looks as coherent as a rod bolted to
+ * a rock. The third reading is the first one that can contradict the other two,
+ * which is what makes the coherence gate mean anything.
  */
 export const ARMING_FAST_MIN_SAMPLES = Math.max(
-  4,
+  3,
   Math.floor((ARMING_MIN_SPAN_MS / EXPECTED_SAMPLE_INTERVAL_MS) * ARMING_YIELD),
 );
 
@@ -273,12 +283,19 @@ export const ARMING_FAST_COHERENCE = 0.995;
  * that keeps changing. So a deflection that holds a CONSTANT attitude, through
  * no impacts, for this long is the rod's new rest position and not a fish.
  *
+ * NOT derived from ARMING_MIN_SPAN_MS, though it once was. That coupling meant
+ * making calibration faster silently shortened this window too — 45 s to 30 s in
+ * one edit — and the two numbers answer unrelated questions. Arming asks how
+ * long until a resting rod has given up its attitude; this asks how long a load
+ * must hold before it cannot be a fish. Only the second is about fish, so only
+ * the second is swept against them.
+ *
  * The cost of being wrong here is bounded and the cost of the current behaviour
  * is not. A fish that somehow held perfectly steady for this long would have
  * raised its alert some forty seconds earlier — the angler has already been
  * told — whereas a stale baseline silently degrades every cast that follows it.
  */
-export const REBASELINE_STILL_MS = ARMING_MIN_SPAN_MS * 3;
+export const REBASELINE_STILL_MS = 45_000;
 
 /**
  * Angular spread a re-baseline window may contain, degrees.
