@@ -277,15 +277,26 @@ let pendingDiscovered: Record<string, DiscoveredDevice> = {};
  * what makes a rod able to notice its tag going quiet.
  */
 export function startDeviceWatch(): void {
-  if (unsubscribe) {
-    // Already subscribed — but the scan underneath may have died, or never
-    // started at all. This is called again on every return to foreground and
-    // after the tags screen has secured permissions, and both are precisely the
-    // moments a failed scan can now succeed. Returning early here is what made a
-    // launch-time failure permanent: the subscription exists, so subscribing
-    // again is not an option, and nothing else re-arms the radio.
+  // VERIFY the subscription, do not trust the handle. Holding an unsubscribe
+  // function is not evidence that a listener is still registered, and this
+  // returned early on that assumption — the same mistake the broker made with
+  // its `scanning` flag, with the same result. It matters more here, because it
+  // strands the app in a loop it cannot leave: arming refuses a rod whose tag
+  // has not been heard, and only this watch listens while nothing is armed, so
+  // a watch that believes it is subscribed and is not leaves every rod reading
+  // "its tag is not responding" for ever with no way back.
+  if (unsubscribe && scanBrokerState().listeners > 0) {
+    // Genuinely subscribed. The scan underneath may still have died, and this is
+    // called on every return to foreground and after the tags screen secures
+    // permissions — both moments when a failed scan can now succeed.
     ensureScanning();
     return;
+  }
+
+  // Stale handle: release whatever it refers to and subscribe again below.
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
   }
   const spec = getSensorDevice('castmate-g').broadcast;
 
