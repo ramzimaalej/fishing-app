@@ -255,12 +255,15 @@ export class RodDetector {
     }
 
     const frame = this.extractor!.process(sample);
-    return {
-      phase: 'WATCHING',
-      frame,
-      events: this.engine.process(frame),
-      armingProgress: 1,
-    };
+    const events = this.engine.process(frame);
+
+    // An alert ended by its time bound leaves theta still above threshold
+    // against a baseline that no longer describes rest. Watching again without
+    // moving the baseline would re-alert within seconds, turning one stuck
+    // alarm into a repeating false one.
+    if (this.engine.consumeStaleAlertExit()) this.extractor!.forceRebaseline();
+
+    return { phase: 'WATCHING', frame, events, armingProgress: 1 };
   }
 
   private processArming(sample: AccSample): RodDetectorTick {

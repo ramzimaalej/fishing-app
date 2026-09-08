@@ -183,6 +183,33 @@ export const DWELL_GAP_TOLERANCE_MS = EXPECTED_SAMPLE_INTERVAL_MS * 2;
 export const SIGNAL_LOST_MS = EXPECTED_SAMPLE_INTERVAL_MS * SIGNAL_LOST_INTERVALS;
 
 /** Reset hysteresis: θ must fall below thetaDeg × this, for RESET_HOLD_MS. */
+/**
+ * Longest an alert may stand before the rod forces itself back to watching.
+ *
+ * ALERT_HOOKED has exactly one exit: theta falling below RESET_THETA_FACTOR x
+ * threshold and holding there. That exit disappears when the rod's rest
+ * attitude shifts during the fight and the baseline cannot catch up — swell
+ * wider than REBASELINE_SPREAD_DEG, or knocks clearing the settle window — and
+ * when it disappears the rod is deaf for the rest of the session without saying
+ * so. Reproduced: a rod left resting 10 degrees off in +/-4 degrees of swell, and
+ * a rod at 12 degrees knocked every 20 s, both alerted once and then never
+ * again.
+ *
+ * So an alert is bounded. Three minutes is chosen from what the alert is FOR:
+ * it exists to make somebody look at the rod, and it has either done that long
+ * ago or it is not going to. Its value decays; the cost of being deaf does not.
+ *
+ * The exit forces a re-baseline rather than only clearing the state. Resetting
+ * alone would leave theta still above threshold against the stale baseline and
+ * re-alert within seconds, turning one stuck alarm into a repeating false one.
+ *
+ * WHAT THIS COSTS. A fish genuinely on the line for three unbroken minutes has
+ * its alarm stood down. That is the deliberate trade: the angler was told three
+ * minutes ago, and a fish nobody has come for is not saved by keeping the alarm
+ * latched — while the next fish is certainly lost by it.
+ */
+export const ALERT_MAX_MS = 180_000;
+
 export const RESET_THETA_FACTOR = 0.6;
 export const RESET_HOLD_MS = 5000;
 

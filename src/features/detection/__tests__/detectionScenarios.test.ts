@@ -12,6 +12,7 @@ import { DetectionEngine } from '../detectionEngine';
 import {
   ARMING_DURATION_MS,
   ARMING_MIN_SPAN_MS,
+  ALERT_MAX_MS,
   DEFAULT_DETECTION_PARAMS,
   IMPACT_DEVIATION_MG,
   REBASELINE_STILL_MS,
@@ -841,6 +842,102 @@ describe('at both rates the tag really runs at', () => {
 
     expect(pathsFor(detector, strikes).has('B')).toBe(false);
     expect(detector.getTimings().pathBAvailable).toBe(false);
+  });
+});
+
+/**
+ * A rod must never go deaf after one bite.
+ *
+ * ALERT_HOOKED had a single exit — theta falling below the reset factor and
+ * holding — and that exit disappears when the rod's rest attitude shifts during
+ * the fight and the baseline cannot catch up. Reproduced two ways, both ordinary
+ * on water: a rod resting off-centre in swell wider than the re-baseline spread
+ * gate, and a rod knocked often enough to keep clearing the settle window.
+ * Neither ever alerted again for the rest of the session, and nothing said so.
+ */
+describe('a second bite after the first', () => {
+  const INT = 137;
+
+  const armedRod = () => {
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    const stream = generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: 70_000,
+      angleAt: constantAngle(0),
+      dropRate: 0.05,
+      seed: 3,
+    });
+    for (const sample of stream) detector.process(sample);
+    expect(detector.getPhase()).toBe('WATCHING');
+    return { detector, from: stream[stream.length - 1]!.tMonotonicMs + 200 };
+  };
+
+  /** Feed a stream, returning the event types seen. */
+  const feed = (detector: RodDetector, stream: ReturnType<typeof generateStream>) => {
+    const seen = new Set<string>();
+    for (const sample of stream) {
+      for (const event of detector.process(sample).events) seen.add(event.type);
+    }
+    return seen;
+  };
+
+  const bite = (from: number, deg: number) =>
+    generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: 25_000,
+      startMs: from,
+      seed: 7,
+      angleAt: constantAngle(deg),
+    });
+
+  it('still resets the normal way, long before the bound', () => {
+    // The bound is a backstop, not the mechanism. A rod that does return to rest
+    // must reset on the hysteresis, or every bite would hold the alarm for three
+    // minutes.
+    const { detector, from } = armedRod();
+    feed(detector, bite(from, 14));
+
+    const rest = generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: 30_000,
+      startMs: from + 25_200,
+      seed: 8,
+      angleAt: constantAngle(0),
+    });
+
+    expect(30_000).toBeLessThan(ALERT_MAX_MS);
+    expect(feed(detector, rest).has('RESET_TO_ARMED')).toBe(true);
+  });
+
+  it('recovers when the rod rests off-centre in swell the re-baseline cannot read', () => {
+    // The reproduction. Swell wider than REBASELINE_SPREAD_DEG keeps the ordinary
+    // re-baseline from ever firing, and an off-centre rest keeps theta above the
+    // reset factor, so the alert had no exit at all.
+    //
+    // Only this scenario is covered, deliberately. A knocked-rod variant was
+    // tried and dropped: its settle clock had been running since before the
+    // bite, so it recovered through the NORMAL re-baseline and passed whether
+    // the bound existed or not — coverage in appearance only.
+    const REST_DEG = 6;
+    const { detector, from } = armedRod();
+    feed(detector, bite(from, 14));
+
+    const after = generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: ALERT_MAX_MS + 60_000,
+      startMs: from + 25_200,
+      seed: 8,
+      angleAt: triangleWave({ amplitudeDeg: 8, rampMs: 3_000, offsetDeg: REST_DEG }),
+    });
+    expect(feed(detector, after).has('RESET_TO_ARMED')).toBe(true);
+
+    // And genuinely watching again, not merely un-latched.
+    const later = after[after.length - 1]!.tMonotonicMs + 200;
+    expect(feed(detector, bite(later, REST_DEG + 15)).has('ALERT_HOOKED')).toBe(true);
   });
 });
 
