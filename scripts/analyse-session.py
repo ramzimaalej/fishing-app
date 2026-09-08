@@ -23,6 +23,12 @@ USAGE
         adb shell run-as co.castmate ls files/castmate-captures/
         adb shell run-as co.castmate tar c -C files/castmate-captures <id> > s.tar
         tar xf s.tar
+
+    RETRIEVING IT. `run-as` works only on a DEBUG build — a release build reports
+    "package not debuggable" and the sandbox is unreachable over adb. From a
+    release build, which is what a session on the water is recorded on, use
+    Admin -> the recording -> Export: that writes through the Storage Access
+    Framework into a real folder (Downloads, Drive) you can copy off normally.
 """
 
 import argparse
