@@ -30,6 +30,7 @@ import {
 import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
 import { useAnyArmed, useArmableRods } from '@/features/rods/useRodRuntime';
 import { colors, radius, spacing, typography } from '@/theme';
+import { scanBrokerState } from '@/features/ble/scanBroker';
 import { keepAliveStats } from '@/features/rods/rodRuntime';
 import { useNow } from '@/utils/useNow';
 
@@ -261,8 +262,12 @@ export default function AdminScreen() {
   // callback ignores its own dependency is precisely what a compiler is free to
   // hoist, which would freeze this readout at its first value.
   const [wakeStats, setWakeStats] = useState(keepAliveStats);
+  const [scan, setScan] = useState(scanBrokerState);
   useEffect(() => {
-    const timer = setInterval(() => setWakeStats(keepAliveStats()), 2_000);
+    const timer = setInterval(() => {
+      setWakeStats(keepAliveStats());
+      setScan(scanBrokerState());
+    }, 2_000);
     return () => clearInterval(timer);
   }, []);
   const elapsed = capture.startedAt === null ? 0 : Math.max(0, now - capture.startedAt);
@@ -353,6 +358,21 @@ export default function AdminScreen() {
         <Pressable style={styles.primaryBtn} onPress={() => navigation.navigate('Sniffer')}>
           <Text style={styles.primaryBtnText}>Open BLE sniffer</Text>
         </Pressable>
+      </View>
+
+      {/* Scan ------------------------------------------------------------- */}
+      <Text style={styles.sectionTitle}>Scan</Text>
+      <View style={styles.card}>
+        <Text style={styles.hint}>
+          What the shared scan believes about itself. A scan reporting itself alive while
+          nothing arrives is the failure that makes a tag unfindable by scanning yet
+          reachable when tested — a connection needs no scan, so the two disagree.
+        </Text>
+        <Text style={styles.mono}>
+          scanning {scan.scanning ? 'yes' : 'NO'} · listeners {scan.listeners} · quiet{' '}
+          {scan.quietMs === null ? 'never heard' : `${Math.round(scan.quietMs / 1000)} s`}
+        </Text>
+        {scan.lastError !== null && <Text style={styles.warn}>last error: {scan.lastError}</Text>}
       </View>
 
       {/* Tag wake ---------------------------------------------------------- */}

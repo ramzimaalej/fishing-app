@@ -288,8 +288,19 @@ export function getScanError(): string | null {
 }
 
 /** Diagnostics for tests and the BLE debug overlay. */
-export function scanBrokerState(): { scanning: boolean; listeners: number } {
-  return { scanning, listeners: listeners.size };
+export function scanBrokerState(): {
+  scanning: boolean;
+  listeners: number;
+  /** ms since the last advertisement from any device, null if none yet. */
+  quietMs: number | null;
+  lastError: string | null;
+} {
+  return {
+    scanning,
+    listeners: listeners.size,
+    quietMs: lastAdvertMs === 0 ? null : Date.now() - lastAdvertMs,
+    lastError,
+  };
 }
 
 /** Test seam: drop all listeners and stop the scan. */
