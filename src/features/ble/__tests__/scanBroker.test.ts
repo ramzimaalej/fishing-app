@@ -22,6 +22,11 @@ const broker = require('../scanBroker') as typeof import('../scanBroker');
 const { subscribeToScan, scanBrokerState, resetScanBroker, getScanError, ensureScanning } =
   broker;
 
+/** Mirrors the broker's own watchdog constants. */
+const SCAN_STALL_MS = 25_000;
+const WATCHDOG_TICK_MS = 5_000;
+const MIN_RESTART_INTERVAL_MS = 30_000;
+
 /** Fire the callback the broker handed to startDeviceScan. */
 function emit(device: Partial<Device> | null, error: { message: string } | null = null): void {
   const cb = mockStartDeviceScan.mock.calls.at(-1)?.[2];
@@ -297,6 +302,83 @@ describe('scan mode', () => {
 
     const options = mockStartDeviceScan.mock.calls.at(-1)?.[1];
     expect(options.scanMode).toBe(ScanMode.LowLatency);
+  });
+});
+
+describe('a scan that has silently died', () => {
+  /**
+   * The failure this exists for, reported from the field as: the tag cannot be
+   * found by scanning, but testing it from My Tags says it is reachable.
+   *
+   * `scanning` was set optimistically and cleared only by an explicit error, so
+   * a scan Android had stopped without telling us left the broker certain it was
+   * running — every subscribe no-opped, every retry was skipped, and only a
+   * direct connection still worked. Android stops scans silently in at least two
+   * ordinary ways: throttling an app past five starts in thirty seconds, and
+   * suspending scans for a backgrounded app in a restricted standby bucket.
+   */
+  it('restarts once nothing has arrived for long enough', () => {
+    subscribeToScan(() => {});
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(1);
+
+    // The platform stops delivering. No error, no callback — just silence.
+    jest.advanceTimersByTime(SCAN_STALL_MS + WATCHDOG_TICK_MS);
+
+    expect(mockStopDeviceScan).toHaveBeenCalled();
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves a scan that is delivering alone', () => {
+    subscribeToScan(() => {});
+
+    // An advertisement every few seconds, as any populated room produces.
+    for (let i = 0; i < 10; i += 1) {
+      jest.advanceTimersByTime(5_000);
+      emit(fakeDevice('aa:bb'));
+    }
+
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(1);
+  });
+
+  it('will not restart often enough to trip the throttle it recovers from', () => {
+    // Android blocks an app that starts more than five scans in thirty seconds,
+    // and that block is itself silent — so a watchdog restarting eagerly would
+    // cause the exact fault it exists to repair.
+    subscribeToScan(() => {});
+    jest.advanceTimersByTime(SCAN_STALL_MS + WATCHDOG_TICK_MS);
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(2);
+
+    // Still silent, and the watchdog keeps ticking.
+    jest.advanceTimersByTime(MIN_RESTART_INTERVAL_MS - WATCHDOG_TICK_MS * 2);
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(2);
+
+    jest.advanceTimersByTime(MIN_RESTART_INTERVAL_MS);
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not restart when nobody is listening', () => {
+    const off = subscribeToScan(() => {});
+    off();
+    mockStartDeviceScan.mockClear();
+
+    jest.advanceTimersByTime(SCAN_STALL_MS * 3);
+
+    expect(mockStartDeviceScan).not.toHaveBeenCalled();
+  });
+
+  it('ensureScanning revives a dead scan instead of trusting the flag', () => {
+    // Models the case the watchdog alone cannot cover: a BACKGROUNDED app. Its
+    // JS timers are frozen, so the interval never ticks, while the wall clock
+    // and Android's scan suspension carry on regardless. On return to the
+    // foreground the interval has not run and the flag still says "scanning" —
+    // answering "already scanning" here is the one response that cannot help.
+    subscribeToScan(() => {});
+    mockStartDeviceScan.mockClear();
+
+    jest.setSystemTime(Date.now() + SCAN_STALL_MS + 1_000);
+    ensureScanning();
+
+    expect(mockStartDeviceScan).toHaveBeenCalledTimes(1);
   });
 });
 
