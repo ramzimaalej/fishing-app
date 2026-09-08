@@ -1,4 +1,4 @@
-import type { Device } from 'react-native-ble-plx';
+import { type Device, ScanMode } from 'react-native-ble-plx';
 
 /**
  * The broker exists to stop concurrent rods fighting over the one global scan,
@@ -281,3 +281,22 @@ describe('scanBroker recovery from a failed start', () => {
     expect(mockStartDeviceScan).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('scan mode', () => {
+  it('scans at the highest duty cycle, because the tag advertises too slowly for less', () => {
+    // Android defaults to LowPower: a 512 ms window every 5120 ms, so about one
+    // advertisement in ten is heard. The CP27 sends a motion frame every ~3.6 s,
+    // which that reduces to ~0.028 Hz against the 0.17 Hz arming needs — the rod
+    // could never arm. Worse, it fails INTERMITTENTLY: Android merges concurrent
+    // scan clients, so the tag is found while some other app happens to be
+    // scanning hard and vanishes when it stops.
+    //
+    // Asserted because a revert to the default is invisible — no error, no log,
+    // just a tag that is sometimes not there.
+    subscribeToScan(() => {});
+
+    const options = mockStartDeviceScan.mock.calls.at(-1)?.[1];
+    expect(options.scanMode).toBe(ScanMode.LowLatency);
+  });
+});
+

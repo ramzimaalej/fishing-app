@@ -1,4 +1,4 @@
-import type { Device } from 'react-native-ble-plx';
+import { type Device, ScanMode } from 'react-native-ble-plx';
 
 import { getBleManager } from './bleManager';
 import { bleLog } from './debug';
@@ -91,7 +91,28 @@ function startUnderlyingScan(): void {
   // the error surfacing only as an unhandled rejection.
   const started = getBleManager().startDeviceScan(
     null,
-    { allowDuplicates: true },
+    // scanMode is ANDROID-ONLY and defaults to LowPower, which cannot work with
+    // a tag this slow. LowPower scans a 512 ms window every 5120 ms — a 10% duty
+    // cycle — and the CP27 advertises a motion frame about every 3.6 s, so
+    // roughly nine adverts in ten land while the radio is not listening. That
+    // yields ~0.028 Hz against the 0.17 Hz arming needs: the rod could never arm
+    // and signal-lost would fire continuously. Balanced (25%) does not clear the
+    // bar either. Only LowLatency, which listens continuously, does.
+    //
+    // It also explains why the tag appeared only INTERMITTENTLY while the
+    // vendor app always saw it. Android merges concurrent scan clients onto one
+    // radio schedule, so while some other app scans aggressively our LowPower
+    // client is carried along and everything works; the moment that app stops,
+    // the merged duty cycle collapses back to 10% and the same tag, still
+    // advertising, goes unseen.
+    //
+    // The cost is real: this is the highest-drain scan mode and Android asks
+    // that it be used in the foreground. That is the trade this app exists to
+    // make — a bite alarm that misses advertisements is not a bite alarm.
+    //
+    // allowDuplicates is iOS-only. Android reports every advertisement through
+    // the default CALLBACK_TYPE_ALL_MATCHES, which is what the detector needs.
+    { allowDuplicates: true, scanMode: ScanMode.LowLatency },
     (error, device) => {
       if (error) {
         // Also unlatch here: a mid-session adapter-off arrives this way, and
