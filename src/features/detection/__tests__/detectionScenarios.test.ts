@@ -941,3 +941,151 @@ describe('a second bite after the first', () => {
   });
 });
 
+/**
+ * Rate CHANGES, not merely rates.
+ *
+ * Every other scenario holds the interval constant, and that is what hid this:
+ * the tag advertises fast whenever the rod MOVES — wind, chop, a cast, someone
+ * walking past — and drops back to its idle rate when the rod settles. The
+ * detector therefore meets a falling rate constantly, right at the moment a rod
+ * has just been set down and a fish is most likely to take.
+ */
+describe('when the tag changes rate mid-session', () => {
+  const IDLE = 2_300;
+  const FAST = 137;
+
+  /** An armed rod at the idle rate, and the time to continue from. */
+  const armedAtIdle = () => {
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    const stream = generateStream({
+      nominalIntervalMs: IDLE,
+      jitterMs: 200,
+      durationMs: 90_000,
+      angleAt: constantAngle(0),
+      seed: 3,
+    });
+    for (const sample of stream) detector.process(sample);
+    expect(detector.getPhase()).toBe('WATCHING');
+    return { detector, from: stream[stream.length - 1]!.tMonotonicMs + 500 };
+  };
+
+  /** Chop shaking the rod: the tag speeds up, the ATTITUDE stays at rest. */
+  const fastBurst = (from: number) =>
+    generateStream({
+      nominalIntervalMs: FAST,
+      jitterMs: 14,
+      durationMs: 10_000,
+      startMs: from,
+      seed: 4,
+      angleAt: (rel) => 1.5 * Math.sin(rel / 300),
+    });
+
+  const sustainedBite = (from: number) =>
+    generateStream({
+      nominalIntervalMs: IDLE,
+      jitterMs: 200,
+      durationMs: 40_000,
+      startMs: from,
+      seed: 5,
+      angleAt: constantAngle(14),
+    });
+
+  const firstAlertMs = (detector: RodDetector, stream: ReturnType<typeof generateStream>) => {
+    const start = stream[0]!.tMonotonicMs;
+    for (const sample of stream) {
+      for (const event of detector.process(sample).events) {
+        if (event.type === 'ALERT_HOOKED') return sample.tMonotonicMs - start;
+      }
+    }
+    return null;
+  };
+
+  it('alerts on a bite just as fast after the rate has fallen back', () => {
+    // The rate estimate is a median, so it cannot fall until half its window
+    // has — about 25 s at the idle rate. Deriving the dwell gap tolerance from
+    // that stale estimate gave 400 ms against a real 2300 ms interval, which
+    // broke the dwell on EVERY sample and made Path A — the only path reachable
+    // at this rate — silently unable to fire. Measured before the fix: 4.8 s
+    // without a burst, 27.9 s with one, and a 25 s bite missed outright.
+    const control = armedAtIdle();
+    const baseline = firstAlertMs(control.detector, sustainedBite(control.from));
+
+    const disturbed = armedAtIdle();
+    for (const sample of fastBurst(disturbed.from)) disturbed.detector.process(sample);
+    const afterBurst = firstAlertMs(disturbed.detector, sustainedBite(disturbed.from + 10_500));
+
+    expect(baseline).not.toBeNull();
+    expect(afterBurst).not.toBeNull();
+    // Not merely "eventually": no worse than one extra reading.
+    expect(afterBurst!).toBeLessThanOrEqual(baseline! + IDLE);
+  });
+
+  it('does not cry signal-lost on a healthy tag that has just slowed down', () => {
+    // Same stale estimate, other symptom: a 2500 ms silence bar against a
+    // 2300 ms interval, so one dropped advertisement reported a dead tag. The
+    // spec calls SIGNAL_LOST the most important state here and requires it be
+    // both seen and heard, which is exactly why it must not be spent on a rod
+    // that is working.
+    const { detector, from } = armedAtIdle();
+    for (const sample of fastBurst(from)) detector.process(sample);
+
+    const patchy = generateStream({
+      nominalIntervalMs: IDLE,
+      jitterMs: 200,
+      durationMs: 60_000,
+      startMs: from + 10_500,
+      seed: 9,
+      angleAt: constantAngle(0),
+      dropRate: 0.25,
+    });
+
+    const lost = patchy.filter((sample) =>
+      detector.process(sample).events.some((e) => e.type === 'SIGNAL_LOST'),
+    );
+    expect(lost).toHaveLength(0);
+  });
+});
+
+describe('a rod carried to the water before it is set down', () => {
+  it('arms once it has been still, not on how it was carried', () => {
+    // The ordinary flow: open the app, walk to the swim, cast, set the rod down
+    // — all inside the arming window. The window was cumulative and never
+    // trimmed, so that handling was still being judged a minute later: twenty
+    // seconds of carrying outvoted sixty seconds of the rod lying perfectly
+    // still, and arming latched ARM_FAILED. The ordinary flow could not arm.
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+
+    const carried = generateStream({
+      nominalIntervalMs: 137,
+      jitterMs: 14,
+      durationMs: 20_000,
+      angleAt: triangleWave({ amplitudeDeg: 60, rampMs: 1_500, alternate: true }),
+      seed: 6,
+    });
+    for (const sample of carried) detector.process(sample);
+
+    const setDown = carried[carried.length - 1]!.tMonotonicMs + 200;
+    const parked = generateStream({
+      nominalIntervalMs: 137,
+      jitterMs: 14,
+      durationMs: 60_000,
+      startMs: setDown,
+      angleAt: constantAngle(0),
+      seed: 7,
+    });
+
+    let armedAfterMs: number | null = null;
+    for (const sample of parked) {
+      if (detector.process(sample).phase === 'WATCHING' && armedAfterMs === null) {
+        armedAfterMs = sample.tMonotonicMs - setDown;
+      }
+    }
+
+    expect(detector.getPhase()).toBe('WATCHING');
+    // Promptly after being set down, on the short path — not after waiting out
+    // the deadline for the handling to age out of a cumulative window.
+    expect(armedAfterMs).not.toBeNull();
+    expect(armedAfterMs!).toBeLessThan(ARMING_DURATION_MS / 2);
+  });
+});
+
