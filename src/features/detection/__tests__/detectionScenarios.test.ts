@@ -13,6 +13,7 @@ import {
   ARMING_DURATION_MS,
   ARMING_MIN_SPAN_MS,
   ALERT_MAX_MS,
+  BASELINE_FREEZE_FACTOR,
   DEFAULT_DETECTION_PARAMS,
   IMPACT_DEVIATION_MG,
   REBASELINE_STILL_MS,
@@ -1237,6 +1238,91 @@ describe('impacts are not attitudes', () => {
     });
 
     expect(alertPaths(detector, held).has('A')).toBe(true);
+  });
+});
+
+/**
+ * The stale-alert exit must not become a false-alarm engine.
+ *
+ * forceRebaseline adopts a recent mean as the new rest attitude, and at the idle
+ * rate that mean comes from three or four readings. If it landed badly the rod
+ * would re-alert within one dwell, stand for another ALERT_MAX_MS, and repeat —
+ * a three-minute false alarm for the rest of the session.
+ *
+ * It does not, and the reason is worth pinning: the exit only has to get theta
+ * under the freeze threshold, because below that the baseline unfreezes and the
+ * EMA converges on true rest by itself. That makes this test a guard on the
+ * INTERACTION — shortening the window, or lowering BASELINE_FREEZE_FACTOR far
+ * enough that the adopted baseline no longer clears it, would break the recovery
+ * without breaking anything either constant owns.
+ */
+describe('recovering from a stuck alert does not start a false-alarm cycle', () => {
+  const IDLE = 2_300;
+
+  it.each([
+    ['short swell', 3_000],
+    ['long swell', 9_000],
+  ])('settles rather than re-alerting, in %s', (_label, rampMs) => {
+    for (let seed = 1; seed <= 4; seed += 1) {
+      const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+      const arming = generateStream({
+        nominalIntervalMs: IDLE,
+        jitterMs: 200,
+        durationMs: 90_000,
+        angleAt: constantAngle(0),
+        seed,
+      });
+      for (const sample of arming) detector.process(sample);
+
+      let from = arming[arming.length - 1]!.tMonotonicMs + 200;
+      const bite = generateStream({
+        nominalIntervalMs: IDLE,
+        jitterMs: 200,
+        durationMs: 25_000,
+        startMs: from,
+        seed: seed + 20,
+        angleAt: constantAngle(14),
+      });
+      for (const sample of bite) detector.process(sample);
+      from += 25_200;
+
+      // Rod left resting off-centre in swell: the alert cannot clear by
+      // hysteresis, so the time bound fires and forces a re-baseline.
+      const stuck = generateStream({
+        nominalIntervalMs: IDLE,
+        jitterMs: 200,
+        durationMs: ALERT_MAX_MS * 2,
+        startMs: from,
+        seed: seed + 40,
+        angleAt: triangleWave({ amplitudeDeg: 8, rampMs, offsetDeg: 6 }),
+      });
+
+      let resetAtMs: number | null = null;
+      let reAlerts = 0;
+      const settled: number[] = [];
+
+      for (const sample of stuck) {
+        const tick = detector.process(sample);
+        for (const event of tick.events) {
+          if (event.type === 'RESET_TO_ARMED' && resetAtMs === null) {
+            resetAtMs = sample.tMonotonicMs;
+          } else if (event.type === 'ALERT_HOOKED' && resetAtMs !== null) {
+            reAlerts += 1;
+          }
+        }
+        if (resetAtMs !== null && sample.tMonotonicMs > resetAtMs + 20_000 && tick.frame) {
+          settled.push(tick.frame.thetaDeg);
+        }
+      }
+
+      expect(resetAtMs).not.toBeNull();
+      expect(reAlerts).toBe(0);
+
+      // And genuinely settled, not merely quiet for a while: the mean sits well
+      // under the freeze threshold, which is what lets the EMA keep converging.
+      const mean = settled.reduce((a, b) => a + b, 0) / settled.length;
+      expect(mean).toBeLessThan(DEFAULT_DETECTION_PARAMS.thetaDeg * BASELINE_FREEZE_FACTOR);
+    }
   });
 });
 
