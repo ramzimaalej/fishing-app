@@ -236,7 +236,10 @@ export class RodDetector {
     if (this.lastSampleMs !== null) this.rate.push(sample.tMonotonicMs - this.lastSampleMs);
     const estimate = this.rate.estimateMs();
     if (estimate !== null) {
-      this.timings = timingsFor(estimate, TIMING_WINDOWS);
+      // Tolerances follow the worst recent gap, resolution limits follow the
+      // median. See timingsFor: a falling rate leaves the median stale for half
+      // its window, and every tolerance derived from it is then far too short.
+      this.timings = timingsFor(estimate, TIMING_WINDOWS, this.rate.recentMaxMs() ?? estimate);
       this.extractor?.setTimings(this.timings);
       this.engine.setTimings(this.timings);
     }
@@ -270,6 +273,17 @@ export class RodDetector {
     this.armingStartMs ??= sample.tMonotonicMs;
     this.armingSamples.push(sample);
 
+    // SLIDING, not cumulative. The window used to hold every sample since arming
+    // began, so a rod handled early was judged on that handling for ever: twenty
+    // seconds of being carried to the swim outvoted a following minute of the
+    // rod lying perfectly still, and arming failed. That is the ordinary flow —
+    // open the app, walk to the water, cast, set the rod down — so the ordinary
+    // flow could not arm.
+    const oldest = sample.tMonotonicMs - ARMING_DURATION_MS;
+    while (this.armingSamples.length > 0 && this.armingSamples[0]!.tMonotonicMs < oldest) {
+      this.armingSamples.shift();
+    }
+
     const elapsed = sample.tMonotonicMs - this.armingStartMs;
 
     // Try to finish early. A rod that has lain still for ARMING_MIN_SPAN_MS has
@@ -278,12 +292,28 @@ export class RodDetector {
     // is what keeps this from arming on a rod that happens to be between
     // movements; anything less than convincing falls through to the deadline
     // below, where the full window and the normal gate apply.
-    if (
-      elapsed >= ARMING_MIN_SPAN_MS &&
-      this.armingSamples.length >= this.timings.armingFastMinSamples
-    ) {
+    // The short path judges recent samples only. Its whole claim is "this rod has
+    // been still lately", and handing it a minute of history means a rod just
+    // set down is refused for the rest of that minute on the strength of how it
+    // was carried.
+    //
+    // But the window is widened when the tag is slow, because ten seconds is a
+    // duration and the gate needs EVIDENCE. At 2.3 s between readings ten
+    // seconds holds three of them, and three readings of a rod being swung can
+    // land close enough together to look still by luck — which is exactly the
+    // rod this gate exists to refuse. Enough room for twice the minimum sample
+    // count keeps the evidence real at any rate, at the cost of a slower arm on
+    // a slow tag.
+    const shortSpanMs = Math.max(
+      ARMING_MIN_SPAN_MS,
+      this.timings.armingFastMinSamples * 2 * this.timings.intervalMs,
+    );
+    const spanStart = sample.tMonotonicMs - shortSpanMs;
+    const recent = this.armingSamples.filter((s) => s.tMonotonicMs >= spanStart);
+
+    if (elapsed >= ARMING_MIN_SPAN_MS && recent.length >= this.timings.armingFastMinSamples) {
       const fast = computeArming(
-        this.armingSamples,
+        recent,
         this.timings.armingFastMinSamples,
         ARMING_FAST_COHERENCE,
       );

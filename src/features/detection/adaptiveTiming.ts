@@ -74,14 +74,36 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
 export function timingsFor(
   rawIntervalMs: number,
   windows: { armingDurationMs: number; armingMinSpanMs: number; rebaselineStillMs: number },
+  rawToleranceIntervalMs: number = rawIntervalMs,
 ): RateDerivedTimings {
   const intervalMs = clamp(rawIntervalMs, MIN_INTERVAL_MS, MAX_INTERVAL_MS);
+
+  // TWO intervals, because the two kinds of constant fail in opposite directions.
+  //
+  // A tolerance that UNDER-estimates the interval is a disaster: a dwell gap
+  // tolerance below one interval breaks the dwell on every sample, and a
+  // signal-lost window below one interval cries wolf on a healthy tag. A
+  // resolution limit that OVER-estimates it is the disaster instead: it admits
+  // slopes across gaps that cannot resolve an onset, which is how a wave gets
+  // reported as a fish.
+  //
+  // The median lags a falling rate by half its window — measured at ~25 s when a
+  // 7 Hz burst decays back to 0.43 Hz — and for that whole stretch every
+  // tolerance is derived from an interval seventeen times too short. So
+  // tolerances take the LONGER of the median and the recent worst gap, and
+  // widen the instant a long gap is seen; resolution limits keep the median and
+  // narrow only when the median itself moves.
+  const toleranceIntervalMs = clamp(
+    Math.max(rawToleranceIntervalMs, rawIntervalMs),
+    MIN_INTERVAL_MS,
+    MAX_INTERVAL_MS,
+  );
 
   // Floors matter more than the multipliers. At 7 Hz, six intervals is under a
   // second, and declaring the stream lost that eagerly would fire on a hand
   // passing between rod and phone. The floor is what keeps a fast tag from
   // making the alarm hair-trigger.
-  const signalLostMs = clamp(intervalMs * 6, 2_500, 25_000);
+  const signalLostMs = clamp(toleranceIntervalMs * 6, 2_500, 25_000);
 
   // Ceilinged by signalLostMs, not by a number of its own. A fixed ceiling can
   // clamp the tolerance down to the interval itself on a slow tag, and a dwell
@@ -90,7 +112,7 @@ export function timingsFor(
   // Path A silently unreachable. Tying it to the point at which the stream is
   // declared dead makes that impossible by construction: a dwell can never
   // usefully outlive the stream carrying it.
-  const dwellGapToleranceMs = clamp(intervalMs * 2.5, 400, signalLostMs);
+  const dwellGapToleranceMs = clamp(toleranceIntervalMs * 2.5, 400, signalLostMs);
 
   // Two independent limits, and the tighter wins. 1.5 intervals is "these two
   // packets were consecutive, allowing for jitter", which is what rejects a
@@ -142,6 +164,19 @@ export class RateEstimator {
     if (!Number.isFinite(dtMs) || dtMs <= 0 || dtMs > MAX_INTERVAL_MS) return;
     this.window.push(dtMs);
     if (this.window.length > this.capacity) this.window.shift();
+  }
+
+  /**
+   * The worst gap still in the window.
+   *
+   * Tolerances are derived from this rather than the median. A median cannot
+   * rise until half its window has, which is exactly the lag that leaves a
+   * slowing tag judged against a fast tag's tolerances; the maximum rises on the
+   * first long gap. Erring long only ever makes the detector more patient.
+   */
+  recentMaxMs(): number | null {
+    if (this.window.length === 0) return null;
+    return Math.max(...this.window);
   }
 
   /** Null until there is enough to be worth trusting. */
