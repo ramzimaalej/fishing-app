@@ -185,16 +185,28 @@ export class FeatureExtractor {
       this.updateBaseline(v, dtMs);
     }
 
-    const { crossedUp, completedCrossing } = this.trackCrossings(
-      sample.tMonotonicMs,
-      thetaDeg,
-      dtMs,
-    );
+    // An impact reading's DIRECTION is not an attitude — that is precisely what
+    // isImpact asserts, and computeArming, updateBaseline and trackResettle all
+    // already honour it. Every other attitude-derived feature has to as well, or
+    // a knocked rod produces crossings, dwell and a mean deviation computed from
+    // a vector that says nothing about where the rod is pointing.
+    //
+    // UNKNOWN, not quiet. Suppressing impacts outright would lose a violent run,
+    // which is a fish and is the thing this app exists to catch. So an impact
+    // contributes nothing and destroys nothing; continuity across it is left to
+    // the same gap tolerance that carries a dropped packet.
+    const { crossedUp, completedCrossing } = isImpact
+      ? this.discardCrossingEvidence()
+      : this.trackCrossings(sample.tMonotonicMs, thetaDeg, dtMs);
 
-    this.window.push({ tMs: sample.tMonotonicMs, v });
+    if (!isImpact) this.window.push({ tMs: sample.tMonotonicMs, v });
     this.pruneWindow(sample.tMonotonicMs);
 
-    this.prev = { tMs: sample.tMonotonicMs, thetaDeg };
+    // prev is the reference the NEXT slope is measured from, so an impact must
+    // not become one. Null declares the next pair unmeasurable, which is the
+    // honest state rather than a slope computed off a reading that was mostly
+    // acceleration.
+    this.prev = isImpact ? null : { tMs: sample.tMonotonicMs, thetaDeg };
 
     const windowCrossings = this.crossings;
     const intervals: number[] = [];
@@ -344,6 +356,20 @@ export class FeatureExtractor {
     };
     const unit = normalise(blended);
     if (unit) this.baseline = unit;
+  }
+
+  /**
+   * Account for a reading whose attitude cannot be believed.
+   *
+   * A rise straddling an impact has an UNKNOWN leading edge, exactly as one
+   * straddling a dropped packet does, so the same treatment applies: the rise is
+   * marked as having a gap and its onset rate is discarded rather than filled in
+   * from whatever pair happens to be measurable next.
+   */
+  private discardCrossingEvidence(): { crossedUp: boolean; completedCrossing: Crossing | null } {
+    this.riseHadGap = true;
+    if (this.activeRise) this.activeRise.onsetRateDegPerS = null;
+    return { crossedUp: false, completedCrossing: null };
   }
 
   /**

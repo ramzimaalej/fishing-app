@@ -1089,3 +1089,154 @@ describe('a rod carried to the water before it is set down', () => {
   });
 });
 
+/**
+ * Readings that are acceleration, not attitude.
+ *
+ * isImpact is the extractor's own statement that a reading's DIRECTION cannot be
+ * believed — computeArming drops such samples, updateBaseline refuses them, and
+ * trackResettle clears its window on them. The alert paths did not: theta, the
+ * dwell and the crossing counter were all computed from impact vectors, so a
+ * knocked rod raised a bite alert.
+ *
+ * The rule is UNKNOWN rather than quiet, and it is asymmetric. An impact cannot
+ * start a dwell, because it says nothing about where the rod points. It must not
+ * break one either, or a fish running hard enough to shake the rod would cancel
+ * the very dwell its run created.
+ */
+describe('impacts are not attitudes', () => {
+  const INT = 137;
+  const KNOCK_AT = [2_000, 5_000, 8_000, 11_000];
+
+  const armedRod = () => {
+    const detector = new RodDetector(DEFAULT_DETECTION_PARAMS);
+    const stream = generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: 70_000,
+      angleAt: constantAngle(0),
+      dropRate: 0.05,
+      seed: 3,
+    });
+    for (const sample of stream) detector.process(sample);
+    expect(detector.getPhase()).toBe('WATCHING');
+    return { detector, from: stream[stream.length - 1]!.tMonotonicMs + 200 };
+  };
+
+  const alertPaths = (detector: RodDetector, stream: ReturnType<typeof generateStream>) => {
+    const paths = new Set<string>();
+    for (const sample of stream) {
+      for (const event of detector.process(sample).events) {
+        if (event.type === 'ALERT_HOOKED' && event.path) paths.add(event.path);
+      }
+    }
+    return paths;
+  };
+
+  it('does not alert on a rod that is being knocked', () => {
+    // A tripod bumped, wind slapping the blank, weed hitting the line. Four
+    // sharp deflections whose readings are three times the impact threshold —
+    // raised a Path B alert before this.
+    const { detector, from } = armedRod();
+    const knocked = generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: 20_000,
+      startMs: from,
+      seed: 4,
+      angleAt: pulses(
+        KNOCK_AT.map((atMs) => ({ atMs, riseMs: 150, holdMs: 200, fallMs: 300, peakDeg: 20 })),
+        0,
+      ),
+      magnitudeAt: (rel) =>
+        KNOCK_AT.some((at) => rel >= at && rel <= at + 650)
+          ? 1000 + IMPACT_DEVIATION_MG * 3
+          : 1000,
+    });
+
+    expect(alertPaths(detector, knocked).size).toBe(0);
+  });
+
+  it('does not alert on a rod being shaken, however far it appears to bend', () => {
+    // Every reading is acceleration, so the 13 degrees is not a bend at all.
+    // Raised a Path A alert before this.
+    const { detector, from } = armedRod();
+    const shaken = generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: 20_000,
+      startMs: from,
+      seed: 5,
+      angleAt: constantAngle(13),
+      magnitudeAt: () => 1700,
+    });
+
+    expect(alertPaths(detector, shaken).size).toBe(0);
+  });
+
+  it('still alerts on a violent run, where a real load carries impacts', () => {
+    // THE case that stops this being a blanket suppression. A quarter of the
+    // readings are impacts because the fish is accelerating the rod; the rest
+    // show a genuine sustained 15 degree load. Suppressing impacts outright
+    // silenced this, which would lose the most certain fish the detector sees.
+    const { detector, from } = armedRod();
+    const run = generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: 25_000,
+      startMs: from,
+      seed: 7,
+      angleAt: constantAngle(15),
+      magnitudeAt: (rel) =>
+        Math.floor(rel / 400) % 4 === 0 ? 1000 + IMPACT_DEVIATION_MG * 2 : 1000,
+    });
+
+    expect(alertPaths(detector, run).has('A')).toBe(true);
+  });
+
+  it('keeps impact readings out of the window that defines "at rest"', () => {
+    // The sliding window feeds meanDeviationDeg AND forceRebaseline, which is
+    // the mechanism that adopts an attitude as the new rest position. Letting
+    // impact vectors into it means a rod being knocked can define where "at
+    // rest" is — from readings that are mostly acceleration.
+    //
+    // Every reading here is either the rod at rest, or an impact pointing 40
+    // degrees away. If impacts counted, the window mean would be dragged well
+    // off zero.
+    const { detector, from } = armedRod();
+    const knocking = (rel: number) => Math.floor(rel / 500) % 3 === 0;
+
+    const stream = generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: 30_000,
+      startMs: from,
+      seed: 11,
+      angleAt: (rel) => (knocking(rel) ? 40 : 0),
+      magnitudeAt: (rel) => (knocking(rel) ? 1800 : 1000),
+    });
+
+    let worst = 0;
+    for (const sample of stream) {
+      const frame = detector.process(sample).frame;
+      if (frame) worst = Math.max(worst, frame.meanDeviationDeg);
+    }
+
+    // Well under the 4 degree meanDevDeg that supports a Path B alert.
+    expect(worst).toBeLessThan(2);
+  });
+
+  it('still alerts on an ordinary sustained load', () => {
+    const { detector, from } = armedRod();
+    const held = generateStream({
+      nominalIntervalMs: INT,
+      jitterMs: 14,
+      durationMs: 20_000,
+      startMs: from,
+      seed: 6,
+      angleAt: constantAngle(14),
+    });
+
+    expect(alertPaths(detector, held).has('A')).toBe(true);
+  });
+});
+
