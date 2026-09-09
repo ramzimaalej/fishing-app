@@ -213,6 +213,34 @@ export class DetectionEngine {
       });
     }
 
+    // Nothing below this point may act on an impact frame. Its attitude is
+    // unknown, so it must neither extend a dwell nor break one, neither open a
+    // crossing nor count toward the quiet stretch that ends an alert. Returning
+    // here leaves every timer exactly as it was, which is what "unknown" means —
+    // the dwell's own gap tolerance then carries continuity across it, the same
+    // way it carries a dropped packet.
+    //
+    // Reproduced before this guard: four knocks in eight seconds raised a Path B
+    // alert, and six seconds of shaking a rod at 13 degrees raised a Path A one.
+    // Wind on a rod, weed on the line, a knocked tripod — all produce trains of
+    // high-magnitude readings whose direction means nothing, and all of them
+    // fetched the angler to an empty hook.
+    if (frame.isImpact) {
+      // One asymmetry, and it is the whole difference between a knocked rod and
+      // a running fish. An impact cannot START a dwell, because it says nothing
+      // about where the rod is pointing. But it must not BREAK one either: a
+      // fish running hard enough to shake the rod would otherwise cancel the
+      // very dwell its run created, and a violent run is the most certain fish
+      // this detector will ever see.
+      //
+      // So an impact sustains a load that clean readings already established,
+      // and can never invent one. Measured: four knocks alert on nothing, six
+      // seconds of shaking alert on nothing, and a 15 degree load carrying a
+      // quarter of its readings as impacts still alerts on Path A.
+      if (this.dwellStartMs !== null) this.lastAboveMs = nowMs;
+      return events;
+    }
+
     this.trackDwell(frame);
 
     if (this.state === 'ARMED') {
