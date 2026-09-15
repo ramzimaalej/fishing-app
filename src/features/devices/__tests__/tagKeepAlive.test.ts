@@ -149,3 +149,48 @@ describe('scoring whether this actually works', () => {
     expect(ka.stats()).toMatchObject({ attempts: 1, wakes: 0 });
   });
 });
+
+describe('a rod that has just lost its tag', () => {
+  it('retries at once instead of waiting out a backoff', () => {
+    // The ordinary cadence is built for a tag nobody is waiting on. A rod that
+    // is armed and has just gone silent is the opposite case: the angler
+    // believes it is being watched, and an unreachable tag may already have
+    // backed the schedule off to ten minutes.
+    const ka = new TagKeepAlive();
+    for (let i = 0; i < 12; i += 1) {
+      ka.begin(T0 + i * KEEPALIVE_MAX_INTERVAL_MS);
+      ka.end(false);
+    }
+    expect(ka.stats().intervalMs).toBe(KEEPALIVE_MAX_INTERVAL_MS);
+
+    // A minute after the last attempt — well INSIDE the ten-minute backoff, so
+    // the schedule alone would refuse. Picking a time past the backoff would
+    // have made this pass without urgeNow existing at all.
+    const insideBackoff = T0 + 11 * KEEPALIVE_MAX_INTERVAL_MS + 60_000;
+    expect(ka.shouldWake({ ...silent(0), nowMs: insideBackoff })).toBe(false);
+
+    ka.urgeNow();
+
+    expect(ka.stats().intervalMs).toBe(KEEPALIVE_MIN_INTERVAL_MS);
+    expect(ka.shouldWake({ ...silent(0), nowMs: insideBackoff })).toBe(true);
+  });
+
+  it('still refuses to interrupt a live alert', () => {
+    // Urgency does not override the one rule that outranks it: a connection
+    // silences the advertisement stream, and a fish on the line beats a tag
+    // that might be dozing.
+    const ka = new TagKeepAlive();
+    ka.urgeNow();
+    expect(ka.shouldWake(silent(KEEPALIVE_AFTER_SILENT_MS + 1_000, { alerting: true }))).toBe(
+      false,
+    );
+  });
+
+  it('still refuses while a connection is already open', () => {
+    const ka = new TagKeepAlive();
+    ka.begin(T0);
+    ka.urgeNow();
+    expect(ka.shouldWake(silent(KEEPALIVE_AFTER_SILENT_MS + 1_000))).toBe(false);
+  });
+});
+
