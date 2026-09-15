@@ -30,6 +30,7 @@ import type { AccSample } from '@/features/detection/accSample';
 import type { BiteEvent, EnvironmentSnapshot } from '@/types';
 
 import { rodActivity } from '@/features/devices/device';
+import { ensureScanning } from '@/features/ble/scanBroker';
 import { deviceFor, useDeviceStore } from '@/features/devices/deviceStore';
 import { readBattery } from '@/features/devices/cp27Commands';
 import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
@@ -368,6 +369,19 @@ function handleDetectionEvent(rt: Runtime, event: DetectionEvent): void {
     rt.signalLost = true;
     rt.error = event.reason;
     void notifySignalLost(rt.rod.name, settings);
+
+    // Losing the tag mid-session is the moment to ACT, not only to report. Two
+    // things can have failed and they need different answers, so both are
+    // addressed rather than guessed between: the scan underneath may have died
+    // silently, and the tag itself may have gone to sleep.
+    //
+    // ensureScanning verifies the shared scan is really running rather than
+    // merely believing it is. urgeNow drops the wake schedule back to its
+    // shortest interval, because the ordinary cadence backs off to ten minutes
+    // for a tag nobody is waiting on — and this is a rod the angler believes is
+    // being watched right now.
+    ensureScanning();
+    rt.keepAlive.urgeNow();
     return;
   }
 

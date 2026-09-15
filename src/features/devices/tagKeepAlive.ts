@@ -113,6 +113,24 @@ export class TagKeepAlive {
     return true;
   }
 
+  /**
+   * Try again at the next opportunity, whatever the schedule said.
+   *
+   * The ordinary cadence is built for a tag that has gone quiet while nothing
+   * much is happening: once a minute, backing off to ten when it stays
+   * unreachable. A rod that is ARMED and has just lost its tag is not that
+   * situation — it is the situation this app exists for, and waiting out a
+   * backoff that may have grown to ten minutes means ten minutes of a rod the
+   * angler believes is being watched.
+   *
+   * Called once per loss episode rather than continuously: SIGNAL_LOST is
+   * latched until a packet restores the stream, so this cannot become a spin.
+   */
+  urgeNow(): void {
+    this.lastAttemptMs = null;
+    this.intervalMs = KEEPALIVE_MIN_INTERVAL_MS;
+  }
+
   /** Mark an attempt as started. Call immediately before connecting. */
   begin(nowMs: number): void {
     this.inFlight = true;
