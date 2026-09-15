@@ -6,6 +6,11 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { SUBSCRIPTIONS_ENABLED } from '@/config/features';
 import AdminScreen from '@/features/admin/AdminScreen';
+import { useDeviceStore } from '@/features/devices/deviceStore';
+import { useRodStore } from '@/features/rods/rodStore';
+import { useFishingSessionStore } from '@/features/session/fishingSessionStore';
+import { useSettingsStore } from '@/features/settings/settingsStore';
+import { useHydrated } from '@/utils/useHydrated';
 import CalibrationScreen from '@/features/admin/CalibrationScreen';
 import DevicesScreen from '@/features/devices/DevicesScreen';
 import DetectionSettingsScreen from '@/features/admin/DetectionSettingsScreen';
@@ -134,9 +139,25 @@ function Splash() {
   );
 }
 
+/**
+ * Stores whose pre-hydration state would be shown as fact.
+ *
+ * Module scope so the array identity is stable — see useHydrated. Only the
+ * stores the first screens actually read: a rod with no tag, a session that
+ * looks idle, an unpaired device list and default settings are each
+ * indistinguishable from the truth while they are merely unloaded.
+ */
+const PERSISTED_STORES = [
+  useRodStore,
+  useDeviceStore,
+  useFishingSessionStore,
+  useSettingsStore,
+] as const;
+
 export default function RootNavigator() {
   const { t } = useTranslation();
   const { initializing, isAuthenticated, isVerified } = useAuth();
+  const hydrated = useHydrated(PERSISTED_STORES);
 
   // Bootstrap auth + IAP once for the app lifetime.
   useEffect(() => {
@@ -148,7 +169,10 @@ export default function RootNavigator() {
     };
   }, []);
 
-  if (initializing) return <Splash />;
+  // Waiting on storage as well as on auth. Rendering before persisted state has
+  // loaded shows the DECLARED state as though it were real, and a wrong value
+  // looks like a fact in a way that an obvious placeholder does not.
+  if (initializing || !hydrated) return <Splash />;
 
   const fullyIn = isAuthenticated && isVerified;
 
