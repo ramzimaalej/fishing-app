@@ -1,4 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
@@ -38,6 +39,7 @@ import {
   getSessionBites,
   startSessionLog,
   type RodRuntimeView,
+  setBiteVerdict,
 } from '@/features/rods/rodRuntime';
 import {
   ARMING_DURATION_MS,
@@ -61,7 +63,7 @@ import type { RodActivity } from '@/features/devices/device';
 import { printedCode } from '@/features/devices/deviceCode';
 import { monotonicNowMs } from '@/features/detection/monotonicClock';
 import type { Rod } from '@/features/rods/rod';
-import type { BiteEvent, EnvironmentSnapshot } from '@/types';
+import type { BiteEvent, EnvironmentSnapshot, BiteVerdict } from '@/types';
 
 /**
  * Status → translation key.
@@ -92,7 +94,28 @@ const STATUS_COLOR: Record<string, string> = {
   idle: colors.textMuted,
 };
 
-function BiteBanner({ bite, rodName }: { bite: BiteEvent; rodName: string }) {
+/**
+ * The alert, and the one question only the angler can answer.
+ *
+ * The verdict buttons live HERE rather than in history, for the same reason the
+ * capture mark buttons live on this screen: the answer is only reliable while
+ * the rod is still in view. Asked an hour later, "was that a fish?" is a memory
+ * test, and a wrong label is worse than no label — it is the input to the
+ * threshold that decides every future alert.
+ *
+ * Both answers are offered equally. Confirmations alone give the distribution of
+ * true positives and say nothing about how often the detector cried wolf, which
+ * is the half that decides whether a threshold is any good.
+ */
+function BiteBanner({
+  bite,
+  rodName,
+  onVerdict,
+}: {
+  bite: BiteEvent;
+  rodName: string;
+  onVerdict: (verdict: BiteVerdict) => void;
+}) {
   const { t } = useTranslation();
   const isBig = bite.size === 'big';
   return (
@@ -108,6 +131,35 @@ function BiteBanner({ bite, rodName }: { bite: BiteEvent; rodName: string }) {
               path is the real information — what the detector actually saw. */}
           {t('fishing.bitePeak', { peak: bite.peakMagnitude.toFixed(0) })}
         </Text>
+
+        {bite.verdict ? (
+          // Stated back rather than left implicit, and the buttons are gone: a
+          // second tap would silently overwrite an answer already recorded.
+          <Text style={styles.verdictGiven}>
+            {bite.verdict === 'confirmed'
+              ? t('fishing.verdictWasFish')
+              : t('fishing.verdictWasNotFish')}
+          </Text>
+        ) : (
+          <View style={styles.verdictRow}>
+            <Pressable
+              style={[styles.verdictBtn, styles.verdictYes]}
+              onPress={() => onVerdict('confirmed')}
+              accessibilityRole="button"
+              accessibilityLabel={t('fishing.verdictConfirm')}
+            >
+              <Text style={styles.verdictYesText}>{t('fishing.verdictConfirm')}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.verdictBtn, styles.verdictNo]}
+              onPress={() => onVerdict('rejected')}
+              accessibilityRole="button"
+              accessibilityLabel={t('fishing.verdictReject')}
+            >
+              <Text style={styles.verdictNoText}>{t('fishing.verdictReject')}</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -551,7 +603,14 @@ export default function FishingScreen() {
         )}
 
         {selectedView.lastBite && selectedRod && (
-          <BiteBanner bite={selectedView.lastBite} rodName={selectedRod.name} />
+          <BiteBanner
+            bite={selectedView.lastBite}
+            rodName={selectedRod.name}
+            onVerdict={(verdict) => {
+              void Haptics.selectionAsync().catch(() => undefined);
+              setBiteVerdict(selectedRod.id, selectedView.lastBite!.id, verdict);
+            }}
+          />
         )}
 
         <View style={styles.card}>
@@ -848,6 +907,19 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.sm,
   },
+  verdictRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  verdictBtn: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  verdictYes: { backgroundColor: colors.primaryDark, borderColor: colors.primary },
+  verdictNo: { backgroundColor: 'transparent', borderColor: colors.textMuted },
+  verdictYesText: { ...typography.body, color: colors.text, fontWeight: '700' },
+  verdictNoText: { ...typography.body, color: colors.textMuted, fontWeight: '600' },
+  verdictGiven: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm },
   sliderHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sliderValue: { ...typography.body, color: colors.primary, fontVariant: ['tabular-nums'] },
   markDock: {

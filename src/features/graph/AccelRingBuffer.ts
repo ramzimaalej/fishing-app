@@ -1,5 +1,5 @@
 import { GRAPH_WINDOW_SIZE } from '@/config/constants';
-import type { BiteEvent } from '@/types';
+import type { BiteEvent, BiteVerdict } from '@/types';
 
 import type { AccelPoint } from './types';
 
@@ -32,6 +32,19 @@ export class AccelRingBuffer {
 
   pushBite(bite: BiteEvent): void {
     this.bites.push(bite);
+  }
+
+  /**
+   * Attach the angler's verdict to a bite already plotted.
+   *
+   * Replaces the entry rather than mutating it: snapshot() copies the array but
+   * not its elements, so a mutated bite would change under a React tree that had
+   * already rendered it and the chart would not repaint.
+   */
+  setBiteVerdict(id: string, verdict: BiteVerdict): void {
+    const index = this.bites.findIndex((b) => b.id === id);
+    if (index === -1) return;
+    this.bites[index] = { ...this.bites[index]!, verdict };
   }
 
   /** Snapshot for rendering. Copies, so React sees a new identity per flush. */
