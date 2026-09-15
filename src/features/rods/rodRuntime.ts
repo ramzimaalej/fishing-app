@@ -27,7 +27,7 @@ import { useSettingsStore } from '@/features/settings/settingsStore';
 import i18n from '@/i18n';
 import { trackBite } from '@/services/firebase/analytics';
 import type { AccSample } from '@/features/detection/accSample';
-import type { BiteEvent, EnvironmentSnapshot } from '@/types';
+import type { BiteEvent, EnvironmentSnapshot, BiteVerdict } from '@/types';
 
 import { rodActivity } from '@/features/devices/device';
 import { ensureScanning } from '@/features/ble/scanBroker';
@@ -116,6 +116,14 @@ interface Runtime {
   error: string | null;
   biteCount: number;
   lastBite: BiteEvent | null;
+  /**
+   * Stored-document id for each bite this session, keyed by the in-memory id.
+   *
+   * The two differ on purpose — see biteRepository.add — and the verdict arrives
+   * after the write has landed, so the mapping has to be kept or the angler's
+   * answer has nowhere to go.
+   */
+  biteDocIds: Map<string, string>;
   /** Wake policy for a tag that sleeps to save its cell. */
   keepAlive: TagKeepAlive;
   /** Last battery band we warned about, so each step warns exactly once. */
@@ -414,11 +422,15 @@ function handleDetectionEvent(rt: Runtime, event: DetectionEvent): void {
   trackBite(bite.size, bite.confidence);
 
   if (currentUid) {
+    const uid = currentUid;
     void biteRepository
-      .add(currentUid, bite, conditions ?? undefined, {
+      .add(uid, bite, conditions ?? undefined, {
         rodId: rt.rod.id,
         rodName: rt.rod.name,
       })
+      // Kept rather than discarded: a verdict given ten seconds from now needs
+      // the stored id, and the two ids are deliberately different.
+      .then((docId) => rt.biteDocIds.set(bite.id, docId))
       .catch(() => undefined);
   }
 
@@ -498,6 +510,7 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     biteCount: 0,
     lastBite: null,
     warnedBattery: 'ok',
+    biteDocIds: new Map(),
     keepAlive: new TagKeepAlive(),
     signalLost: false,
     lastImpactReason: null,
@@ -741,6 +754,38 @@ export function keepAliveStats(): {
     rodName: rt.rod.name,
     stats: rt.keepAlive.stats(),
   }));
+}
+
+/**
+ * Record the angler's verdict on a bite the app reported.
+ *
+ * The detector already said "fish"; this is the only ground truth the system
+ * can get, and it is what turns a stream of alerts into a measurement of how
+ * often they were right.
+ *
+ * Applied in memory FIRST and persisted after. The angler is standing over a rod
+ * in the dark and needs the button to answer immediately; whether Firestore
+ * accepts the write, or the user is even signed in, must not decide whether the
+ * tap did anything. A verdict given while signed out still corrects the chart
+ * and the session summary — it simply does not outlive the session.
+ */
+export function setBiteVerdict(rodId: string, biteId: string, verdict: BiteVerdict): boolean {
+  const rt = runtimes.get(rodId);
+  if (!rt) return false;
+
+  if (rt.lastBite?.id === biteId) rt.lastBite = { ...rt.lastBite, verdict };
+  rt.buffer.setBiteVerdict(biteId, verdict);
+
+  const session = sessionBites.find((b) => b.event.id === biteId);
+  if (session) session.event = { ...session.event, verdict };
+
+  const docId = rt.biteDocIds.get(biteId);
+  if (currentUid && docId) {
+    void biteRepository.setVerdict(currentUid, docId, verdict).catch(() => undefined);
+  }
+
+  scheduleFlush();
+  return true;
 }
 
 /** Rod ids currently armed. */

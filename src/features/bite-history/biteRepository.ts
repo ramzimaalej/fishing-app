@@ -14,7 +14,13 @@ import {
 
 import { bitesCollection } from '@/services/firebase/firestore';
 import { uploadBiteImage } from '@/services/firebase/storage';
-import type { BiteEvent, BiteRecord, BiteSize, EnvironmentSnapshot } from '@/types';
+import type {
+  BiteEvent,
+  BiteRecord,
+  BiteSize,
+  BiteVerdict,
+  EnvironmentSnapshot,
+} from '@/types';
 
 import { deleteLocalPhoto, persistLocalPhoto, resolveLocalPhoto } from './photoStorage';
 
@@ -102,6 +108,17 @@ export const biteRepository = {
     };
     await setDoc(ref, record);
     return ref.id;
+  },
+
+  /**
+   * Record the angler's verdict on a bite already stored.
+   *
+   * Separate from add because the verdict arrives seconds to minutes later, by
+   * which time the record exists and must not be rewritten wholesale — a note or
+   * a photo may have been attached in between.
+   */
+  async setVerdict(uid: string, id: string, verdict: BiteVerdict | null): Promise<void> {
+    await updateDoc(doc(bitesCollection(uid), id), { verdict });
   },
 
   /** One-shot fetch of all bites, newest first. */

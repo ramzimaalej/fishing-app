@@ -13,6 +13,20 @@ export interface AccelSample {
 export type BiteSize = 'small' | 'big';
 
 /** A bite event emitted by the detection engine. */
+/**
+ * The angler's verdict on a detection the app reported.
+ *
+ * Not a detector output — the detector already said "fish". This is the only
+ * ground truth the system can ever get, and it is what turns a stream of alerts
+ * into a measurement of how often they were right. onsetRateMinDegPerS is
+ * documented as a guess that no value of is defensible until set from labelled
+ * session data; this is where that data comes from.
+ *
+ * Distinct from the admin capture's mark buttons, which record what the angler
+ * SAW. This records whether what the APP claimed was true.
+ */
+export type BiteVerdict = 'confirmed' | 'rejected';
+
 export interface BiteEvent {
   id: string;
   /**
@@ -27,6 +41,12 @@ export interface BiteEvent {
   peakMagnitude: number;
   /** Detector confidence in [0, 1]. */
   confidence: number;
+  /**
+   * The angler's judgement, once given. Undefined means not yet judged, which is
+   * deliberately different from rejected — an alert nobody answered is not
+   * evidence that it was wrong.
+   */
+  verdict?: BiteVerdict | null;
 }
 
 /**
