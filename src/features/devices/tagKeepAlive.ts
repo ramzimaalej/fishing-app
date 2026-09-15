@@ -157,15 +157,23 @@ export class TagKeepAlive {
   /**
    * An advertisement arrived. Credits the pending attempt if it was recent
    * enough, which is the only evidence that connecting does anything.
+   *
+   * @returns true when this advertisement was credited to an attempt. Reported
+   *   rather than kept private because the durable record lives outside this
+   *   object — these counters die with the session, and the whole point of the
+   *   measurement is that it must not.
    */
-  noteHeard(nowMs: number): void {
-    if (this.awaitingEvidenceSince === null) return;
-    if (nowMs - this.awaitingEvidenceSince <= KEEPALIVE_WOKE_WITHIN_MS) {
+  noteHeard(nowMs: number): boolean {
+    if (this.awaitingEvidenceSince === null) return false;
+
+    const credited = nowMs - this.awaitingEvidenceSince <= KEEPALIVE_WOKE_WITHIN_MS;
+    if (credited) {
       this.wakes += 1;
       // It worked, so stop backing off: this tag responds to being woken.
       this.intervalMs = KEEPALIVE_MIN_INTERVAL_MS;
     }
     this.awaitingEvidenceSince = null;
+    return credited;
   }
 
   stats(): KeepAliveStats {

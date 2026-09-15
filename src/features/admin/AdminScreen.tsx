@@ -31,6 +31,7 @@ import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
 import { useAnyArmed, useArmableRods } from '@/features/rods/useRodRuntime';
 import { colors, radius, spacing, typography } from '@/theme';
 import { scanBrokerState } from '@/features/ble/scanBroker';
+import { wakeStatsByDevice } from '@/features/devices/wakeStats';
 import { keepAliveStats } from '@/features/rods/rodRuntime';
 import { useNow } from '@/utils/useNow';
 
@@ -262,10 +263,12 @@ export default function AdminScreen() {
   // callback ignores its own dependency is precisely what a compiler is free to
   // hoist, which would freeze this readout at its first value.
   const [wakeStats, setWakeStats] = useState(keepAliveStats);
+  const [wakeTotals, setWakeTotals] = useState(wakeStatsByDevice);
   const [scan, setScan] = useState(scanBrokerState);
   useEffect(() => {
     const timer = setInterval(() => {
       setWakeStats(keepAliveStats());
+      setWakeTotals(wakeStatsByDevice());
       setScan(scanBrokerState());
     }, 2_000);
     return () => clearInterval(timer);
@@ -385,16 +388,27 @@ export default function AdminScreen() {
           staying at zero across several attempts is the answer that the mechanism does not
           work, not a display fault.
         </Text>
-        {wakeStats.length === 0 ? (
-          <Text style={styles.hint}>No rod is armed, so nothing is being woken.</Text>
+        {/* Lifetime totals per TAG, not per session. These used to live on the
+            rod runtime and reset on every arm, which made the number
+            unobtainable: it needed one uninterrupted session in which the tag
+            also went quiet, and sessions kept ending first. */}
+        {wakeTotals.length === 0 ? (
+          <Text style={styles.hint}>
+            No wake has been attempted yet. Attempts begin once an armed rod&apos;s tag goes
+            quiet for longer than the signal-lost window.
+          </Text>
         ) : (
-          wakeStats.map((row) => (
-            <Text key={row.rodId} style={styles.mono}>
-              {row.rodName}: {row.stats.wakes}/{row.stats.attempts} woken · retry every{' '}
-              {Math.round(row.stats.intervalMs / 1000)} s
+          wakeTotals.map((row) => (
+            <Text key={row.deviceId} style={styles.mono}>
+              {row.label ?? row.deviceId}: {row.wakes}/{row.attempts} woken (all sessions)
             </Text>
           ))
         )}
+        {wakeStats.map((row) => (
+          <Text key={row.rodId} style={styles.hint}>
+            {row.rodName} armed now · retry every {Math.round(row.stats.intervalMs / 1000)} s
+          </Text>
+        ))}
       </View>
 
       {/* Device commands --------------------------------------------------- */}

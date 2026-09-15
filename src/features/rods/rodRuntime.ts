@@ -35,6 +35,7 @@ import { deviceFor, useDeviceStore } from '@/features/devices/deviceStore';
 import { readBattery } from '@/features/devices/cp27Commands';
 import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
 import { TagKeepAlive } from '@/features/devices/tagKeepAlive';
+import { useWakeStatsStore } from '@/features/devices/wakeStats';
 
 import { isRodArmable, type Rod } from './rod';
 
@@ -338,7 +339,9 @@ function handleSample(rt: Runtime, sample: AccSample): void {
   // Scores any wake attempt still waiting on evidence. This is the ONLY place
   // that can say whether reconnecting to a sleeping tag does anything, so it has
   // to sit on the sample path rather than anywhere more convenient.
-  rt.keepAlive.noteHeard(sample.tMonotonicMs);
+  if (rt.keepAlive.noteHeard(sample.tMonotonicMs) && rt.rod.deviceId) {
+    useWakeStatsStore.getState().recordWake(rt.rod.deviceId);
+  }
 
   const tick = rt.detector.process(sample);
 
@@ -708,6 +711,10 @@ function maybeWakeTag(rt: Runtime, nowMs: number): void {
   if (!connectionId) return;
 
   rt.keepAlive.begin(nowMs);
+  // Recorded durably as well as on the runtime: the runtime's copy dies with the
+  // session, and a measurement that resets whenever a session ends is one nobody
+  // can ever collect.
+  useWakeStatsStore.getState().recordAttempt(rt.rod.deviceId, rt.rod.name);
   const password = useCp27OpcodeStore.getState().opcodes.password ?? undefined;
 
   // autoConnect, not a direct dial. The tag has stopped advertising, so there is
