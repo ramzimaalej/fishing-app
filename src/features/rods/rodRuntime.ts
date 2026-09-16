@@ -37,6 +37,7 @@ import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
 import { TagKeepAlive } from '@/features/devices/tagKeepAlive';
 import { useWakeStatsStore } from '@/features/devices/wakeStats';
 
+import { BiteBannerTimer } from './biteBanner';
 import { isRodArmable, type Rod } from './rod';
 
 /**
@@ -125,6 +126,11 @@ interface Runtime {
    * answer has nowhere to go.
    */
   biteDocIds: Map<string, string>;
+  /**
+   * Clock that takes the alert banner back down. See biteBanner: an alarm that
+   * never clears stops being readable, and the NEXT bite is the one it hides.
+   */
+  bannerTimer: BiteBannerTimer;
   /** Wake policy for a tag that sleeps to save its cell. */
   keepAlive: TagKeepAlive;
   /** Last battery band we warned about, so each step warns exactly once. */
@@ -417,6 +423,7 @@ function handleDetectionEvent(rt: Runtime, event: DetectionEvent): void {
   captureDetection(rt.rod.id, rt.rod.name, bite, rt.detector.thresholdDeg);
   rt.biteCount += 1;
   rt.lastBite = bite;
+  rt.bannerTimer.restart();
   sessionBites.push({ event: bite, at: Date.now(), rodId: rt.rod.id, rodName: rt.rod.name });
 
   // Feedback names the rod, so the user knows WHICH rod to pick up — the whole
@@ -514,6 +521,7 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     lastBite: null,
     warnedBattery: 'ok',
     biteDocIds: new Map(),
+    bannerTimer: new BiteBannerTimer(() => clearBiteBanner(rod.id)),
     keepAlive: new TagKeepAlive(),
     signalLost: false,
     lastImpactReason: null,
@@ -595,6 +603,7 @@ export async function disarmRod(rodId: string): Promise<void> {
   if (!rt) return;
   runtimes.delete(rodId);
 
+  rt.bannerTimer.cancel();
   rt.offSample?.();
   rt.offDisconnect?.();
   await rt.connection?.disconnect().catch(() => undefined);
@@ -695,7 +704,13 @@ export function tickDetection(): void {
 function maybeWakeTag(rt: Runtime, nowMs: number): void {
   if (!rt.rod.deviceId) return;
 
-  const alerting = rt.lastBite !== null && rt.detector.getPhase() === 'WATCHING';
+  // Asked of the DETECTOR, not of the banner. This used to read `lastBite !==
+  // null && phase === 'WATCHING'`, which latched for the rest of the session:
+  // one bite at any point meant the tag was never woken again, however long it
+  // subsequently went quiet. The banner now clears after fifteen seconds, which
+  // would have swung the same expression to the opposite error — interrupting a
+  // fish still on the line. The engine's own alert state is the actual question.
+  const alerting = rt.detector.isAlerting();
   const due = rt.keepAlive.shouldWake({
     nowMs,
     lastHeardMs: rt.detector.lastHeardMs(),
@@ -764,6 +779,28 @@ export function keepAliveStats(): {
 }
 
 /**
+ * Take the alert banner down once its window is up.
+ *
+ * Only the banner: the bite stays in the ring buffer, the session tally, the
+ * history and — if one was given — with its verdict. What ends is the claim that
+ * something is happening NOW.
+ *
+ * Tolerates a rod that has been disarmed since the clock started, because that
+ * race is ordinary: the timer outlives nothing, but a rod can be put away with
+ * an alert still showing.
+ */
+function clearBiteBanner(rodId: string): void {
+  const rt = runtimes.get(rodId);
+  if (!rt || rt.lastBite === null) return;
+
+  rt.lastBite = null;
+  if (useRodRuntimeStore.getState().lastBiteRodId === rodId) {
+    useRodRuntimeStore.setState({ lastBiteRodId: null });
+  }
+  scheduleFlush();
+}
+
+/**
  * Record the angler's verdict on a bite the app reported.
  *
  * The detector already said "fish"; this is the only ground truth the system
@@ -780,7 +817,13 @@ export function setBiteVerdict(rodId: string, biteId: string, verdict: BiteVerdi
   const rt = runtimes.get(rodId);
   if (!rt) return false;
 
-  if (rt.lastBite?.id === biteId) rt.lastBite = { ...rt.lastBite, verdict };
+  if (rt.lastBite?.id === biteId) {
+    rt.lastBite = { ...rt.lastBite, verdict };
+    // Restarted, not cancelled: the answer is stated back where the buttons
+    // were, and a banner that vanished under the thumb that answered it would
+    // leave the angler unsure the tap had registered.
+    rt.bannerTimer.restart();
+  }
   rt.buffer.setBiteVerdict(biteId, verdict);
 
   const session = sessionBites.find((b) => b.event.id === biteId);

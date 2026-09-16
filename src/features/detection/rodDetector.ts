@@ -124,6 +124,18 @@ export class RodDetector {
     return this.engine.isSignalLost();
   }
 
+  /**
+   * True while an alarm is actually standing — the rod is being watched AND the
+   * engine has not seen it return to rest.
+   *
+   * Distinct from "a bite banner is on screen", which is a question about how
+   * long a notice is worth reading and is answered in biteBanner. Callers that
+   * must not interrupt a fish on the line want THIS one.
+   */
+  isAlerting(): boolean {
+    return this.phase === 'WATCHING' && this.engine.getState() === 'ALERT_HOOKED';
+  }
+
   /** Threshold in degrees, for the chart overlay. */
   get thresholdDeg(): number {
     return this.params.thetaDeg;
