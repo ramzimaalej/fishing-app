@@ -37,7 +37,7 @@ import { useCp27OpcodeStore } from '@/features/devices/cp27Opcodes';
 import { TagKeepAlive } from '@/features/devices/tagKeepAlive';
 import { useWakeStatsStore } from '@/features/devices/wakeStats';
 
-import { BiteBannerTimer } from './biteBanner';
+import { BannerTimer } from './alertBanner';
 import { isRodArmable, type Rod } from './rod';
 
 /**
@@ -127,10 +127,13 @@ interface Runtime {
    */
   biteDocIds: Map<string, string>;
   /**
-   * Clock that takes the alert banner back down. See biteBanner: an alarm that
-   * never clears stops being readable, and the NEXT bite is the one it hides.
+   * Clocks that take the two live banners back down. See alertBanner: an alarm
+   * that never clears stops being readable, and the NEXT one is what it hides.
+   * Separate timers because a bite and an impact are separate claims — an
+   * impact at second twelve must not cut a bite's window short, or extend it.
    */
-  bannerTimer: BiteBannerTimer;
+  biteBannerTimer: BannerTimer;
+  impactBannerTimer: BannerTimer;
   /** Wake policy for a tag that sleeps to save its cell. */
   keepAlive: TagKeepAlive;
   /** Last battery band we warned about, so each step warns exactly once. */
@@ -413,6 +416,10 @@ function handleDetectionEvent(rt: Runtime, event: DetectionEvent): void {
     // knocking the rod both produce sharp onset and sustained deviation, and the
     // spec is explicit that the two cannot be told apart. The user judges.
     rt.lastImpactReason = event.reason;
+    // Restarted on every impact: the sentence is identical each time, so without
+    // a fresh window the second knock arrives on a screen already claiming to
+    // report it, and nothing on the display distinguishes them.
+    rt.impactBannerTimer.restart();
     return;
   }
 
@@ -423,7 +430,7 @@ function handleDetectionEvent(rt: Runtime, event: DetectionEvent): void {
   captureDetection(rt.rod.id, rt.rod.name, bite, rt.detector.thresholdDeg);
   rt.biteCount += 1;
   rt.lastBite = bite;
-  rt.bannerTimer.restart();
+  rt.biteBannerTimer.restart();
   sessionBites.push({ event: bite, at: Date.now(), rodId: rt.rod.id, rodName: rt.rod.name });
 
   // Feedback names the rod, so the user knows WHICH rod to pick up — the whole
@@ -521,7 +528,8 @@ export async function armRod(rod: Rod): Promise<ArmResult> {
     lastBite: null,
     warnedBattery: 'ok',
     biteDocIds: new Map(),
-    bannerTimer: new BiteBannerTimer(() => clearBiteBanner(rod.id)),
+    biteBannerTimer: new BannerTimer(() => clearBiteBanner(rod.id)),
+    impactBannerTimer: new BannerTimer(() => clearImpactBanner(rod.id)),
     keepAlive: new TagKeepAlive(),
     signalLost: false,
     lastImpactReason: null,
@@ -603,7 +611,8 @@ export async function disarmRod(rodId: string): Promise<void> {
   if (!rt) return;
   runtimes.delete(rodId);
 
-  rt.bannerTimer.cancel();
+  rt.biteBannerTimer.cancel();
+  rt.impactBannerTimer.cancel();
   rt.offSample?.();
   rt.offDisconnect?.();
   await rt.connection?.disconnect().catch(() => undefined);
@@ -801,6 +810,21 @@ function clearBiteBanner(rodId: string): void {
 }
 
 /**
+ * Take the impact banner down once its window is up.
+ *
+ * No verdict to wait for — the impact banner only tells the angler to look, and
+ * there is nothing to answer — so the window is simply fifteen seconds from the
+ * knock, restarted by the next one.
+ */
+function clearImpactBanner(rodId: string): void {
+  const rt = runtimes.get(rodId);
+  if (!rt || rt.lastImpactReason === null) return;
+
+  rt.lastImpactReason = null;
+  scheduleFlush();
+}
+
+/**
  * Record the angler's verdict on a bite the app reported.
  *
  * The detector already said "fish"; this is the only ground truth the system
@@ -822,7 +846,7 @@ export function setBiteVerdict(rodId: string, biteId: string, verdict: BiteVerdi
     // Restarted, not cancelled: the answer is stated back where the buttons
     // were, and a banner that vanished under the thumb that answered it would
     // leave the angler unsure the tap had registered.
-    rt.bannerTimer.restart();
+    rt.biteBannerTimer.restart();
   }
   rt.buffer.setBiteVerdict(biteId, verdict);
 
